@@ -1,0 +1,181 @@
+{
+  "storage": [
+    {
+      "astId": 47423,
+      "contract": "src/legacy/que/QueContractLegacy.sol:QueContract",
+      "label": "master",
+      "offset": 0,
+      "slot": "0",
+      "type": "t_address"
+    },
+    {
+      "astId": 47425,
+      "contract": "src/legacy/que/QueContractLegacy.sol:QueContract",
+      "label": "proposedMaster",
+      "offset": 0,
+      "slot": "1",
+      "type": "t_address"
+    },
+    {
+      "astId": 40648,
+      "contract": "src/legacy/que/QueContractLegacy.sol:QueContract",
+      "label": "_status",
+      "offset": 0,
+      "slot": "2",
+      "type": "t_uint256"
+    },
+    {
+      "astId": 47707,
+      "contract": "src/legacy/que/QueContractLegacy.sol:QueContract",
+      "label": "QueMemberByIdAndIncentive",
+      "offset": 0,
+      "slot": "3",
+      "type": "t_mapping(t_uint256,t_mapping(t_int256,t_struct(QueMember)47653_storage))"
+    },
+    {
+      "astId": 47711,
+      "contract": "src/legacy/que/QueContractLegacy.sol:QueContract",
+      "label": "earliestValidQueMemberByIncentive",
+      "offset": 0,
+      "slot": "4",
+      "type": "t_mapping(t_int256,t_uint256)"
+    },
+    {
+      "astId": 47715,
+      "contract": "src/legacy/que/QueContractLegacy.sol:QueContract",
+      "label": "currentOrderIdByIncentive",
+      "offset": 0,
+      "slot": "5",
+      "type": "t_mapping(t_int256,t_uint256)"
+    },
+    {
+      "astId": 47719,
+      "contract": "src/legacy/que/QueContractLegacy.sol:QueContract",
+      "label": "incentiveAllowed",
+      "offset": 0,
+      "slot": "6",
+      "type": "t_mapping(t_int256,t_bool)"
+    },
+    {
+      "astId": 47723,
+      "contract": "src/legacy/que/QueContractLegacy.sol:QueContract",
+      "label": "activeOrderCountByIncentive",
+      "offset": 0,
+      "slot": "7",
+      "type": "t_mapping(t_int256,t_uint256)"
+    },
+    {
+      "astId": 47725,
+      "contract": "src/legacy/que/QueContractLegacy.sol:QueContract",
+      "label": "totalActiveOrders",
+      "offset": 0,
+      "slot": "8",
+      "type": "t_uint256"
+    },
+    {
+      "astId": 47733,
+      "contract": "src/legacy/que/QueContractLegacy.sol:QueContract",
+      "label": "minDepositAmount",
+      "offset": 0,
+      "slot": "9",
+      "type": "t_uint256"
+    },
+    {
+      "astId": 47741,
+      "contract": "src/legacy/que/QueContractLegacy.sol:QueContract",
+      "label": "negativeIncentivesNotAllowed",
+      "offset": 0,
+      "slot": "10",
+      "type": "t_bool"
+    }
+  ],
+  "types": {
+    "t_address": {
+      "encoding": "inplace",
+      "label": "address",
+      "numberOfBytes": "20"
+    },
+    "t_bool": {
+      "encoding": "inplace",
+      "label": "bool",
+      "numberOfBytes": "1"
+    },
+    "t_int256": {
+      "encoding": "inplace",
+      "label": "int256",
+      "numberOfBytes": "32"
+    },
+    "t_mapping(t_int256,t_bool)": {
+      "encoding": "mapping",
+      "key": "t_int256",
+      "label": "mapping(int256 => bool)",
+      "numberOfBytes": "32",
+      "value": "t_bool"
+    },
+    "t_mapping(t_int256,t_struct(QueMember)47653_storage)": {
+      "encoding": "mapping",
+      "key": "t_int256",
+      "label": "mapping(int256 => struct QueContractDeclarations.QueMember)",
+      "numberOfBytes": "32",
+      "value": "t_struct(QueMember)47653_storage"
+    },
+    "t_mapping(t_int256,t_uint256)": {
+      "encoding": "mapping",
+      "key": "t_int256",
+      "label": "mapping(int256 => uint256)",
+      "numberOfBytes": "32",
+      "value": "t_uint256"
+    },
+    "t_mapping(t_uint256,t_mapping(t_int256,t_struct(QueMember)47653_storage))": {
+      "encoding": "mapping",
+      "key": "t_uint256",
+      "label": "mapping(uint256 => mapping(int256 => struct QueContractDeclarations.QueMember))",
+      "numberOfBytes": "32",
+      "value": "t_mapping(t_int256,t_struct(QueMember)47653_storage)"
+    },
+    "t_struct(QueMember)47653_storage": {
+      "encoding": "inplace",
+      "label": "struct QueContractDeclarations.QueMember",
+      "numberOfBytes": "128",
+      "members": [
+        {
+          "astId": 47646,
+          "contract": "src/legacy/que/QueContractLegacy.sol:QueContract",
+          "label": "member",
+          "offset": 0,
+          "slot": "0",
+          "type": "t_address"
+        },
+        {
+          "astId": 47648,
+          "contract": "src/legacy/que/QueContractLegacy.sol:QueContract",
+          "label": "amount",
+          "offset": 0,
+          "slot": "1",
+          "type": "t_uint256"
+        },
+        {
+          "astId": 47650,
+          "contract": "src/legacy/que/QueContractLegacy.sol:QueContract",
+          "label": "tailPointer",
+          "offset": 0,
+          "slot": "2",
+          "type": "t_uint256"
+        },
+        {
+          "astId": 47652,
+          "contract": "src/legacy/que/QueContractLegacy.sol:QueContract",
+          "label": "headPointer",
+          "offset": 0,
+          "slot": "3",
+          "type": "t_uint256"
+        }
+      ]
+    },
+    "t_uint256": {
+      "encoding": "inplace",
+      "label": "uint256",
+      "numberOfBytes": "32"
+    }
+  }
+}

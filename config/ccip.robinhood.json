@@ -1,0 +1,10 @@
+{
+  "_comment": "Robinhood Chain MAINNET CCIP infra (chainId 4663). Values from the Chainlink CCIP directory (mainnet/chain/robinhood-mainnet); router verified on-chain as typeAndVersion 'Router 1.2.0' with code. NOTE: Robinhood mainnet CCIP lanes exist only to Ethereum + Base (not Arbitrum) — a robinhood<->arbitrum peer registers but cannot carry value. The vault-share bridge consumes only chainSelector + router; the rest are for the CCT token-pool scripts.",
+  "network": "robinhood",
+  "chainSelector": "6180753054346818345",
+  "router": "0x06fC836cf9839B1cd891C440A0a45242DA6Ae1c9",
+  "rmnProxy": "0xe8464c353210Cc398A45dB2454FBc5BCd25fFf20",
+  "tokenAdminRegistry": "0x1912C3cFafE8A76A32a92861d815aC2837F237Ca",
+  "registryModuleOwnerCustom": "0x3237c0D7B58BEc8Dc17F00103B784Bd6678f789E",
+  "link": "0x492641F648a4986844848E0beFE66D14817bCE34"
+}

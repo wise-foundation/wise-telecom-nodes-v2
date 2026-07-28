@@ -1,0 +1,19 @@
+{
+  "_comment": "SIGN-OFF LOCK, emitted 2026-07-23 from the confirmed deploy settings. DeployVaultDeterministic (mainnet) and VerifySignoff hard-assert every field below against the live config/vault_deploy, config/vault_mesh and config/ccip files before broadcasting; any drift aborts. Regenerate ONLY via a fresh sign-off review.",
+  "product": "usdt",
+  "network": "base",
+  "usd": "0x102d758f688a4C1C5a80b116bD945d4455460282",
+  "wise": "0x0000000000000000000000000000000000000000",
+  "thirdParty": "0x28839A860DBF95e013d6EA528f6140e7340d0880",
+  "worker": "0x331444ac19A4E61cd13840D5c379ef20fae99809",
+  "totalDepositCap": 3000000000000,
+  "interestRate": 2000,
+  "decimals": 6,
+  "tokenName": "Wise Telecom Nodes USDT",
+  "tokenSymbol": "wtnUSDT",
+  "canonical": "0x7e1EBE1D25367C6D3bC0aA72A1f00fC5320a05d7",
+  "deployerEOA": "0xAE2c0c6eAD34b8E9156b146BE8B724CDb80Ba7e1",
+  "saltTag": "0x0b88e6ca00a20000000000",
+  "ccipRouter": "0x881e3A65B4d4a04dD529061dd0071cf975F58bCD",
+  "ccipSelector": "15971525489660198786"
+}

@@ -1,0 +1,9 @@
+{
+  "network": "base_sepolia",
+  "chainSelector": "10344971235874465080",
+  "router": "0xD3b06cEbF099CE7DA4AcCf578aaebFDBd6e88a93",
+  "rmnProxy": "0x99360767a4705f68CcCb9533195B761648d6d807",
+  "tokenAdminRegistry": "0x736D0bBb318c1B27Ff686cd19804094E66250e17",
+  "registryModuleOwnerCustom": "0x176ae8C6C11DD2c031B924CE1A0A43188035f3f6",
+  "link": "0xE4aB69C077896252FAFBD49EFD26B5D171A32410"
+}

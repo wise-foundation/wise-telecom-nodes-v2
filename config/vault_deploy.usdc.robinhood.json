@@ -1,0 +1,12 @@
+{
+  "_comment": "RESERVED - NOT deployed. Robinhood is intentionally excluded from the USDC mesh (config/vault_mesh.usdc.json) because there is NO Circle USDC on Robinhood mainnet, and a wtnUSDC vault must never be backed by a different underlying. USDG on Robinhood is served by the usdg mesh (config/vault_deploy.usdg.robinhood.json). The canonical USDC address stays reserved here via the guarded salt. To add USDC once Circle launches it on Robinhood: set `usd` to the real Circle USDC address (verify 6 decimals on-chain), set thirdParty/worker to the production multisig, append `robinhood` to config/vault_mesh.usdc.json chains/active, then follow ADD_A_CHAIN.md section 3. `usd` is left zero so an accidental deploy reverts.",
+  "usd": "0x0000000000000000000000000000000000000000",
+  "wise": "0x0000000000000000000000000000000000000000",
+  "thirdParty": "0x0000000000000000000000000000000000000000",
+  "worker": "0x0000000000000000000000000000000000000000",
+  "totalDepositCap": 1000000000000,
+  "interestRate": 2000,
+  "decimals": 6,
+  "tokenName": "Wise Telecom Nodes USDC",
+  "tokenSymbol": "wtnUSDC"
+}

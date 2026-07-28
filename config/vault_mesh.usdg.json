@@ -1,0 +1,9 @@
+{
+  "_comment": "USDG-vault mesh manifest. Own saltTag => own canonical (0x7E1e77...6064), which is RESERVED on EVERY chain by the guarded CREATE3 salt whether or not the chain is listed below. Underlying is Paxos USDG (Global Dollar): 6 decimals, NON-rebasing (balanceOf never includes unclaimed Paxos rewards; verified from source 2026-07-14); issuer holds pause/freeze/wipe + UUPS upgrade powers. Launch posture 2026-07: robinhood ACTIVE (live launch chain), arbitrum DORMANT (deposit gate closed, activate later), Ethereum MAINNET added 2026-07-27 and launching DORMANT (deposit gate closed; activate later with ActivateVault). Mainnet is the routing hub: robinhood<->arbitrum has NO direct CCIP lane, so every usdg cross-chain hop routes via Ethereum — until the mainnet leg is live and peered, usdg is effectively non-bridgeable. Peer wiring for the mainnet add: on mainnet itself RegisterCrossChainPeers applies instantly (pre-finalize); arbitrum and robinhood are ALREADY FINALIZED, so each needs the targeted ProposeCrossChainPeer(mainnet selector) -> 3-day timelock -> ExecuteCrossChainPeer. Do NOT register an arbitrum<->robinhood peer: that lane does not exist and a bridge on it would burn source shares and never mint. NO USDG on Base (Paxos has not issued there); it can join later at the reserved canonical.",
+  "canonical": "0x7E1e77EDE1d3b67ee46d031FC7De9e1379856064",
+  "deployerEOA": "0xAE2c0c6eAD34b8E9156b146BE8B724CDb80Ba7e1",
+  "saltTag": "0x0000000000000000019c80",
+  "peerDecimals": 6,
+  "chains": ["mainnet", "arbitrum", "robinhood"],
+  "active": [false, false, true]
+}

@@ -1,0 +1,12 @@
+{
+  "_comment": "Arbitrum One USDG-vault deploy params. usd = Paxos USDG / Global Dollar on Arbitrum (native Paxos issuance, 6 decimals, non-rebasing; re-verify symbol + decimals on-chain before deploy). No WISE token on Arbitrum (zero). usdg forwards deposits to the worker (overhang-sweep) address: leave thirdParty zero (or equal to worker) — the deploy script enforces this and forces thirdParty = worker. worker: zero => deployer is used; set the production worker multisig before deploy. This chain launches DORMANT (active=false in the mesh manifest); note robinhood⇄arbitrum has no CCIP lane — bridge via Ethereum.",
+  "usd": "0x004B506865409877c9fa29BfB1eba929984b9bbC",
+  "wise": "0x0000000000000000000000000000000000000000",
+  "thirdParty": "0x331444ac19A4E61cd13840D5c379ef20fae99809",
+  "worker": "0x331444ac19A4E61cd13840D5c379ef20fae99809",
+  "totalDepositCap": 3000000000000,
+  "interestRate": 2000,
+  "decimals": 6,
+  "tokenName": "Wise Telecom Nodes USDG",
+  "tokenSymbol": "wtnUSDG"
+}

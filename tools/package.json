@@ -1,0 +1,17 @@
+{
+  "name": "wise-telecom-nodes-tools",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "fetch": "tsx fetch-balances.ts",
+    "verify": "tsx verify-deployed-source.ts",
+    "parse": "tsx parse-balance-file.ts"
+  },
+  "devDependencies": {
+    "tsx": "^4.16.0",
+    "viem": "^2.21.0",
+    "@types/node": "^20.14.0",
+    "typescript": "^5.5.0"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "_comment": "Robinhood Chain MAINNET USDG-vault deploy params. usd = USDG (Global Dollar, 0x5fc5...d168): verified on-chain 2026-07-14 — native Paxos issuance (UUPS proxy, impl `USDG is PaxosTokenClaimableRewards`), 6 decimals, ~232M supply, non-rebasing. This is the ACTIVE launch chain of the usdg mesh, and the ONLY vault on Robinhood: the usdc mesh no longer includes Robinhood (no Circle USDC there, so a wtnUSDC vault would be mis-backed). No WISE on Robinhood (zero). usdg forwards deposits to the worker (overhang-sweep) address: leave thirdParty zero (or equal to worker) — the deploy script enforces this and forces thirdParty = worker. worker: zero => deployer is used; set the production worker multisig before deploy. Permit2 and the CCIP router are both verified present on-chain; CCIP lanes reach Ethereum + Base only.",
+  "usd": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+  "wise": "0x0000000000000000000000000000000000000000",
+  "thirdParty": "0x331444ac19A4E61cd13840D5c379ef20fae99809",
+  "worker": "0x331444ac19A4E61cd13840D5c379ef20fae99809",
+  "totalDepositCap": 3000000000000,
+  "interestRate": 2000,
+  "decimals": 6,
+  "tokenName": "Wise Telecom Nodes USDG",
+  "tokenSymbol": "wtnUSDG"
+}

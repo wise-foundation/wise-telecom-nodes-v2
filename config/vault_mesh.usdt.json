@@ -1,0 +1,10 @@
+{
+  "_comment": "USDT-vault mesh manifest (mainnets). Same scheme as the USDC manifest but its own saltTag => its own canonical address. Robinhood is NOT in this mesh: it has no USDT/USDT0 (Robinhood runs only the usdg-mesh vault); it can join later at the same canonical address once an underlying is confirmed. BOOTSTRAP: set deployerEOA, run VAULT_PRODUCT=usdt PredictCanonicalAddress, paste the canonical here.",
+  "canonical": "0x7e1EBE1D25367C6D3bC0aA72A1f00fC5320a05d7",
+  "deployerEOA": "0xAE2c0c6eAD34b8E9156b146BE8B724CDb80Ba7e1",
+  "saltTag": "0x0b88e6ca00a20000000000",
+  "peerDecimals": 6,
+  "chains": ["mainnet", "base", "arbitrum"],
+  "active": [false, true, false],
+  "seedFirst": [true, false, true]
+}

@@ -1,0 +1,9 @@
+{
+  "_comment": "USDT-vault mesh manifest (testnets) — mirrors the 3-chain mainnet USDT mesh. Underlying on testnets is always a fresh TestUSD; the product key only switches salt/canonical/mesh so the two-product rollout can be rehearsed end-to-end. Bumpable tag, same rules as the USDC testnet manifest.",
+  "canonical": "0x384A06f5f7AFcc4Dabc2a0a2CBE371ec133c4192",
+  "deployerEOA": "0xAE2c0c6eAD34b8E9156b146BE8B724CDb80Ba7e1",
+  "saltTag": "WTN-USDT-T1",
+  "peerDecimals": 6,
+  "chains": ["sepolia", "base_sepolia", "arbitrum_sepolia"],
+  "active": [true, true, true]
+}

@@ -1,0 +1,11 @@
+{
+    "comment": "Fork blocks for the live-v2 fork tests (MoneyForward, DiamondMigrationForkE2E, PostDeployMigrationFork). The v2 vaults were paused on 2026-07-23 and then evacuated, so replaying against head asserts preconditions that no longer exist on chain: paused() is now true and the old-vault buffer is 0. These are the last blocks before ANY v2 pause on each chain, so the whole pre-migration world is intact at them.",
+    "pausedAt": {
+        "eth_usdc": 25595438,
+        "eth_usdt": 25595443,
+        "arb_usdc": 486874217,
+        "arb_usdt": 486873694
+    },
+    "eth": 25595437,
+    "arb": 486873693
+}

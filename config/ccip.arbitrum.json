@@ -1,0 +1,10 @@
+{
+  "_comment": "Arbitrum One CCIP infra. chainSelector + router are the only fields the vault-share bridge consumes; router verified on-chain as typeAndVersion 'Router 1.2.0'. rmnProxy/tokenAdminRegistry/registryModuleOwnerCustom/link are CCT-only and left zero; fill from https://docs.chain.link/ccip/directory/mainnet/chain/ethereum-mainnet-arbitrum-1 before running those.",
+  "network": "arbitrum",
+  "chainSelector": "4949039107694359620",
+  "router": "0x141fa059441E0ca23ce184B6A78bafD2A517DdE8",
+  "rmnProxy": "0x0000000000000000000000000000000000000000",
+  "tokenAdminRegistry": "0x0000000000000000000000000000000000000000",
+  "registryModuleOwnerCustom": "0x0000000000000000000000000000000000000000",
+  "link": "0x0000000000000000000000000000000000000000"
+}

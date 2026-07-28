@@ -1,0 +1,45 @@
+[profile.default]
+src = "src"
+out = "out"
+libs = ["node_modules", "lib"]
+test = "test"
+script = "script"
+cache_path = "cache"
+# solc_version unset on purpose: the diamond (src/diamond, src/bridgetest, diamond tests/scripts)
+# pins =0.8.36 while legacy (src/legacy, src/migration + legacy-only tests/helpers/scripts) stays
+# =0.8.29. auto-detect compiles each pragma cluster with its own solc. Keep evm_version = cancun
+# explicit so the newer compiler default (osaka) never emits opcodes unsupported on a deploy chain.
+auto_detect_solc = true
+optimizer = true
+optimizer_runs = 600000
+evm_version = "cancun"
+# Excluded from the build: the only file importing BOTH legacy (=0.8.29) and diamond (=0.8.36)
+# sources, which cannot resolve to one compiler version. Re-enable by bumping legacy to 0.8.36.
+skip = ["test/diamond/equivalence/LegacyVsDiamondParity.t.sol"]
+ffi = true
+extra_output = ["storageLayout"]
+fs_permissions = [
+    { access = "read", path = "./data" },
+    { access = "read", path = "./out" },
+    { access = "read-write", path = "./config" }
+]
+
+[rpc_endpoints]
+mainnet          = "${MAINNET_RPC_URL}"
+arbitrum         = "${ARBITRUM_RPC_URL}"
+base             = "https://mainnet.base.org"
+sepolia           = "${SEPOLIA_RPC_URL}"
+arbitrum_sepolia  = "${ARBITRUM_SEPOLIA_RPC_URL}"
+base_sepolia      = "https://sepolia.base.org"
+robinhood_testnet = "${ROBINHOOD_TESTNET_RPC_URL}"
+robinhood         = "${ROBINHOOD_RPC_URL}"
+
+[etherscan]
+mainnet           = { key = "${ETHERSCAN_KEY}", chain = 1 }
+base              = { key = "${ETHERSCAN_KEY}", chain = 8453 }
+arbitrum          = { key = "${ETHERSCAN_KEY}", chain = 42161 }
+sepolia           = { key = "${ETHERSCAN_KEY}", chain = 11155111 }
+base_sepolia      = { key = "${ETHERSCAN_KEY}", chain = 84532 }
+arbitrum_sepolia  = { key = "${ETHERSCAN_KEY}", chain = 421614 }
+robinhood_testnet = { key = "${ETHERSCAN_KEY}", chain = 46630, url = "https://explorer.testnet.chain.robinhood.com/api" }
+robinhood         = { key = "${ETHERSCAN_KEY}", chain = 4663, url = "https://robinhoodchain.blockscout.com/api" }

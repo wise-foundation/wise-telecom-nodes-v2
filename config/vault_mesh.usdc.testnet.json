@@ -1,0 +1,9 @@
+{
+  "_comment": "USDC-vault mesh manifest (testnets) — T2 migration-rehearsal iteration. Same deterministic CREATE3 path as production; testnet salt tags are BUMPABLE (T1 -> T2 -> ...) because CREATE3 cannot redeploy at a used address on the same chain, so a fresh mesh iteration bumps the tag, clears canonical, re-runs PredictCanonicalAddress and redeploys. T1 (WTN-USDC-T1, canonical 0x4f44D2681FA7de2a441132F5A51C8DbFB8c0547B) was the greenfield/infra mesh (3 chains, active). T2 rehearses the v2->v3 MIGRATION path: sepolia (eth role) + arbitrum_sepolia (arb role), both deployed DORMANT so the starting state matches the mainnet migrated legs (deposits closed, no seed funds) and ActivateVault is exercised after the funding step. base_sepolia is dropped (greenfield role fully proven in T1); robinhood_testnet stays excluded (no Circle USDC on Robinhood).",
+  "canonical": "0xb375bB64b068817030729B05bBda7eF25C0270Ab",
+  "deployerEOA": "0xAE2c0c6eAD34b8E9156b146BE8B724CDb80Ba7e1",
+  "saltTag": "WTN-USDC-T2",
+  "peerDecimals": 6,
+  "chains": ["sepolia", "arbitrum_sepolia"],
+  "active": [false, false]
+}

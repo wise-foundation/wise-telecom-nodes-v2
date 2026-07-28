@@ -1,0 +1,12 @@
+{
+  "_comment": "Ethereum mainnet USDT-vault deploy params. usd = canonical Tether USD (verified on-chain 2026-07-13: symbol USDT, 6 decimals). wise = WISE token on Ethereum (burnWise works for this vault too). thirdParty/worker: zero => the broadcasting deployer is used; set a production multisig before deploy (both master-changeable afterwards). Params mirror the USDC vault: 3,000,000 cap, 20% rate.",
+  "usd": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+  "wise": "0x66a0f676479Cee1d7373f3DC2e2952778BfF5bd6",
+  "thirdParty": "0x28839A860DBF95e013d6EA528f6140e7340d0880",
+  "worker": "0x331444ac19A4E61cd13840D5c379ef20fae99809",
+  "totalDepositCap": 3000000000000,
+  "interestRate": 2000,
+  "decimals": 6,
+  "tokenName": "Wise Telecom Nodes USDT",
+  "tokenSymbol": "wtnUSDT"
+}

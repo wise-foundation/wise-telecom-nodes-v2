@@ -1,0 +1,26 @@
+# Compiler files
+cache/
+out/
+
+# Forge broadcast logs (deployment records live in config/*.json)
+/broadcast/
+
+# Coverage output
+lcov.info
+*.lcov
+coverage/
+
+# Dotenv file
+.env
+
+# Node / TS tooling
+node_modules/
+tools/node_modules/
+*.tsbuildinfo
+
+# transient live-state refresh marker + locks + verify stamps
+data/.last-refresh
+data/.refresh-lock/
+data/.verify-lock/
+data/.que-verified-*
+data/*.tmp

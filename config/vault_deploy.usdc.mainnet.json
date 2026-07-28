@@ -1,0 +1,12 @@
+{
+  "_comment": "Ethereum mainnet vault deploy params. usd = canonical Circle USDC (6 dec, from the legacy mainnet deployer). wise = WISE token on Ethereum. thirdParty/worker: the zero address means the broadcasting deployer is used; set them to a production multisig before deploy (both are master-changeable afterwards). Params mirror the legacy mainnet deployers: 10,000,000 USDC cap, 20% rate.",
+  "usd": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+  "wise": "0x66a0f676479Cee1d7373f3DC2e2952778BfF5bd6",
+  "thirdParty": "0x28839A860DBF95e013d6EA528f6140e7340d0880",
+  "worker": "0x331444ac19A4E61cd13840D5c379ef20fae99809",
+  "totalDepositCap": 10000000000000,
+  "interestRate": 2000,
+  "decimals": 6,
+  "tokenName": "Wise Telecom Nodes USDC",
+  "tokenSymbol": "wtnUSDC"
+}

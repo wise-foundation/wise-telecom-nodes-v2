@@ -1,0 +1,12 @@
+{
+  "_comment": "Base mainnet vault deploy params. usd = canonical Circle USDC on Base (6 dec, verified symbol/decimals on-chain). No WISE token on Base (zero). thirdParty/worker: zero => deployer is used; set to a production multisig before deploy.",
+  "usd": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+  "wise": "0x0000000000000000000000000000000000000000",
+  "thirdParty": "0x28839A860DBF95e013d6EA528f6140e7340d0880",
+  "worker": "0x331444ac19A4E61cd13840D5c379ef20fae99809",
+  "totalDepositCap": 3000000000000,
+  "interestRate": 2000,
+  "decimals": 6,
+  "tokenName": "Wise Telecom Nodes USDC",
+  "tokenSymbol": "wtnUSDC"
+}

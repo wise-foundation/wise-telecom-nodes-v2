@@ -1,0 +1,10 @@
+{
+  "_comment": "Ethereum mainnet CCIP infra. chainSelector + router are the only fields the vault-share bridge consumes; router verified on-chain as typeAndVersion 'Router 1.2.0'. rmnProxy/tokenAdminRegistry/registryModuleOwnerCustom/link are used ONLY by the separate CCT token-pool scripts and are left zero here; fill them from https://docs.chain.link/ccip/directory/mainnet/chain/mainnet before running those.",
+  "network": "mainnet",
+  "chainSelector": "5009297550715157269",
+  "router": "0x80226fc0Ee2b096224EeAc085Bb9a8cba1146f7D",
+  "rmnProxy": "0x0000000000000000000000000000000000000000",
+  "tokenAdminRegistry": "0x0000000000000000000000000000000000000000",
+  "registryModuleOwnerCustom": "0x0000000000000000000000000000000000000000",
+  "link": "0x0000000000000000000000000000000000000000"
+}

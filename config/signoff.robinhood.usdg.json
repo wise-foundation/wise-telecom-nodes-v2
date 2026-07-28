@@ -1,0 +1,19 @@
+{
+  "_comment": "SIGN-OFF LOCK, emitted 2026-07-23 from the confirmed deploy settings. DeployVaultDeterministic (mainnet) and VerifySignoff hard-assert every field below against the live config/vault_deploy, config/vault_mesh and config/ccip files before broadcasting; any drift aborts. Regenerate ONLY via a fresh sign-off review.",
+  "product": "usdg",
+  "network": "robinhood",
+  "usd": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+  "wise": "0x0000000000000000000000000000000000000000",
+  "thirdParty": "0x331444ac19A4E61cd13840D5c379ef20fae99809",
+  "worker": "0x331444ac19A4E61cd13840D5c379ef20fae99809",
+  "totalDepositCap": 3000000000000,
+  "interestRate": 2000,
+  "decimals": 6,
+  "tokenName": "Wise Telecom Nodes USDG",
+  "tokenSymbol": "wtnUSDG",
+  "canonical": "0x7E1e77EDE1d3b67ee46d031FC7De9e1379856064",
+  "deployerEOA": "0xAE2c0c6eAD34b8E9156b146BE8B724CDb80Ba7e1",
+  "saltTag": "0x0000000000000000019c80",
+  "ccipRouter": "0x06fC836cf9839B1cd891C440A0a45242DA6Ae1c9",
+  "ccipSelector": "6180753054346818345"
+}

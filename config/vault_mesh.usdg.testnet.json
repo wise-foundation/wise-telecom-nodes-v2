@@ -1,0 +1,9 @@
+{
+  "_comment": "USDG-vault mesh manifest (testnets) — selected automatically when the chainid is a testnet. Mock mintable TestUSD underlying (no real USDG on testnets). Mirrors the mainnet launch posture: robinhood_testnet active, sepolia + arbitrum_sepolia dormant to rehearse the deposit gate + ActivateVault. robinhood_testnet CCIP lanes reach Ethereum Sepolia + Base Sepolia only. Testnet salt tags are BUMPABLE (T1 -> T2 -> ...) because CREATE3 cannot redeploy at a used address on the same chain: a fresh mesh iteration bumps the tag, clears canonical, re-runs PredictCanonicalAddress and redeploys.",
+  "canonical": "0xb1C56Cbe849B1aa4BB0740e0f4594a74Cd30390c",
+  "deployerEOA": "0xAE2c0c6eAD34b8E9156b146BE8B724CDb80Ba7e1",
+  "saltTag": "WTN-USDG-T1",
+  "peerDecimals": 6,
+  "chains": ["sepolia", "arbitrum_sepolia", "robinhood_testnet"],
+  "active": [false, false, true]
+}

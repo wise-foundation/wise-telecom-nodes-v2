@@ -1,0 +1,10 @@
+{
+  "_comment": "USDC-vault mesh manifest (mainnets). canonical = the CREATE3 diamond address, identical on every chain; deployerEOA = the dedicated deploy key whose guarded salt reserves that address on all chains (losing the key means no new chains at this address; leaking it lets an attacker claim it on not-yet-deployed chains). BOOTSTRAP: set deployerEOA, run PredictCanonicalAddress, paste the printed canonical here — every deploy preflight then hard-asserts against it. saltTag is permanent once the first chain is live. chains/active are parallel arrays: active=false deploys DORMANT (deposit gate closed, bridge fully wired; activate later with ActivateVault). Robinhood is intentionally NOT in this mesh: there is no Circle USDC on Robinhood, and a USDC-share vault must never be backed by a different underlying. The canonical address stays reserved there (guarded salt), so once Circle USDC launches on Robinhood, add it as an Nth chain per ADD_A_CHAIN.md section 3 (its CCIP lanes reach Ethereum + Base only). USDG on Robinhood is served by the separate usdg mesh.",
+  "canonical": "0x7e1EFF4301defc24936470B30bd1c686D2a295dc",
+  "deployerEOA": "0xAE2c0c6eAD34b8E9156b146BE8B724CDb80Ba7e1",
+  "saltTag": "0x09806f73c9050000000000",
+  "peerDecimals": 6,
+  "chains": ["mainnet", "base", "arbitrum"],
+  "active": [false, true, false],
+  "seedFirst": [true, false, true]
+}
