@@ -294,6 +294,13 @@ abstract contract WiseTelecomNodesDiamondEvents {
         uint256 gasLimit
     );
 
+    // ---- Referral registry ----
+
+    event ReferralSet(
+        address indexed user,
+        address indexed referrer
+    );
+
     // ---- Queue surface ----
 
     event JoinQue(
