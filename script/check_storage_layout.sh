@@ -25,12 +25,14 @@ FACETS=(
     MigrationSeedFacet
     MoveFacet
     MulticallFacet
+    Permit2ReferralFacet
     Permit2UserFacet
     ProxyFacet
     QueueAdminFacet
     QueueFulfillFacet
     QueueJoinLeaveFacet
     QueueViewFacet
+    ReferralFacet
     SweepFacet
     UserFacet
 )

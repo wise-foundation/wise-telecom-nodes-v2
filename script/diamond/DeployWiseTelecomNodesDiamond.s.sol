@@ -47,7 +47,12 @@ interface ICreateX {
 /**
  * @dev Deploys the WiseTelecomNodes diamond: 16 facets (10 vault, 4
  * queue, 2 grace hooks), the diamond, the selector wiring (propose +
- * execute pre-finalize, no timelock), and `finalizeSetup` in one tx. The
+ * execute pre-finalize, no timelock), and `finalizeSetup` in one tx.
+ * Deliberately frozen at the genesis facet set that is live in
+ * production — post-launch features (e.g. the referral facets) are
+ * NOT wired here; they ship through their own upgrade scripts
+ * ({UpgradeReferral}) against both live and freshly-deployed
+ * diamonds, so every chain follows the same upgrade history. The
  * diamond registers itself as its own `InterestRateProxy` in its
  * constructor (fixed at deploy, no setter). Init args are passed as a
  * single `WiseTelecomNodesInitParams` struct so the diamond constructor
@@ -373,31 +378,34 @@ contract DeployWiseTelecomNodesDiamond is Script {
         facets.graceAccumHook = new GraceAccumHookFacet();
     }
 
+    /**
+     * @dev Field-by-field on purpose: the 16-field struct literal
+     * exceeds the EVM stack under the unoptimized `forge coverage`
+     * compile.
+     */
     function _toBootstrapFacets(
         DeployedFacets memory _facets
     )
         internal
         pure
-        returns (BootstrapFacets memory)
+        returns (BootstrapFacets memory bootstrapFacets)
     {
-        return BootstrapFacets({
-            admin: address(_facets.admin),
-            proxy: address(_facets.proxy),
-            user: address(_facets.user),
-            sweep: address(_facets.sweep),
-            cashedInterest: address(_facets.cashedInterest),
-            burnWise: address(_facets.burnWise),
-            move: address(_facets.move),
-            bridge: address(_facets.bridge),
-            permit2: address(_facets.permit2),
-            multicall: address(_facets.multicall),
-            queueAdmin: address(_facets.queueAdmin),
-            queueJoinLeave: address(_facets.queueJoinLeave),
-            queueFulfill: address(_facets.queueFulfill),
-            queueView: address(_facets.queueView),
-            graceFreezeHook: address(_facets.graceFreezeHook),
-            graceAccumHook: address(_facets.graceAccumHook)
-        });
+        bootstrapFacets.admin = address(_facets.admin);
+        bootstrapFacets.proxy = address(_facets.proxy);
+        bootstrapFacets.user = address(_facets.user);
+        bootstrapFacets.sweep = address(_facets.sweep);
+        bootstrapFacets.cashedInterest = address(_facets.cashedInterest);
+        bootstrapFacets.burnWise = address(_facets.burnWise);
+        bootstrapFacets.move = address(_facets.move);
+        bootstrapFacets.bridge = address(_facets.bridge);
+        bootstrapFacets.permit2 = address(_facets.permit2);
+        bootstrapFacets.multicall = address(_facets.multicall);
+        bootstrapFacets.queueAdmin = address(_facets.queueAdmin);
+        bootstrapFacets.queueJoinLeave = address(_facets.queueJoinLeave);
+        bootstrapFacets.queueFulfill = address(_facets.queueFulfill);
+        bootstrapFacets.queueView = address(_facets.queueView);
+        bootstrapFacets.graceFreezeHook = address(_facets.graceFreezeHook);
+        bootstrapFacets.graceAccumHook = address(_facets.graceAccumHook);
     }
 
     function _create2Address(

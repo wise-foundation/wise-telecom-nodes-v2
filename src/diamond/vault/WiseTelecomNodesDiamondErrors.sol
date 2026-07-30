@@ -116,6 +116,10 @@ abstract contract WiseTelecomNodesDiamondErrors {
 
     error InvalidBridgeGasLimit();
 
+    // ---- Referral registry ----
+
+    error SelfReferral();
+
     // ---- Queue surface ----
 
     error ZeroAmount();

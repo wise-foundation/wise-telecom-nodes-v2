@@ -46,7 +46,9 @@ case "$NET" in
   robinhood_testnet) VERIFIER_ARGS="--verifier blockscout --verifier-url https://explorer.testnet.chain.robinhood.com/api" ;;
 esac
 
-# The 16 diamond facets, in deploy order. Every one lives at
+# The 16 diamond facets, in deploy order. Post-launch facets
+# (ReferralFacet, Permit2ReferralFacet) are deployed by their upgrade
+# scripts and verified from those broadcasts, not this genesis one. Every one lives at
 # src/diamond/vault/facets/<Name>.sol and takes no constructor args
 # (placeholder init params are hard-coded inside the constructor).
 FACET_NAMES="AdminFacet ProxyFacet UserFacet SweepFacet CashedInterestFacet \
