@@ -102,24 +102,26 @@ contract WiseTelecomNodesDeterministicDeployTest is Test, DeployWiseTelecomNodes
         internal
         returns (BootstrapFacets memory)
     {
-        return BootstrapFacets({
-            admin: address(new AdminFacet()),
-            proxy: address(new ProxyFacet()),
-            user: address(new UserFacet()),
-            sweep: address(new SweepFacet()),
-            cashedInterest: address(new CashedInterestFacet()),
-            burnWise: address(new BurnWiseFacet()),
-            move: address(new MoveFacet()),
-            bridge: address(new BridgeFacet()),
-            permit2: address(new Permit2UserFacet()),
-            multicall: address(new MulticallFacet()),
-            queueAdmin: address(new QueueAdminFacet()),
-            queueJoinLeave: address(new QueueJoinLeaveFacet()),
-            queueFulfill: address(new QueueFulfillFacet()),
-            queueView: address(new QueueViewFacet()),
-            graceFreezeHook: address(new GraceFreezeHookFacet()),
-            graceAccumHook: address(new GraceAccumHookFacet())
-        });
+        BootstrapFacets memory bootstrapFacets;
+
+        bootstrapFacets.admin = address(new AdminFacet());
+        bootstrapFacets.proxy = address(new ProxyFacet());
+        bootstrapFacets.user = address(new UserFacet());
+        bootstrapFacets.sweep = address(new SweepFacet());
+        bootstrapFacets.cashedInterest = address(new CashedInterestFacet());
+        bootstrapFacets.burnWise = address(new BurnWiseFacet());
+        bootstrapFacets.move = address(new MoveFacet());
+        bootstrapFacets.bridge = address(new BridgeFacet());
+        bootstrapFacets.permit2 = address(new Permit2UserFacet());
+        bootstrapFacets.multicall = address(new MulticallFacet());
+        bootstrapFacets.queueAdmin = address(new QueueAdminFacet());
+        bootstrapFacets.queueJoinLeave = address(new QueueJoinLeaveFacet());
+        bootstrapFacets.queueFulfill = address(new QueueFulfillFacet());
+        bootstrapFacets.queueView = address(new QueueViewFacet());
+        bootstrapFacets.graceFreezeHook = address(new GraceFreezeHookFacet());
+        bootstrapFacets.graceAccumHook = address(new GraceAccumHookFacet());
+
+        return bootstrapFacets;
     }
 
     // ---- 1. shim deploys the diamond at its nonce-1 address ----
