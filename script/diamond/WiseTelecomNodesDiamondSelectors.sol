@@ -11,6 +11,8 @@ import {BurnWiseFacet} from "../../src/diamond/vault/facets/BurnWiseFacet.sol";
 import {MoveFacet} from "../../src/diamond/vault/facets/MoveFacet.sol";
 import {BridgeFacet} from "../../src/diamond/vault/facets/BridgeFacet.sol";
 import {Permit2UserFacet} from "../../src/diamond/vault/facets/Permit2UserFacet.sol";
+import {ReferralFacet} from "../../src/diamond/vault/facets/ReferralFacet.sol";
+import {Permit2ReferralFacet} from "../../src/diamond/vault/facets/Permit2ReferralFacet.sol";
 import {MulticallFacet} from "../../src/diamond/vault/facets/MulticallFacet.sol";
 import {QueueAdminFacet} from "../../src/diamond/vault/facets/QueueAdminFacet.sol";
 import {QueueJoinLeaveFacet} from "../../src/diamond/vault/facets/QueueJoinLeaveFacet.sol";
@@ -24,9 +26,19 @@ import {WiseTelecomNodesQueueHelper} from "../../src/diamond/vault/helpers/WiseT
  * cannot drift.
  *
  * Counts: admin=27, proxy=3, user=8, sweep=2, cashedInterest=1,
- * burnWise=3, move=7, bridge=14, permit2=3, multicall=1,
- * queueAdmin=2, queueJoinLeave=5, queueFulfill=4, queueView=10 —
- * total 90.
+ * burnWise=3, move=7, bridge=14, permit2=3, referral=4,
+ * permit2Referral=3, multicall=1, queueAdmin=2, queueJoinLeave=5,
+ * queueFulfill=4, queueView=10 — total 97, of which 90 are wired at
+ * genesis. The referral groups (referral=4, permit2Referral=3) are
+ * post-launch: installed exclusively by {UpgradeReferral}, never by
+ * the genesis deploy scripts, so the genesis wiring stays identical
+ * to what is live in production.
+ *
+ * `referralSelectors` includes the `referrerOf` getter: the live
+ * diamond keeps its genesis bytecode, so the declaration-chain
+ * auto-getter never reaches its dispatcher and must be routed to
+ * the facet instead. On a freshly-compiled diamond the route is
+ * shadowed by the dispatcher entry — dead but harmless.
  */
 library WiseTelecomNodesDiamondSelectors {
 
@@ -168,6 +180,33 @@ library WiseTelecomNodesDiamondSelectors {
         sels[0] = Permit2UserFacet.depositWithPermit2.selector;
         sels[1] = Permit2UserFacet.depositAndClaimInterestWithPermit2.selector;
         sels[2] = Permit2UserFacet.depositAndCompoundInterestWithPermit2.selector;
+    }
+
+    function referralSelectors()
+        internal
+        pure
+        returns (bytes4[] memory sels)
+    {
+        sels = new bytes4[](4);
+        sels[0] = ReferralFacet.depositWithReferral.selector;
+        sels[1] = ReferralFacet.depositAndClaimInterestWithReferral.selector;
+        sels[2] = ReferralFacet.depositAndCompoundInterestWithReferral.selector;
+        sels[3] = bytes4(
+            keccak256(
+                "referrerOf(address)"
+            )
+        );
+    }
+
+    function permit2ReferralSelectors()
+        internal
+        pure
+        returns (bytes4[] memory sels)
+    {
+        sels = new bytes4[](3);
+        sels[0] = Permit2ReferralFacet.depositWithPermit2WithReferral.selector;
+        sels[1] = Permit2ReferralFacet.depositAndClaimInterestWithPermit2WithReferral.selector;
+        sels[2] = Permit2ReferralFacet.depositAndCompoundInterestWithPermit2WithReferral.selector;
     }
 
     function multicallSelectors()
