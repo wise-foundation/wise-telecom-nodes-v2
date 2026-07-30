@@ -105,13 +105,17 @@ bash script/check_storage_layout.sh
 The suite splits into an offline part and a mainnet-fork part:
 
 ```bash
-# offline: 1008 tests, no network or configuration needed
-forge test --no-match-path "test/{MoneyForward.t.sol,MoneyForwardViewParity.t.sol,diamond/WiseTelecomNodesBurnWiseFacet.t.sol,diamond/fork/DiamondLiveUsageFork.t.sol,diamond/fork/UniswapV4FlashLoanFork.t.sol,diamond/fork/WiseBurnFork.t.sol,diamond/fork/WiseTelecomNodesPermitFork.t.sol,migration/DiamondMigrationForkE2E.t.sol,migration/PostDeployMigrationFork.t.sol}"
+# offline: no network or configuration needed
+forge test --no-match-path "test/{MoneyForward.t.sol,MoneyForwardViewParity.t.sol,diamond/WiseTelecomNodesBurnWiseFacet.t.sol,diamond/fork/DiamondLiveUsageFork.t.sol,diamond/fork/ReferralUpgradeFork.t.sol,diamond/fork/UniswapV4FlashLoanFork.t.sol,diamond/fork/WiseBurnFork.t.sol,diamond/fork/WiseTelecomNodesPermitFork.t.sol,migration/DiamondMigrationForkE2E.t.sol,migration/PostDeployMigrationFork.t.sol}"
 
 # full: additionally replays the live Ethereum + Arbitrum vaults and re-verifies the
 # v2 to v3 migration against real chain state at a pinned pre-migration block
 cp .env.example .env               # set MAINNET_RPC_URL and ARBITRUM_RPC_URL (archive access)
 forge test
+
+# upgrade rehearsal: replays the referral rollout on a fork of every live vault
+# (per product x chain) before it is ever broadcast; run per chain as RPCs allow
+forge test --match-path "test/diamond/fork/ReferralUpgradeFork.t.sol" --match-contract ReferralUpgradeUsdcBaseFork
 ```
 
 CI runs the build, the storage-layout check and the offline suite on every push.
