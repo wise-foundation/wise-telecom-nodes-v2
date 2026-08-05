@@ -194,6 +194,12 @@ abstract contract WiseTelecomNodesDiamondEvents {
         uint256 totalCashedInterest
     );
 
+    event CashedInterestSet(
+        address indexed user,
+        uint256 previousAmount,
+        uint256 newAmount
+    );
+
     event SweeperSet(
         address indexed sweeper,
         bool allowed
