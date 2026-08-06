@@ -79,7 +79,50 @@ if ! diff -u "$tmp/snapshot.txt" "$tmp/diamond.txt" > "$tmp/snapshot.diff"; then
     fail=1
 fi
 
+# Deploy-slim facets mirror only the slots they touch, padded into place
+# with __gap*/__pad* fillers. Every pinned (non-filler) entry must sit at
+# exactly the slot/offset/type the diamond assigns to the same label, or
+# the facet reads garbage through the delegatecall.
+PINNED_FACETS=(
+    InterestAdminFacet
+    QueueForecastFacet
+)
+
+for name in "${PINNED_FACETS[@]}"; do
+    forge inspect "src/diamond/vault/facets/$name.sol:$name" storage-layout --json \
+        | normalize > "$tmp/$name.pinned.txt"
+    if ! python3 -c '
+import json, sys
+diamond = {}
+for line in open(sys.argv[1]):
+    e = json.loads(line)
+    diamond[e["label"]] = (e["slot"], e["offset"], e["type"])
+bad = 0
+pinned = 0
+for line in open(sys.argv[2]):
+    e = json.loads(line)
+    if e["label"].startswith("__gap") or e["label"].startswith("__pad"):
+        continue
+    pinned += 1
+    want = diamond.get(e["label"])
+    got = (e["slot"], e["offset"], e["type"])
+    if want is None:
+        print(f"  {e['\''label'\'']}: not present in the diamond layout")
+        bad = 1
+    elif want != got:
+        print(f"  {e['\''label'\'']}: facet has slot={got[0]} offset={got[1]} type={got[2]}, diamond has slot={want[0]} offset={want[1]} type={want[2]}")
+        bad = 1
+if pinned == 0:
+    print("  no pinned entries found (unexpected)")
+    bad = 1
+sys.exit(bad)
+' "$tmp/diamond.txt" "$tmp/$name.pinned.txt"; then
+        echo "PINNED SLOT MISMATCH: $name does not line up with the diamond layout."
+        fail=1
+    fi
+done
+
 if [ "$fail" -eq 0 ]; then
-    echo "storage layout OK: diamond + ${#FACETS[@]} facets identical, snapshot matches ($(wc -l < "$tmp/diamond.txt") entries)"
+    echo "storage layout OK: diamond + ${#FACETS[@]} facets identical, ${#PINNED_FACETS[@]} slim facets pinned correctly, snapshot matches ($(wc -l < "$tmp/diamond.txt") entries)"
 fi
 exit "$fail"
