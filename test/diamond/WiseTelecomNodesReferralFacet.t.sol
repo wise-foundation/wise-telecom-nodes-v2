@@ -82,8 +82,8 @@ contract MockPermit2 is IPermit2 {
 /**
  * @dev Tests for the referral registry: the six `...WithReferral`
  * deposit entrypoints on {ReferralFacet} / {Permit2ReferralFacet}
- * (validation, the bigger-deposit-displaces rule against the
- * pre-deposit balance, parity with the non-referral paths). The
+ * (validation, the write-once assignment rule — the first referrer
+ * sticks forever, parity with the non-referral paths). The
  * registry is deposit-only by design — the deployed transfer-hook
  * interface carries no amount, so transfers deliberately never
  * touch `referrerOf`, pinned here under the production
@@ -550,7 +550,7 @@ contract WiseTelecomNodesReferralFacetTest is DiamondTestHarness {
         );
     }
 
-    function test_depositWithReferral_largerSecondDeposit_overwritesReferrer()
+    function test_depositWithReferral_largerSecondDeposit_keepsReferrer()
         public
     {
         _depositWithReferralAs(
@@ -566,18 +566,7 @@ contract WiseTelecomNodesReferralFacetTest is DiamondTestHarness {
             2_000 * 1e6
         );
 
-        vm.expectEmit(
-            true,
-            true,
-            false,
-            true,
-            address(diamond)
-        );
-
-        emit ReferralSet(
-            user1,
-            refB
-        );
+        vm.recordLogs();
 
         vm.prank(
             user1
@@ -588,13 +577,21 @@ contract WiseTelecomNodesReferralFacetTest is DiamondTestHarness {
             refB
         );
 
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        for (uint256 i = 0; i < logs.length; i++) {
+            assertTrue(
+                logs[i].topics[0] != REFERRAL_SET_TOPIC
+            );
+        }
+
         assertEq(
             diamond.referrerOf(user1),
-            refB
+            refA
         );
     }
 
-    function test_depositWithReferral_balanceIsPreDeposit()
+    function test_depositWithReferral_aboveBalanceSecondDeposit_keepsReferrer()
         public
     {
         _depositWithReferralAs(
@@ -613,7 +610,7 @@ contract WiseTelecomNodesReferralFacetTest is DiamondTestHarness {
 
         assertEq(
             diamond.referrerOf(user1),
-            refB
+            refA
         );
 
         assertEq(
@@ -663,7 +660,7 @@ contract WiseTelecomNodesReferralFacetTest is DiamondTestHarness {
         );
     }
 
-    function testFuzz_depositWithReferral_overwriteRule(
+    function testFuzz_depositWithReferral_writeOnceRule(
         uint256 _first,
         uint256 _second
     )
@@ -697,7 +694,7 @@ contract WiseTelecomNodesReferralFacetTest is DiamondTestHarness {
 
         assertEq(
             diamond.referrerOf(user1),
-            _second > _first ? refB : refA
+            refA
         );
     }
 
@@ -1107,7 +1104,7 @@ contract WiseTelecomNodesReferralFacetTest is DiamondTestHarness {
         );
     }
 
-    function test_depositWithPermit2WithReferral_overwriteRule()
+    function test_depositWithPermit2WithReferral_writeOnceRule()
         public
     {
         _permit2DepositWithReferral(
@@ -1126,7 +1123,7 @@ contract WiseTelecomNodesReferralFacetTest is DiamondTestHarness {
 
         assertEq(
             diamond.referrerOf(user1),
-            refB
+            refA
         );
     }
 

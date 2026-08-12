@@ -15,9 +15,9 @@ import {WiseTelecomNodesDiamondSelectors} from "./WiseTelecomNodesDiamondSelecto
 /// facets and proposes both selector batches (the six `...WithReferral` deposits plus the
 /// routed `referrerOf` getter). After the 3-day SELECTOR_CHANGE_DELAY, `execute()` flips them
 /// in — it needs no addresses because the diamond reads its own proposal storage. The transfer
-/// hook is deliberately untouched: referrals are written by deposits only, transfers never
-/// affect them (the live hook interface carries no amount, so the bigger-deposit-displaces
-/// rule cannot be evaluated there). Slot 64 (`referrerOf`) is virgin tail storage on the live
+/// hook is deliberately untouched: referrals are written by deposits only and are write-once,
+/// so transfers can neither assign nor change them. Slot 64 (`referrerOf`) is virgin tail
+/// storage on the live
 /// diamond, so behavior is unchanged until the new entrypoints are used.
 ///
 ///   forge script script/diamond/UpgradeReferral.s.sol --sig "propose()" --rpc-url ... --broadcast
