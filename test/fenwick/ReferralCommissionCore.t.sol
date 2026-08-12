@@ -12,20 +12,23 @@ import {
 } from "./ReferralCommissionDemo.sol";
 
 /**
- * @dev Core-engine suite for {ReferralCommissionDemo}: deposit
- * crediting into ring slot, bookY1, contribution and score; exact
- * floor-rate accrual rectangles in raw token-bps-seconds units;
+ * @dev Core-engine suite for {ReferralCommissionDemo} as a pure
+ * per-vault RECORDER under the claim-at-hub architecture: deposit
+ * crediting into ring slot, bookY1, contribution and score;
  * week-quantized cohort graduation across the year-1 and year-2
- * boundaries; newest-first book reduction and its ring1 -> ring2 ->
- * mature spill; the queue discredit / no-recredit / fulfill rules;
- * the lazy pre-transfer clamp timing; bounded {advanceBook}
- * pre-walking with no double-accrual; the mint-never-credits rule;
+ * boundaries asserted on book and ring state; newest-first book
+ * reduction and its ring1 -> ring2 -> mature spill; the queue
+ * discredit / no-recredit / fulfill rules; the lazy pre-transfer
+ * clamp timing; bounded {advanceBook} pre-walking whose crumbs are
+ * byte-identical to a one-shot settle on a twin referrer; the
+ * empty-book settle writing no crumbs; the mint-never-credits rule;
  * and a randomized-operation fuzz asserting after every operation
  * that sum of referee contributions == bookY1 + bookY2 + bookM ==
- * referralScore. True-up, breadcrumb and gap mechanics are out of
- * scope here. All expected values mirror the contract's integer
- * formulas exactly: accruedRaw += principal * bps * seconds and
- * claims mint accruedRaw / RAW_SCALE with the remainder retained.
+ * referralScore. No pricing exists in the recorder — rates, claims,
+ * bot shares and ranking live at the hub — so nothing here asserts
+ * accrual amounts; crumb words (three 80-bit token-seconds lanes plus
+ * the written bit) are the only settle output. Gap-record details and
+ * the cutoff oracle are covered by sibling suites.
  */
 contract ReferralCommissionCoreTest is Test {
 
@@ -33,21 +36,11 @@ contract ReferralCommissionCoreTest is Test {
 
     uint256 internal constant RING_SLOTS = 52;
 
-    uint256 internal constant RAW_SCALE = 52 weeks * 10_000;
-
     uint256 internal constant BASE_WEEK = 3_000;
 
     uint256 internal constant BASE_TIME = BASE_WEEK * WEEK;
 
-    uint256 internal constant RATE_Y1 = 1_000;
-
-    uint256 internal constant RATE_Y2_FLOOR = 300;
-
-    uint256 internal constant RATE_Y2_TOP = 600;
-
-    uint256 internal constant RATE_Y3_FLOOR = 100;
-
-    uint256 internal constant RATE_Y3_TOP = 300;
+    uint256 internal constant CRUMB_WRITTEN_BIT = 1 << 252;
 
     ReferralCommissionDemo internal token;
 
@@ -87,11 +80,6 @@ contract ReferralCommissionCoreTest is Test {
         uint256 fromMature
     );
 
-    event CommissionClaimed(
-        address indexed referrer,
-        uint256 amount
-    );
-
     event QueueJoined(
         address indexed user,
         uint256 amount
@@ -119,15 +107,6 @@ contract ReferralCommissionCoreTest is Test {
 
         token.setTransferHook(
             address(hook)
-        );
-
-        token.setCommissionRates(
-            RATE_Y1,
-            RATE_Y1,
-            RATE_Y2_FLOOR,
-            RATE_Y2_TOP,
-            RATE_Y3_FLOOR,
-            RATE_Y3_TOP
         );
     }
 
@@ -377,51 +356,6 @@ contract ReferralCommissionCoreTest is Test {
         assertEq(token.bookY1(REF_B2), 0);
     }
 
-    // ---- Floor accrual rectangles ----
-
-    function test_claimCommission_floorRectangleMintsExactAmount()
-        public
-    {
-        uint256 amount = 100_000 * 1e6;
-
-        _deposit(
-            USER_A,
-            amount,
-            REF_B
-        );
-
-        vm.warp(
-            block.timestamp + 10 * WEEK
-        );
-
-        uint256 expectedRaw = amount * RATE_Y1 * (10 * WEEK);
-
-        uint256 expectedMint = expectedRaw / RAW_SCALE;
-
-        vm.expectEmit(
-            true,
-            false,
-            false,
-            true,
-            address(token)
-        );
-
-        emit CommissionClaimed(
-            REF_B,
-            expectedMint
-        );
-
-        vm.prank(
-            REF_B
-        );
-
-        token.claimCommission();
-
-        assertEq(token.balanceOf(REF_B), expectedMint);
-        assertEq(token.accruedRaw(REF_B), expectedRaw - expectedMint * RAW_SCALE);
-        assertGt(expectedRaw - expectedMint * RAW_SCALE, 0);
-    }
-
     // ---- Graduation ----
 
     function test_graduation_movesCohortToYear2AtBoundary()
@@ -452,7 +386,6 @@ contract ReferralCommissionCoreTest is Test {
         assertEq(token.ringYear1(REF_B, slot), 0);
         assertEq(token.ringYear2(REF_B, slot), amount);
         assertEq(token.referralScore(REF_B), amount);
-        assertEq(token.accruedRaw(REF_B), amount * RATE_Y1 * (52 * WEEK));
     }
 
     function test_graduation_movesCohortToMatureAtSecondBoundary()
@@ -491,97 +424,6 @@ contract ReferralCommissionCoreTest is Test {
         assertEq(token.bookM(REF_B), amount);
         assertEq(token.ringYear2(REF_B, slot), 0);
         assertEq(token.referralScore(REF_B), amount);
-        assertEq(
-            token.accruedRaw(REF_B),
-            amount * RATE_Y1 * (52 * WEEK) + amount * RATE_Y2_FLOOR * (52 * WEEK)
-        );
-    }
-
-    function test_claimCommission_accrualAcrossGraduationIsWeekQuantized()
-        public
-    {
-        uint256 amount = 100_000 * 1e6;
-
-        vm.warp(
-            BASE_TIME + 3 days
-        );
-
-        _deposit(
-            USER_A,
-            amount,
-            REF_B
-        );
-
-        uint256 depositTime = block.timestamp;
-
-        uint256 graduationTime = (BASE_WEEK + 52) * WEEK;
-
-        vm.warp(
-            graduationTime + 2 weeks + 12_345
-        );
-
-        uint256 expectedRaw = amount * RATE_Y1 * (graduationTime - depositTime)
-            + amount * RATE_Y2_FLOOR * (block.timestamp - graduationTime);
-
-        uint256 expectedMint = expectedRaw / RAW_SCALE;
-
-        vm.prank(
-            REF_B
-        );
-
-        token.claimCommission();
-
-        assertEq(token.balanceOf(REF_B), expectedMint);
-        assertEq(token.accruedRaw(REF_B), expectedRaw - expectedMint * RAW_SCALE);
-        assertEq(token.bookY1(REF_B), 0);
-        assertEq(token.bookY2(REF_B), amount);
-    }
-
-    // ---- Mixed-bucket rectangle ----
-
-    function test_claimCommission_mixedBucketsRectangle()
-        public
-    {
-        uint256 amountOld = 40_000 * 1e6;
-
-        uint256 amountFresh = 25_000 * 1e6;
-
-        _deposit(
-            USER_A,
-            amountOld,
-            REF_B
-        );
-
-        vm.warp(
-            BASE_TIME + 53 * WEEK
-        );
-
-        _deposit(
-            USER_C,
-            amountFresh,
-            REF_B
-        );
-
-        vm.warp(
-            block.timestamp + 4 * WEEK
-        );
-
-        uint256 expectedRaw = amountOld * RATE_Y1 * (52 * WEEK)
-            + amountOld * RATE_Y2_FLOOR * (5 * WEEK)
-            + amountFresh * RATE_Y1 * (4 * WEEK);
-
-        uint256 expectedMint = expectedRaw / RAW_SCALE;
-
-        vm.prank(
-            REF_B
-        );
-
-        token.claimCommission();
-
-        assertEq(token.balanceOf(REF_B), expectedMint);
-        assertEq(token.accruedRaw(REF_B), expectedRaw - expectedMint * RAW_SCALE);
-        assertEq(token.bookY1(REF_B), amountFresh);
-        assertEq(token.bookY2(REF_B), amountOld);
     }
 
     // ---- Reduction ordering ----
@@ -984,7 +826,15 @@ contract ReferralCommissionCoreTest is Test {
         );
 
         assertEq(token.lastSettle(REF_B), BASE_TIME + 10 * WEEK);
-        assertEq(token.accruedRaw(REF_B), amount * RATE_Y1 * (10 * WEEK));
+
+        for (uint256 i; i < 10; ++i) {
+            assertEq(
+                token.weekLog(REF_B, BASE_WEEK + i),
+                CRUMB_WRITTEN_BIT | (amount * WEEK)
+            );
+        }
+
+        assertEq(token.weekLog(REF_B, BASE_WEEK + 10), 0);
     }
 
     function test_advanceBook_virginBookIsNoop()
@@ -996,7 +846,7 @@ contract ReferralCommissionCoreTest is Test {
         );
 
         assertEq(token.lastSettle(REF_B), 0);
-        assertEq(token.accruedRaw(REF_B), 0);
+        assertEq(token.weekLog(REF_B, BASE_WEEK), 0);
     }
 
     function test_advanceBook_currentBookIsNoop()
@@ -1014,10 +864,10 @@ contract ReferralCommissionCoreTest is Test {
         );
 
         assertEq(token.lastSettle(REF_B), block.timestamp);
-        assertEq(token.accruedRaw(REF_B), 0);
+        assertEq(token.weekLog(REF_B, BASE_WEEK), 0);
     }
 
-    function test_advanceBook_thenFullSettleMatchesOneShotAccrual()
+    function test_advanceBook_thenFullSettleMatchesOneShotCrumbs()
         public
     {
         uint256 amount = 10_000 * 1e6;
@@ -1026,6 +876,12 @@ contract ReferralCommissionCoreTest is Test {
             USER_A,
             amount,
             REF_B
+        );
+
+        _deposit(
+            USER_C,
+            amount,
+            REF_B2
         );
 
         vm.warp(
@@ -1037,19 +893,95 @@ contract ReferralCommissionCoreTest is Test {
             10
         );
 
-        uint256 oneShotRaw = amount * RATE_Y1 * (30 * WEEK + 1 days);
-
-        uint256 expectedMint = oneShotRaw / RAW_SCALE;
-
-        vm.prank(
+        _deposit(
+            USER_A,
+            amount,
             REF_B
         );
 
-        token.claimCommission();
+        _deposit(
+            USER_C,
+            amount,
+            REF_B2
+        );
 
-        assertEq(token.balanceOf(REF_B), expectedMint);
-        assertEq(token.accruedRaw(REF_B), oneShotRaw - expectedMint * RAW_SCALE);
         assertEq(token.lastSettle(REF_B), block.timestamp);
+        assertEq(token.lastSettle(REF_B2), block.timestamp);
+
+        for (uint256 i; i <= 30; ++i) {
+            assertEq(
+                token.weekLog(REF_B, BASE_WEEK + i),
+                token.weekLog(REF_B2, BASE_WEEK + i)
+            );
+        }
+
+        assertEq(
+            token.weekLog(REF_B, BASE_WEEK),
+            CRUMB_WRITTEN_BIT | (amount * WEEK)
+        );
+
+        assertEq(
+            token.weekLog(REF_B, BASE_WEEK + 30),
+            CRUMB_WRITTEN_BIT | (amount * 1 days)
+        );
+
+        assertEq(token.gapLogLength(REF_B), 0);
+        assertEq(token.gapLogLength(REF_B2), 0);
+    }
+
+    // ---- Empty-book settle ----
+
+    function test_settleBook_emptyBookAcrossWeeksWritesNoCrumbs()
+        public
+    {
+        _deposit(
+            USER_A,
+            10_000 * 1e6,
+            REF_B
+        );
+
+        vm.prank(
+            USER_A
+        );
+
+        token.transfer(
+            OUTSIDER,
+            10_000 * 1e6
+        );
+
+        token.syncReferee(
+            USER_A
+        );
+
+        assertEq(token.bookY1(REF_B), 0);
+        assertEq(token.bookY2(REF_B), 0);
+        assertEq(token.bookM(REF_B), 0);
+        assertEq(token.lastSettle(REF_B), BASE_TIME);
+
+        vm.warp(
+            BASE_TIME + 5 * WEEK + 1 days
+        );
+
+        token.advanceBook(
+            REF_B,
+            104
+        );
+
+        assertEq(token.lastSettle(REF_B), BASE_TIME + 5 * WEEK);
+
+        _deposit(
+            USER_C,
+            1_000 * 1e6,
+            REF_B
+        );
+
+        assertEq(token.lastSettle(REF_B), block.timestamp);
+
+        for (uint256 i; i <= 5; ++i) {
+            assertEq(token.weekLog(REF_B, BASE_WEEK + i), 0);
+        }
+
+        assertEq(token.gapLogLength(REF_B), 0);
     }
 
     // ---- Mint driver ----
