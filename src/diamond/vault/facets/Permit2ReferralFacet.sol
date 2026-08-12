@@ -43,7 +43,6 @@ contract Permit2ReferralFacet is ReferralFacetBase {
         registerLargeDeposit(msg.sender)
     {
         _handleReferral(
-            _amount,
             _referrer
         );
 
@@ -80,7 +79,6 @@ contract Permit2ReferralFacet is ReferralFacetBase {
         returns (uint256)
     {
         _handleReferral(
-            _amount,
             _referrer
         );
 
@@ -121,7 +119,6 @@ contract Permit2ReferralFacet is ReferralFacetBase {
         returns (uint256)
     {
         _handleReferral(
-            _amount,
             _referrer
         );
 
