@@ -7,18 +7,19 @@ import {FacetBase} from "./FacetBase.sol";
 /**
  * @dev Shared referral-assignment core for the two referral deposit
  * facets. Validates the referrer (non-zero, not the caller) and
- * applies the deposit-time assignment rule against the pre-deposit
- * balance: a first referrer always sets; an existing referrer is
- * displaced only when the incoming deposit is strictly larger than
- * the caller's current balance, so the referrer backed by more
- * tokens stays. Runs before any mint in every entrypoint, which is
- * what makes `balanceOf` the pre-deposit balance. Emits
- * {ReferralSet} only on an actual storage change.
+ * applies the write-once assignment rule: the first referral deposit
+ * sets `referrerOf` and any later value is permanently ignored — an
+ * assigned referrer can never be displaced, not by a larger deposit,
+ * not by any transfer, and only the referral deposit entrypoints can
+ * take an address from unset to set. Validation runs before the
+ * write-once check, so a zero or self referrer always reverts even
+ * when an assignment already exists; a different valid referrer after
+ * assignment is silently ignored and the deposit proceeds. Emits
+ * {ReferralSet} only on the actual first-set storage change.
  */
 abstract contract ReferralFacetBase is FacetBase {
 
     function _handleReferral(
-        uint256 _amount,
         address _referrer
     )
         internal
@@ -33,16 +34,8 @@ abstract contract ReferralFacetBase is FacetBase {
             SelfReferral()
         );
 
-        address currentReferrer = referrerOf[msg.sender];
-
-        if (currentReferrer == _referrer) {
+        if (referrerOf[msg.sender] != ZERO_ADDRESS) {
             return;
-        }
-
-        if (currentReferrer != ZERO_ADDRESS) {
-            if (_amount <= balanceOf(msg.sender)) {
-                return;
-            }
         }
 
         referrerOf[msg.sender] = _referrer;
