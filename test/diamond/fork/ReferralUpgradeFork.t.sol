@@ -114,8 +114,8 @@ interface IUsdToken {
  *      upgrade script broadcasts works under the real master
  *      (impersonated) against the real selector routing;
  *   3. the deposit-time referral rule holds against the real USD
- *      token: first referrer sets, only a deposit strictly larger
- *      than the pre-deposit balance displaces it — including through
+ *      token: the first referrer sets and sticks — write-once, no
+ *      later deposit of any size displaces it — including through
  *      a REAL Permit2 signature the canonical deployment recovers;
  *   4. transfers never touch the registry, under whatever transfer
  *      hook the live chain actually has installed.
@@ -503,8 +503,8 @@ abstract contract ReferralUpgradeForkBase is Test {
 
         assertEq(
             v.referrerOf(user),
-            refB,
-            "bigger-than-balance deposit must displace the referrer"
+            refA,
+            "bigger-than-balance deposit must not displace the referrer"
         );
 
         vm.prank(
@@ -518,11 +518,11 @@ abstract contract ReferralUpgradeForkBase is Test {
 
         assertEq(
             v.referrerOf(user),
-            refB,
+            refA,
             "smaller-than-balance deposit must not displace the referrer"
         );
 
-        // ---- 5. overwrite through a REAL Permit2 signature ----
+        // ---- 5. write-once holds through a REAL Permit2 signature ----
 
         uint256 permitNonce = uint256(
             keccak256("wtn.referral.fork.nonce")
@@ -545,13 +545,13 @@ abstract contract ReferralUpgradeForkBase is Test {
             permitNonce,
             permitDeadline,
             sig,
-            refA
+            refB
         );
 
         assertEq(
             v.referrerOf(user),
             refA,
-            "permit2 deposit above balance must displace the referrer"
+            "permit2 deposit above balance must not displace the referrer"
         );
 
         assertEq(
