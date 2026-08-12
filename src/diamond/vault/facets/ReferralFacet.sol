@@ -7,9 +7,9 @@ import {ReferralFacetBase} from "./ReferralFacetBase.sol";
 
 /**
  * @dev Referral variants of the three plain deposit entrypoints.
- * Modifier stacks mirror {UserFacet} exactly; the referral handling
- * runs first so the referrer is judged against the pre-deposit
- * balance, then the flow is identical to the non-referral path.
+ * Modifier stacks mirror {UserFacet} exactly; the write-once referral
+ * assignment runs first, then the flow is identical to the
+ * non-referral path.
  * Also carries the routed `referrerOf` getter surface: on a live
  * diamond the entry contract keeps its genesis bytecode, so the
  * auto-getter added to the declaration chain is only reachable
@@ -33,7 +33,6 @@ contract ReferralFacet is ReferralFacetBase {
         registerLargeDeposit(msg.sender)
     {
         _handleReferral(
-            _amount,
             _referrer
         );
 
@@ -56,7 +55,6 @@ contract ReferralFacet is ReferralFacetBase {
         returns (uint256)
     {
         _handleReferral(
-            _amount,
             _referrer
         );
 
@@ -79,7 +77,6 @@ contract ReferralFacet is ReferralFacetBase {
         returns (uint256)
     {
         _handleReferral(
-            _amount,
             _referrer
         );
 
