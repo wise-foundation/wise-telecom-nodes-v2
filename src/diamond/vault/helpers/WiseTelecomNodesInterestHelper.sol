@@ -410,7 +410,16 @@ abstract contract WiseTelecomNodesInterestHelper is WiseTelecomNodesProxyHelper 
             interest
         );
 
+        _cohortSync(
+            _user
+        );
+
         _mint(
+            _user,
+            interest
+        );
+
+        _cohortCredit(
             _user,
             interest
         );
