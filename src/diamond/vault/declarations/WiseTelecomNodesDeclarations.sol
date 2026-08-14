@@ -40,6 +40,7 @@ import {InterestRemainderDeclaration} from "./InterestRemainderDeclaration.sol";
 import {ReferralRegistryDeclaration} from "./ReferralRegistryDeclaration.sol";
 import {CohortContributionDeclaration} from "./CohortContributionDeclaration.sol";
 import {CohortBookDeclaration} from "./CohortBookDeclaration.sol";
+import {ReferralPayoutDeclaration} from "./ReferralPayoutDeclaration.sol";
 
 /**
  * @title WiseTelecomNodesDeclarations
@@ -82,7 +83,8 @@ abstract contract WiseTelecomNodesDeclarations is
     InterestRemainderDeclaration,
     ReferralRegistryDeclaration,
     CohortContributionDeclaration,
-    CohortBookDeclaration
+    CohortBookDeclaration,
+    ReferralPayoutDeclaration
 {
 
     constructor(
