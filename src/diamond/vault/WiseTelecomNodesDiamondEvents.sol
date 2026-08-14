@@ -200,6 +200,12 @@ abstract contract WiseTelecomNodesDiamondEvents {
         uint256 newAmount
     );
 
+    event TokenRescued(
+        address indexed token,
+        address indexed to,
+        uint256 amount
+    );
+
     event SweeperSet(
         address indexed sweeper,
         bool allowed
@@ -305,6 +311,54 @@ abstract contract WiseTelecomNodesDiamondEvents {
     event ReferralSet(
         address indexed user,
         address indexed referrer
+    );
+
+    // ---- Cohort recorder ----
+
+    event CohortContributionCredited(
+        address indexed user,
+        address indexed referrer,
+        uint256 amount
+    );
+
+    event CohortContributionSynced(
+        address indexed user,
+        address indexed referrer,
+        uint256 oldContribution,
+        uint256 newContribution
+    );
+
+    event CohortBookSettled(
+        address indexed referrer,
+        uint256 fromTimestamp,
+        uint256 toTimestamp,
+        uint256 boundariesWalked
+    );
+
+    event CohortBookReduced(
+        address indexed referrer,
+        uint256 amount,
+        uint256 fromYear1,
+        uint256 fromYear2,
+        uint256 fromMature
+    );
+
+    event CohortGapRecorded(
+        address indexed referrer,
+        uint256 fromWeek,
+        uint256 toWeekExclusive,
+        uint256 maturePrincipal
+    );
+
+    event CohortLaneSaturated(
+        address indexed referrer,
+        uint256 laneKind,
+        uint256 index,
+        uint256 clippedAmount
+    );
+
+    event CohortSyncEnabledSet(
+        bool enabled
     );
 
     // ---- Queue surface ----
