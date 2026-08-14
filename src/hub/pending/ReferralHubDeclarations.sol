@@ -1,0 +1,242 @@
+// SPDX-License-Identifier: -- WISE --
+
+pragma solidity =0.8.36;
+
+import {OwnableMaster} from "../../diamond/shared/OwnableMaster.sol";
+import {CohortWeeks} from "../../diamond/shared/pending/CohortWeeks.sol";
+
+/**
+ * @dev Storage, events, errors and constants for the Phase-4 referral
+ * hub (docs/referral-commission-implementation-plan.md §3, rulings
+ * R7/R9/R10/R14). One standalone mainnet contract — never a facet,
+ * never delegatecalled — so this chain owns its layout outright and
+ * `check_storage_layout.sh` deliberately does not cover it. Inherits
+ * {OwnableMaster} (slots 0-1) as the house two-step ownership base;
+ * governance here is plain `onlyMaster` — parameter timelocks are a
+ * Phase-7 hardening item.
+ *
+ * Keying: intake cursors and per-source score reports are keyed by
+ * `bytes32 source`, not `address`, because CREATE3 gives each product
+ * the SAME diamond address on every chain it runs on — address keys
+ * would collide the day Phase-5 spokes report remotely. This branch
+ * derives `bytes32(uint256(uint160(reporter)))` (top 96 bits zero,
+ * reserved); Phase 5 derives `keccak256(chainId, vault)` for remote
+ * sources (see `src/hub/pending/README.md` for the register).
+ *
+ * Packed formats owned by this contract (the crumb/gap word formats
+ * belong to {CohortWeeks} and are never restated):
+ * - referrerCheckpoints entry: `week << 224 | referred << 112 | self`
+ *   (u32 | u112 | u112). Values are the referrer's GLOBAL running
+ *   scores after the last report of that week; entries for past weeks
+ *   are immutable, the current week's tail entry updates in place.
+ *   u112 is structurally unreachable: one source's report is bounded
+ *   at intake to `3 × LANE_MASK_80` and a u112 fits ~1.4e9 such
+ *   sources, so no guard (and no untestable revert arm) is needed.
+ * - cutoffLog entry: `week << 16 | b*` (b* in 1..2049, 2049 = nobody
+ *   qualifies — bucket 2048 is unbounded above so "nobody" has no
+ *   finite score representation).
+ * - lastSourceReport entry: `referred << 128 | self` (both bounded to
+ *   `3 × LANE_MASK_80` at intake, so each fits u128 exactly).
+ * - paidCursor entry: three 80-bit token-second lanes in the crumb
+ *   geometry (Y1 at bit 0, Y2 at 80, M at 160), decoded with the
+ *   {CohortWeeks} lane accessors.
+ *
+ * Threat model: score truth enters ONLY through `allowedReporter`
+ * (master-gated allowlist — the single trust boundary this branch
+ * has; R12's bot matrix gates Phase-5 flush transport, which does not
+ * exist yet). Cursors make every delivery idempotent and replay-safe
+ * (I4); the append-only checkpoint and cutoff logs make every past
+ * week's verdict and rate immutable (I5); pricing floors per lane so
+ * the hub can never overpay exact (I7).
+ */
+abstract contract ReferralHubDeclarations is OwnableMaster {
+
+    uint256 internal constant MIN_ACTIVE_SCORE = 1_000 * 1e6;
+
+    uint256 internal constant SUB_BUCKETS = 64;
+
+    uint256 internal constant EXPONENT_COUNT = 32;
+
+    uint256 internal constant BUCKET_COUNT = 2_048;
+
+    uint256 internal constant FENWICK_ADD_STEPS = 12;
+
+    uint256 internal constant FENWICK_SUM_STEPS = 11;
+
+    uint256 internal constant TOP_DIVISOR = 10;
+
+    uint256 internal constant NOBODY_QUALIFIES = BUCKET_COUNT + 1;
+
+    uint256 internal constant PACKED_BUCKET_MASK = (1 << 16) - 1;
+
+    uint256 internal constant CHECKPOINT_WEEK_SHIFT = 224;
+
+    uint256 internal constant CHECKPOINT_REFERRED_SHIFT = 112;
+
+    uint256 internal constant CHECKPOINT_VALUE_MASK = (1 << 112) - 1;
+
+    uint256 internal constant REPORT_REFERRED_SHIFT = 128;
+
+    uint256 internal constant REPORT_VALUE_MASK = (1 << 128) - 1;
+
+    uint256 internal constant GAP_WEEK_MASK = (1 << 32) - 1;
+
+    uint256 internal constant MAX_SOURCE_SCORE = 3 * CohortWeeks.LANE_MASK_80;
+
+    uint256 internal constant BPS_DENOMINATOR = 10_000;
+
+    struct RateTable {
+        uint32 effectiveFromWeek;
+        uint16 capBps;
+        uint16 y2RateBps;
+        uint16 mRateBps;
+        uint16[8] tierBps;
+        uint96[8] thresholds;
+    }
+
+    // ---- Ranking ----
+
+    uint256 public activeReferrerCount;
+
+    mapping(address => uint256) public globalReferredScore;
+
+    mapping(address => uint256) public globalSelfScore;
+
+    mapping(address => uint256) public referrerBucket;
+
+    mapping(uint256 => uint256) internal fenwickTree;
+
+    // ---- Append-only history ----
+
+    mapping(address => uint256[]) internal referrerCheckpoints;
+
+    uint256[] internal cutoffLog;
+
+    // ---- Per-source reports ----
+
+    mapping(bytes32 => mapping(address => uint256)) internal lastSourceReport;
+
+    // ---- Week-versioned rate tables ----
+
+    RateTable[] internal rateTables;
+
+    // ---- Intake cursors + claimables ----
+
+    mapping(bytes32 => mapping(address => mapping(uint256 => uint256))) internal paidCursor;
+
+    mapping(address => uint256) public claimable;
+
+    uint256 public totalAccrued;
+
+    // ---- Access + policy knobs ----
+
+    mapping(address => bool) public allowedReporter;
+
+    bool public dwellMinEnabled;
+
+    mapping(address => address) internal payoutAddress;
+
+    // ---- Events ----
+
+    event ScoreUpdated(
+        address indexed referrer,
+        uint256 oldScore,
+        uint256 newScore,
+        uint256 oldBucket,
+        uint256 newBucket
+    );
+
+    event SourceScoresReported(
+        bytes32 indexed source,
+        address indexed referrer,
+        uint256 referredScore,
+        uint256 selfScore
+    );
+
+    event ReferrerCheckpointed(
+        address indexed referrer,
+        uint256 indexed week,
+        uint256 referredScore,
+        uint256 selfScore
+    );
+
+    event CutoffSnapshot(
+        uint256 indexed week,
+        uint256 qualifyingBucket
+    );
+
+    event RateTableScheduled(
+        uint256 indexed index,
+        uint256 effectiveFromWeek
+    );
+
+    event CrumbPriced(
+        bytes32 indexed source,
+        address indexed referrer,
+        uint256 indexed week,
+        address deliverer,
+        uint256 y1Increment,
+        uint256 y2Increment,
+        uint256 mIncrement,
+        uint256 paid
+    );
+
+    event GapPriced(
+        bytes32 indexed source,
+        address indexed referrer,
+        uint256 fromWeek,
+        uint256 toWeekExclusive,
+        uint256 paid
+    );
+
+    event CrumbLaneRegression(
+        bytes32 indexed source,
+        address indexed referrer,
+        uint256 indexed week,
+        uint256 laneKind,
+        uint256 incoming,
+        uint256 cursor
+    );
+
+    event ReporterAllowedSet(
+        address indexed reporter,
+        bool allowed
+    );
+
+    event DwellMinSet(
+        bool enabled
+    );
+
+    event PayoutAddressSet(
+        address indexed owner,
+        address indexed payout
+    );
+
+    // ---- Errors ----
+
+    error ZeroAddress();
+
+    error InvalidBucket();
+
+    error NotReporter();
+
+    error FutureWeek();
+
+    error LengthMismatch();
+
+    error BatchTooLarge();
+
+    error InvalidCrumbWord();
+
+    error InvalidGapRecord();
+
+    error InvalidWindow();
+
+    error ScoreReportOutOfRange();
+
+    error TableNotFuture();
+
+    error TableNotOrdered();
+
+    error InvalidRateTable();
+}
