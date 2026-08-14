@@ -99,6 +99,7 @@ fi
 PINNED_FACETS=(
     InterestAdminFacet
     QueueForecastFacet
+    RescueFacet
 )
 
 for name in "${PINNED_FACETS[@]}"; do
