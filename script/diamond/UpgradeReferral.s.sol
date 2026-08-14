@@ -4,13 +4,18 @@ pragma solidity =0.8.36;
 import "forge-std/console2.sol";
 
 import {VaultConfig} from "../vault/VaultConfig.sol";
-import {ReferralFacet} from "../../src/diamond/vault/facets/ReferralFacet.sol";
-import {Permit2ReferralFacet} from "../../src/diamond/vault/facets/Permit2ReferralFacet.sol";
+import {ReferralFacet} from "../../src/diamond/vault/facets/pending/ReferralFacet.sol";
+import {Permit2ReferralFacet} from "../../src/diamond/vault/facets/pending/Permit2ReferralFacet.sol";
 import {WiseTelecomNodesDiamond} from "../../src/diamond/vault/WiseTelecomNodesDiamond.sol";
 
 import {WiseTelecomNodesDiamondSelectors} from "./WiseTelecomNodesDiamondSelectors.sol";
 
-/// @notice Installs the referral feature on an already-running, finalized diamond. Two phases,
+/// @notice SUPERSEDED by {UpgradeCohortRecorder} — do not broadcast. The referral groups were
+/// never installed onchain, and the cohort upgrade's manifest now carries them (the referral
+/// facets recompile with the cohort helper chain anyway, so installing this script's builds
+/// would route stale bytecode). Kept for the historical record and its fork rehearsal.
+///
+/// Installs the referral feature on an already-running, finalized diamond. Two phases,
 /// mirroring the diamond's own propose/execute timelock: `propose()` deploys the two new
 /// facets and proposes both selector batches (the six `...WithReferral` deposits plus the
 /// routed `referrerOf` getter). After the 3-day SELECTOR_CHANGE_DELAY, `execute()` flips them
