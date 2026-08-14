@@ -14,6 +14,7 @@ import {Permit2UserFacet} from "../../src/diamond/vault/facets/Permit2UserFacet.
 import {ReferralFacet} from "../../src/diamond/vault/facets/pending/ReferralFacet.sol";
 import {Permit2ReferralFacet} from "../../src/diamond/vault/facets/pending/Permit2ReferralFacet.sol";
 import {CohortRecorderFacet} from "../../src/diamond/vault/facets/pending/CohortRecorderFacet.sol";
+import {ReferralPayoutFacet} from "../../src/diamond/vault/facets/pending/ReferralPayoutFacet.sol";
 import {MulticallFacet} from "../../src/diamond/vault/facets/MulticallFacet.sol";
 import {QueueAdminFacet} from "../../src/diamond/vault/facets/QueueAdminFacet.sol";
 import {QueueJoinLeaveFacet} from "../../src/diamond/vault/facets/QueueJoinLeaveFacet.sol";
@@ -33,17 +34,20 @@ import {WiseTelecomNodesQueueHelper} from "../../src/diamond/vault/helpers/WiseT
  * burnWise=3, move=7, bridge=14, permit2=3, referral=4,
  * permit2Referral=3, cohortRecorder=10, multicall=1, queueAdmin=2,
  * queueJoinLeave=5, queueFulfill=4, queueView=10, queueForecast=1,
- * interestAdmin=1, rescue=1 — total 111, of which 90 are wired at
- * genesis (the genesis-era admin group had 27; `setCohortSyncEnabled`
- * ships with the cohort upgrade's AdminFacet redeploy). The referral
- * groups (referral=4, permit2Referral=3) and the cohortRecorder group
- * are post-launch: installed exclusively by the cohort upgrade script
- * (which supersedes {UpgradeReferral} as the referral installer),
- * never by the genesis deploy scripts, so the genesis wiring stays
- * identical to what is live in production. The queueForecast and
- * interestAdmin groups are also post-launch, live on all nine
- * diamonds since early August 2026; the rescue group is live on
- * usdt-base only (see `src/diamond/DEPLOYED.md`). `applyTransferHook` and
+ * interestAdmin=1, rescue=1, referralPayout=1 — total 112, of which
+ * 90 are wired at genesis (the genesis-era admin group had 27;
+ * `setCohortSyncEnabled` ships with the cohort upgrade's AdminFacet
+ * redeploy). The referral groups (referral=4, permit2Referral=3) and
+ * the cohortRecorder group are post-launch: installed exclusively by
+ * the cohort upgrade script (which supersedes {UpgradeReferral} as
+ * the referral installer), never by the genesis deploy scripts, so
+ * the genesis wiring stays identical to what is live in production.
+ * The queueForecast and interestAdmin groups are also post-launch,
+ * live on all nine diamonds since early August 2026; the rescue
+ * group is live on usdt-base only (see `src/diamond/DEPLOYED.md`).
+ * The referralPayout group is post-launch and NOT yet installed
+ * anywhere: it ships with the future Phase-4 payout upgrade script
+ * (pattern `UpgradeReferralPayout.s.sol`) alongside the O6 writer. `applyTransferHook` and
  * the `applyCohort*` engine entrypoints are deliberately absent from
  * every group: {CohortHookFacet} is reached only through the
  * `transferHookFacet` pointer, never the dispatcher.
@@ -154,6 +158,15 @@ library WiseTelecomNodesDiamondSelectors {
     {
         sels = new bytes4[](1);
         sels[0] = CashedInterestFacet.getTotalCashedInterest.selector;
+    }
+
+    function referralPayoutSelectors()
+        internal
+        pure
+        returns (bytes4[] memory sels)
+    {
+        sels = new bytes4[](1);
+        sels[0] = ReferralPayoutFacet.getPendingReferralPayout.selector;
     }
 
     function queueForecastSelectors()
