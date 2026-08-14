@@ -12,13 +12,17 @@ import {WiseTelecomNodesInterestHelper} from "./WiseTelecomNodesInterestHelper.s
  * least two weeks of forward interest at the configured
  * `bufferInterestRate` on the share supply PLUS the settled
  * `totalCashedInterest` liability users can already claim on
- * demand; anything above that combined reserve is "overhang" and
- * can be swept to the registered `workerAddress` by any address
- * master has granted in the `isSweeper` allowlist. The liability
- * term means a sweep can never take the cash a custodian
- * pre-funded for pending claims. With zero share supply the
- * reserve is the liability alone — cashed interest stays claimable
- * after every share has exited.
+ * demand PLUS the `pendingReferralPayout` referral-commission
+ * liability (ruling O6 — one global accumulator, raised and
+ * lowered only by the Phase-4/5 payout mechanism, zero and
+ * dormant until that ships); anything above that combined reserve
+ * is "overhang" and can be swept to the registered `workerAddress`
+ * by any address master has granted in the `isSweeper` allowlist.
+ * The liability terms mean a sweep can never take the cash a
+ * custodian pre-funded for pending claims or referral payouts.
+ * With zero share supply the reserve is the sum of both
+ * liabilities — cashed interest and awarded commissions stay
+ * claimable after every share has exited.
  *
  * Principal is `totalSupply()` — queued shares are already counted
  * there (they move from the user's `balanceOf` to the queue's
@@ -36,7 +40,8 @@ abstract contract WiseTelecomNodesBufferHelper is WiseTelecomNodesInterestHelper
         uint256 principal = totalSupply();
 
         if (principal == 0) {
-            return totalCashedInterest;
+            return totalCashedInterest
+                + pendingReferralPayout;
         }
 
         uint256 yearFactor = SECONDS_IN_TWO_WEEKS
@@ -50,7 +55,8 @@ abstract contract WiseTelecomNodesBufferHelper is WiseTelecomNodesInterestHelper
             / PRECISION_FACTOR_E18;
 
         return forwardInterest
-            + totalCashedInterest;
+            + totalCashedInterest
+            + pendingReferralPayout;
     }
 
     function _calculateOverhang()
