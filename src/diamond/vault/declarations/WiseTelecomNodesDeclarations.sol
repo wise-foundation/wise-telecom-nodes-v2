@@ -38,6 +38,8 @@ import {DepositAccumPrevDeclaration} from "./DepositAccumPrevDeclaration.sol";
 import {HookGuardDeclaration} from "./HookGuardDeclaration.sol";
 import {InterestRemainderDeclaration} from "./InterestRemainderDeclaration.sol";
 import {ReferralRegistryDeclaration} from "./ReferralRegistryDeclaration.sol";
+import {CohortContributionDeclaration} from "./CohortContributionDeclaration.sol";
+import {CohortBookDeclaration} from "./CohortBookDeclaration.sol";
 
 /**
  * @title WiseTelecomNodesDeclarations
@@ -78,7 +80,9 @@ abstract contract WiseTelecomNodesDeclarations is
     DepositAccumPrevDeclaration,
     HookGuardDeclaration,
     InterestRemainderDeclaration,
-    ReferralRegistryDeclaration
+    ReferralRegistryDeclaration,
+    CohortContributionDeclaration,
+    CohortBookDeclaration
 {
 
     constructor(

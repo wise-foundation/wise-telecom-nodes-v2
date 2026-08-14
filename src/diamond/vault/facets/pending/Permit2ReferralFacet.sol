@@ -2,9 +2,9 @@
 
 pragma solidity =0.8.36;
 
-import {IPermit2} from "../interfaces/IPermit2.sol";
+import {IPermit2} from "../../interfaces/IPermit2.sol";
 
-import {FacetBase} from "./FacetBase.sol";
+import {FacetBase} from "../FacetBase.sol";
 import {ReferralFacetBase} from "./ReferralFacetBase.sol";
 
 /**

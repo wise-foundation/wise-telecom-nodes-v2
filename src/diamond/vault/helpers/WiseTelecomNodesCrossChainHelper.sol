@@ -261,9 +261,17 @@ abstract contract WiseTelecomNodesCrossChainHelper is WiseTelecomNodesMoveHelper
             MoveAmountTooSmall()
         );
 
+        _cohortSync(
+            msg.sender
+        );
+
         _burn(
             msg.sender,
             _amount
+        );
+
+        _cohortSync(
+            msg.sender
         );
 
         _reduceDepositCap(
@@ -381,6 +389,10 @@ abstract contract WiseTelecomNodesCrossChainHelper is WiseTelecomNodesMoveHelper
 
         _raiseDepositCap(
             amount
+        );
+
+        _cohortSync(
+            user
         );
 
         _mint(

@@ -2,7 +2,7 @@
 
 pragma solidity =0.8.36;
 
-import {FacetBase} from "./FacetBase.sol";
+import {FacetBase} from "../FacetBase.sol";
 import {ReferralFacetBase} from "./ReferralFacetBase.sol";
 
 /**

@@ -11,14 +11,16 @@ import {BurnWiseFacet} from "../../src/diamond/vault/facets/BurnWiseFacet.sol";
 import {MoveFacet} from "../../src/diamond/vault/facets/MoveFacet.sol";
 import {BridgeFacet} from "../../src/diamond/vault/facets/BridgeFacet.sol";
 import {Permit2UserFacet} from "../../src/diamond/vault/facets/Permit2UserFacet.sol";
-import {ReferralFacet} from "../../src/diamond/vault/facets/ReferralFacet.sol";
-import {Permit2ReferralFacet} from "../../src/diamond/vault/facets/Permit2ReferralFacet.sol";
+import {ReferralFacet} from "../../src/diamond/vault/facets/pending/ReferralFacet.sol";
+import {Permit2ReferralFacet} from "../../src/diamond/vault/facets/pending/Permit2ReferralFacet.sol";
+import {CohortRecorderFacet} from "../../src/diamond/vault/facets/pending/CohortRecorderFacet.sol";
 import {MulticallFacet} from "../../src/diamond/vault/facets/MulticallFacet.sol";
 import {QueueAdminFacet} from "../../src/diamond/vault/facets/QueueAdminFacet.sol";
 import {QueueJoinLeaveFacet} from "../../src/diamond/vault/facets/QueueJoinLeaveFacet.sol";
 import {QueueFulfillFacet} from "../../src/diamond/vault/facets/QueueFulfillFacet.sol";
 import {QueueForecastFacet} from "../../src/diamond/vault/facets/QueueForecastFacet.sol";
 import {InterestAdminFacet} from "../../src/diamond/vault/facets/InterestAdminFacet.sol";
+import {RescueFacet} from "../../src/diamond/vault/facets/RescueFacet.sol";
 import {WiseTelecomNodesQueueUIHelper} from "../../src/diamond/vault/helpers/WiseTelecomNodesQueueUIHelper.sol";
 import {WiseTelecomNodesQueueHelper} from "../../src/diamond/vault/helpers/WiseTelecomNodesQueueHelper.sol";
 
@@ -27,16 +29,24 @@ import {WiseTelecomNodesQueueHelper} from "../../src/diamond/vault/helpers/WiseT
  * Deploy scripts and tests both import this library so the wiring
  * cannot drift.
  *
- * Counts: admin=27, proxy=3, user=8, sweep=2, cashedInterest=1,
+ * Counts: admin=28, proxy=3, user=8, sweep=2, cashedInterest=1,
  * burnWise=3, move=7, bridge=14, permit2=3, referral=4,
- * permit2Referral=3, multicall=1, queueAdmin=2, queueJoinLeave=5,
- * queueFulfill=4, queueView=10, queueForecast=1, interestAdmin=1 —
- * total 99, of which 90 are wired at genesis. The referral groups (referral=4, permit2Referral=3) are
- * post-launch: installed exclusively by {UpgradeReferral}, never by
- * the genesis deploy scripts, so the genesis wiring stays identical
- * to what is live in production. The queueForecast and interestAdmin
- * groups are also post-launch: registered on all nine live vaults via
- * the timelocked selector proposals.
+ * permit2Referral=3, cohortRecorder=10, multicall=1, queueAdmin=2,
+ * queueJoinLeave=5, queueFulfill=4, queueView=10, queueForecast=1,
+ * interestAdmin=1, rescue=1 — total 111, of which 90 are wired at
+ * genesis (the genesis-era admin group had 27; `setCohortSyncEnabled`
+ * ships with the cohort upgrade's AdminFacet redeploy). The referral
+ * groups (referral=4, permit2Referral=3) and the cohortRecorder group
+ * are post-launch: installed exclusively by the cohort upgrade script
+ * (which supersedes {UpgradeReferral} as the referral installer),
+ * never by the genesis deploy scripts, so the genesis wiring stays
+ * identical to what is live in production. The queueForecast and
+ * interestAdmin groups are also post-launch, live on all nine
+ * diamonds since early August 2026; the rescue group is live on
+ * usdt-base only (see `src/diamond/DEPLOYED.md`). `applyTransferHook` and
+ * the `applyCohort*` engine entrypoints are deliberately absent from
+ * every group: {CohortHookFacet} is reached only through the
+ * `transferHookFacet` pointer, never the dispatcher.
  *
  * `referralSelectors` includes the `referrerOf` getter: the live
  * diamond keeps its genesis bytecode, so the declaration-chain
@@ -51,7 +61,7 @@ library WiseTelecomNodesDiamondSelectors {
         pure
         returns (bytes4[] memory sels)
     {
-        sels = new bytes4[](27);
+        sels = new bytes4[](28);
         sels[0] = AdminFacet.disAllowSupplyChangeByOwner.selector;
         sels[1] = AdminFacet.mintSupply.selector;
         sels[2] = AdminFacet.burnSupply.selector;
@@ -79,6 +89,25 @@ library WiseTelecomNodesDiamondSelectors {
         sels[24] = AdminFacet.cancelDepositHookFacetChange.selector;
         sels[25] = AdminFacet.setDepositAccumWindow.selector;
         sels[26] = AdminFacet.setSweeper.selector;
+        sels[27] = AdminFacet.setCohortSyncEnabled.selector;
+    }
+
+    function cohortRecorderSelectors()
+        internal
+        pure
+        returns (bytes4[] memory sels)
+    {
+        sels = new bytes4[](10);
+        sels[0] = CohortRecorderFacet.syncReferee.selector;
+        sels[1] = CohortRecorderFacet.advanceBook.selector;
+        sels[2] = CohortRecorderFacet.getTrackedContribution.selector;
+        sels[3] = CohortRecorderFacet.getCohortBook.selector;
+        sels[4] = CohortRecorderFacet.getCohortScore.selector;
+        sels[5] = CohortRecorderFacet.getCohortRings.selector;
+        sels[6] = CohortRecorderFacet.getCohortWeekCrumb.selector;
+        sels[7] = CohortRecorderFacet.getCohortGapLogLength.selector;
+        sels[8] = CohortRecorderFacet.getCohortGapLogEntry.selector;
+        sels[9] = CohortRecorderFacet.getCohortSyncEnabled.selector;
     }
 
     function proxySelectors()
@@ -143,6 +172,15 @@ library WiseTelecomNodesDiamondSelectors {
     {
         sels = new bytes4[](1);
         sels[0] = InterestAdminFacet.setCashedInterest.selector;
+    }
+
+    function rescueSelectors()
+        internal
+        pure
+        returns (bytes4[] memory sels)
+    {
+        sels = new bytes4[](1);
+        sels[0] = RescueFacet.rescueToken.selector;
     }
 
     function burnWiseSelectors()

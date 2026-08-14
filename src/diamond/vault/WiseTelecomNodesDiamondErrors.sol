@@ -120,6 +120,10 @@ abstract contract WiseTelecomNodesDiamondErrors {
 
     error SelfReferral();
 
+    // ---- Cohort recorder ----
+
+    error CohortHookNotInstalled();
+
     // ---- Queue surface ----
 
     error ZeroAmount();
@@ -151,4 +155,6 @@ abstract contract WiseTelecomNodesDiamondErrors {
     error NegativeIncentiveNotAllowed();
 
     error SameIncentive();
+
+    error ProtectedToken();
 }

@@ -60,6 +60,10 @@ abstract contract WiseTelecomNodesQueueLowLevelHelper is WiseTelecomNodesHelper 
             address(this),
             _amount
         );
+
+        _cohortSync(
+            msg.sender
+        );
     }
 
     function _moveVaultTokens(

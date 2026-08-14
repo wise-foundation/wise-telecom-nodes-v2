@@ -20,6 +20,8 @@ FACETS=(
     BridgeFacet
     BurnWiseFacet
     CashedInterestFacet
+    CohortHookFacet
+    CohortRecorderFacet
     GraceAccumHookFacet
     GraceFreezeHookFacet
     MigrationSeedFacet
@@ -57,11 +59,22 @@ for e in data["storage"]:
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
+# Facets live in facets/ when routed on the live diamonds and in
+# facets/pending/ until their upgrade has actually been broadcast
+# (see src/diamond/DEPLOYED.md); resolve whichever exists.
+facet_path() {
+    if [ -f "src/diamond/vault/facets/$1.sol" ]; then
+        echo "src/diamond/vault/facets/$1.sol:$1"
+    else
+        echo "src/diamond/vault/facets/pending/$1.sol:$1"
+    fi
+}
+
 forge inspect "$DIAMOND" storage-layout --json | normalize > "$tmp/diamond.txt"
 
 fail=0
 for name in "${FACETS[@]}"; do
-    forge inspect "src/diamond/vault/facets/$name.sol:$name" storage-layout --json \
+    forge inspect "$(facet_path "$name")" storage-layout --json \
         | normalize > "$tmp/$name.txt"
     if ! diff -u "$tmp/diamond.txt" "$tmp/$name.txt" > "$tmp/$name.diff"; then
         echo "STORAGE LAYOUT DRIFT: $name != WiseTelecomNodesDiamond"
@@ -86,10 +99,11 @@ fi
 PINNED_FACETS=(
     InterestAdminFacet
     QueueForecastFacet
+    RescueFacet
 )
 
 for name in "${PINNED_FACETS[@]}"; do
-    forge inspect "src/diamond/vault/facets/$name.sol:$name" storage-layout --json \
+    forge inspect "$(facet_path "$name")" storage-layout --json \
         | normalize > "$tmp/$name.pinned.txt"
     if ! python3 -c '
 import json, sys

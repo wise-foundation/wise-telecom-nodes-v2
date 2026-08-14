@@ -4,8 +4,8 @@ pragma solidity =0.8.36;
 
 import {Test} from "forge-std/Test.sol";
 
-import {ReferralFacet} from "../../../src/diamond/vault/facets/ReferralFacet.sol";
-import {Permit2ReferralFacet} from "../../../src/diamond/vault/facets/Permit2ReferralFacet.sol";
+import {ReferralFacet} from "../../../src/diamond/vault/facets/pending/ReferralFacet.sol";
+import {Permit2ReferralFacet} from "../../../src/diamond/vault/facets/pending/Permit2ReferralFacet.sol";
 import {FacetNotFound, SelectorTimelockNotElapsed} from "../../../src/diamond/shared/DiamondErrors.sol";
 
 import {WiseTelecomNodesDiamondSelectors} from "../../../script/diamond/WiseTelecomNodesDiamondSelectors.sol";
