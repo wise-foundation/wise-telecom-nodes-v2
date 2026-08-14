@@ -35,6 +35,7 @@ FACETS=(
     QueueJoinLeaveFacet
     QueueViewFacet
     ReferralFacet
+    ReferralPayoutFacet
     SweepFacet
     UserFacet
 )
