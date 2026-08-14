@@ -305,6 +305,19 @@ contract AdminFacet is FacetBase {
         );
     }
 
+    function setCohortSyncEnabled(
+        bool _enabled
+    )
+        external
+        onlyDelegateCall
+        onlyMaster
+        nonReentrant
+    {
+        _setCohortSyncEnabled(
+            _enabled
+        );
+    }
+
     function setSweeper(
         address _sweeper,
         bool _allowed
