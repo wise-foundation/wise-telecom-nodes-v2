@@ -20,7 +20,13 @@ import {CohortHookFacet} from "../../src/diamond/vault/facets/pending/CohortHook
 
 import {WiseTelecomNodesDiamondSelectors} from "./WiseTelecomNodesDiamondSelectors.sol";
 
-/// @notice Installs the cohort recorder (Phase 2a+2b of the referral commission plan) on an
+/// @notice SUPERSEDED by {UpgradeReferralRegistry} — do not broadcast. The Phase-1 slot-74
+/// registry-pointer shard recompiles every facet in this manifest and the referral facets now
+/// write the per-chain standalone {ReferralRegistry} (ruling R19), so installing this
+/// script's builds would route stale bytecode. Kept for the historical record; its 9/9 fork
+/// rehearsal record lives in `src/diamond/DEPLOYED.md`.
+///
+/// Installs the cohort recorder (Phase 2a+2b of the referral commission plan) on an
 /// already-running, finalized diamond, and — because the recorder changes the compiled
 /// bytecode of every balance-moving facet through the shared helper chain — redeploys the
 /// full facet-change manifest in the same timelock round. Supersedes {UpgradeReferral}: the
