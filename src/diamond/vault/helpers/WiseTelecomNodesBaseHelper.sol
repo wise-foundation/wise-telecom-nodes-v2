@@ -488,6 +488,116 @@ abstract contract WiseTelecomNodesBaseHelper is WiseTelecomNodesDeclarations {
         );
     }
 
+    function _setCohortSyncEnabled(
+        bool _enabled
+    )
+        internal
+    {
+        if (_enabled == true) {
+
+            require(
+                transferHookFacet != ZERO_ADDRESS,
+                CohortHookNotInstalled()
+            );
+
+            cohortSyncEnabled = true;
+
+            _cohortSync(
+                ZERO_ADDRESS
+            );
+        } else {
+            cohortSyncEnabled = false;
+        }
+
+        emit CohortSyncEnabledSet(
+            _enabled
+        );
+    }
+
+    function _cohortSync(
+        address _user
+    )
+        internal
+    {
+        if (cohortSyncEnabled == false) {
+            return;
+        }
+
+        _runCohortHook(
+            abi.encodeWithSelector(
+                COHORT_SYNC_SELECTOR,
+                _user
+            )
+        );
+    }
+
+    function _cohortCredit(
+        address _user,
+        uint256 _amount
+    )
+        internal
+    {
+        if (cohortSyncEnabled == false) {
+            return;
+        }
+
+        _runCohortHook(
+            abi.encodeWithSelector(
+                COHORT_CREDIT_SELECTOR,
+                _user,
+                _amount
+            )
+        );
+    }
+
+    function _cohortAdvance(
+        address _referrer,
+        uint256 _maxBoundaries
+    )
+        internal
+    {
+        if (cohortSyncEnabled == false) {
+            return;
+        }
+
+        _runCohortHook(
+            abi.encodeWithSelector(
+                COHORT_ADVANCE_SELECTOR,
+                _referrer,
+                _maxBoundaries
+            )
+        );
+    }
+
+    function _runCohortHook(
+        bytes memory _callData
+    )
+        internal
+    {
+        address facet = transferHookFacet;
+
+        if (facet == ZERO_ADDRESS) {
+            return;
+        }
+
+        hookExecuting = true;
+
+        (
+            bool success,
+            bytes memory returnData
+        ) = facet.delegatecall(
+            _callData
+        );
+
+        hookExecuting = false;
+
+        if (success == false) {
+            assembly {
+                revert(add(returnData, 0x20), mload(returnData))
+            }
+        }
+    }
+
     function _setSweeper(
         address _sweeper,
         bool _allowed
