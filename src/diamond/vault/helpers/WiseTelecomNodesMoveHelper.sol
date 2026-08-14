@@ -166,9 +166,17 @@ abstract contract WiseTelecomNodesMoveHelper is WiseTelecomNodesBufferHelper {
             MoveAmountTooSmall()
         );
 
+        _cohortSync(
+            msg.sender
+        );
+
         _burn(
             msg.sender,
             _amount
+        );
+
+        _cohortSync(
+            msg.sender
         );
 
         _reduceDepositCap(
@@ -223,6 +231,10 @@ abstract contract WiseTelecomNodesMoveHelper is WiseTelecomNodesBufferHelper {
 
         _raiseDepositCap(
             _amount
+        );
+
+        _cohortSync(
+            _user
         );
 
         _mint(
