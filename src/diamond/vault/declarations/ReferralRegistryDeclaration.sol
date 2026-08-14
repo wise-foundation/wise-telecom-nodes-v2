@@ -3,21 +3,25 @@
 pragma solidity =0.8.36;
 
 /**
- * @dev Referral-registry tail shard. `referrerOf` maps a user to the
- * address that referred them. Written only at deposit time by the
- * `...WithReferral` entrypoints on {ReferralFacet} and
- * {Permit2ReferralFacet} (zero and self-referral rejected; the
- * assignment is write-once — the first referrer sticks forever and
- * no later deposit of any size displaces it). Transfers
- * deliberately never touch the registry: they can neither assign a
- * referrer to a fresh address nor change an existing one.
- * Distinct from {ReferralDeclaration}, which only
- * transports opaque bridge payload bytes. Appended last of all
- * shards, after {InterestRemainderDeclaration} (slot 63) and the
- * transient {HookGuardDeclaration}, so it takes fresh tail slot 64
- * and moves no pre-existing slot.
+ * @dev Referral-registry tail shard — declared but FOREVER VIRGIN
+ * (ruling R19). Referrer truth lives in the per-chain standalone
+ * {ReferralRegistry}, reached through the slot-74 pointer in
+ * {ReferralRegistryPointerDeclaration}; no shipped code path reads
+ * or writes this mapping and the fork rehearsals assert it stays
+ * zero even after assignments. It is kept only to preserve the live
+ * storage layout (removing it would renumber slots 65-73). Declared
+ * `internal` so freshly compiled diamonds carry no auto-getter: a
+ * `public` mapping here would give test diamonds a live
+ * `referrerOf(address)` answering from this dead storage while live
+ * diamonds (frozen genesis bytecode) have no such surface — the flip
+ * keeps both worlds on the identical registry-reading code path, the
+ * routed {ReferralFacet} `getReferrerOf`. Distinct from {ReferralDeclaration},
+ * which only transports opaque bridge payload bytes. Appended after
+ * {InterestRemainderDeclaration} (slot 63) and the transient
+ * {HookGuardDeclaration}, so it takes fresh tail slot 64 and moves
+ * no pre-existing slot.
  */
 abstract contract ReferralRegistryDeclaration {
 
-    mapping(address => address) public referrerOf;
+    mapping(address => address) internal referrerOf;
 }
