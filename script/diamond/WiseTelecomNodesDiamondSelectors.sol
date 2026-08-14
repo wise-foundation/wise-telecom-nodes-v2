@@ -20,6 +20,7 @@ import {QueueJoinLeaveFacet} from "../../src/diamond/vault/facets/QueueJoinLeave
 import {QueueFulfillFacet} from "../../src/diamond/vault/facets/QueueFulfillFacet.sol";
 import {QueueForecastFacet} from "../../src/diamond/vault/facets/QueueForecastFacet.sol";
 import {InterestAdminFacet} from "../../src/diamond/vault/facets/InterestAdminFacet.sol";
+import {RescueFacet} from "../../src/diamond/vault/facets/RescueFacet.sol";
 import {WiseTelecomNodesQueueUIHelper} from "../../src/diamond/vault/helpers/WiseTelecomNodesQueueUIHelper.sol";
 import {WiseTelecomNodesQueueHelper} from "../../src/diamond/vault/helpers/WiseTelecomNodesQueueHelper.sol";
 
@@ -32,15 +33,17 @@ import {WiseTelecomNodesQueueHelper} from "../../src/diamond/vault/helpers/WiseT
  * burnWise=3, move=7, bridge=14, permit2=3, referral=4,
  * permit2Referral=3, cohortRecorder=10, multicall=1, queueAdmin=2,
  * queueJoinLeave=5, queueFulfill=4, queueView=10, queueForecast=1,
- * interestAdmin=1 — total 110, of which 90 are wired at genesis
- * (the genesis-era admin group had 27; `setCohortSyncEnabled` ships
- * with the cohort upgrade's AdminFacet redeploy). The referral groups
- * (referral=4, permit2Referral=3) and the cohortRecorder group are
- * post-launch: installed exclusively by the cohort upgrade script
+ * interestAdmin=1, rescue=1 — total 111, of which 90 are wired at
+ * genesis (the genesis-era admin group had 27; `setCohortSyncEnabled`
+ * ships with the cohort upgrade's AdminFacet redeploy). The referral
+ * groups (referral=4, permit2Referral=3) and the cohortRecorder group
+ * are post-launch: installed exclusively by the cohort upgrade script
  * (which supersedes {UpgradeReferral} as the referral installer),
  * never by the genesis deploy scripts, so the genesis wiring stays
  * identical to what is live in production. The queueForecast and
- * interestAdmin groups are also post-launch. `applyTransferHook` and
+ * interestAdmin groups are also post-launch, live on all nine
+ * diamonds since early August 2026; the rescue group is live on
+ * usdt-base only (see `src/diamond/DEPLOYED.md`). `applyTransferHook` and
  * the `applyCohort*` engine entrypoints are deliberately absent from
  * every group: {CohortHookFacet} is reached only through the
  * `transferHookFacet` pointer, never the dispatcher.
@@ -169,6 +172,15 @@ library WiseTelecomNodesDiamondSelectors {
     {
         sels = new bytes4[](1);
         sels[0] = InterestAdminFacet.setCashedInterest.selector;
+    }
+
+    function rescueSelectors()
+        internal
+        pure
+        returns (bytes4[] memory sels)
+    {
+        sels = new bytes4[](1);
+        sels[0] = RescueFacet.rescueToken.selector;
     }
 
     function burnWiseSelectors()
