@@ -1,7 +1,7 @@
 {
   "storage": [
     {
-      "astId": 44642,
+      "astId": 51639,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "master",
       "offset": 0,
@@ -9,7 +9,7 @@
       "type": "t_address"
     },
     {
-      "astId": 44644,
+      "astId": 51641,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "proposedMaster",
       "offset": 0,
@@ -17,7 +17,7 @@
       "type": "t_address"
     },
     {
-      "astId": 40711,
+      "astId": 40752,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "_paused",
       "offset": 20,
@@ -25,7 +25,7 @@
       "type": "t_bool"
     },
     {
-      "astId": 40812,
+      "astId": 40853,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "_status",
       "offset": 0,
@@ -33,7 +33,7 @@
       "type": "t_uint256"
     },
     {
-      "astId": 40882,
+      "astId": 40923,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "_balances",
       "offset": 0,
@@ -41,7 +41,7 @@
       "type": "t_mapping(t_address,t_uint256)"
     },
     {
-      "astId": 40888,
+      "astId": 40929,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "_allowances",
       "offset": 0,
@@ -49,7 +49,7 @@
       "type": "t_mapping(t_address,t_mapping(t_address,t_uint256))"
     },
     {
-      "astId": 40890,
+      "astId": 40931,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "_totalSupply",
       "offset": 0,
@@ -57,7 +57,7 @@
       "type": "t_uint256"
     },
     {
-      "astId": 40892,
+      "astId": 40933,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "_name",
       "offset": 0,
@@ -65,7 +65,7 @@
       "type": "t_string_storage"
     },
     {
-      "astId": 40894,
+      "astId": 40935,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "_symbol",
       "offset": 0,
@@ -73,15 +73,15 @@
       "type": "t_string_storage"
     },
     {
-      "astId": 45953,
+      "astId": 53174,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "USD_TOKEN",
       "offset": 0,
       "slot": "8",
-      "type": "t_contract(IERC20)41531"
+      "type": "t_contract(IERC20)41572"
     },
     {
-      "astId": 45955,
+      "astId": 53176,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "interestRate",
       "offset": 0,
@@ -89,7 +89,7 @@
       "type": "t_uint256"
     },
     {
-      "astId": 45957,
+      "astId": 53178,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "decimalsSet",
       "offset": 0,
@@ -97,7 +97,7 @@
       "type": "t_uint8"
     },
     {
-      "astId": 45959,
+      "astId": 53180,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "thirdPartyAddress",
       "offset": 1,
@@ -105,7 +105,7 @@
       "type": "t_address"
     },
     {
-      "astId": 45961,
+      "astId": 53182,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "InterestRateProxy",
       "offset": 0,
@@ -113,7 +113,7 @@
       "type": "t_address"
     },
     {
-      "astId": 45963,
+      "astId": 53184,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "currentProxyBenefactor",
       "offset": 0,
@@ -121,7 +121,7 @@
       "type": "t_address"
     },
     {
-      "astId": 45965,
+      "astId": 53186,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "supplyChangeByOwnerNotAllowed",
       "offset": 20,
@@ -129,7 +129,7 @@
       "type": "t_bool"
     },
     {
-      "astId": 45967,
+      "astId": 53188,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "totalDepositCap",
       "offset": 0,
@@ -137,7 +137,7 @@
       "type": "t_uint256"
     },
     {
-      "astId": 46256,
+      "astId": 53483,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "lastSyncTimeStamp",
       "offset": 0,
@@ -145,7 +145,7 @@
       "type": "t_mapping(t_address,t_uint256)"
     },
     {
-      "astId": 46260,
+      "astId": 53487,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "cashedInterest",
       "offset": 0,
@@ -153,7 +153,7 @@
       "type": "t_mapping(t_address,t_uint256)"
     },
     {
-      "astId": 46118,
+      "astId": 53339,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "proxyBalance",
       "offset": 0,
@@ -161,7 +161,7 @@
       "type": "t_mapping(t_address,t_uint256)"
     },
     {
-      "astId": 46924,
+      "astId": 54155,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "workerAddress",
       "offset": 0,
@@ -169,7 +169,7 @@
       "type": "t_address"
     },
     {
-      "astId": 46926,
+      "astId": 54157,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "bufferInterestRate",
       "offset": 0,
@@ -177,7 +177,7 @@
       "type": "t_uint256"
     },
     {
-      "astId": 46928,
+      "astId": 54159,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "proposedWorkerAddress",
       "offset": 0,
@@ -185,7 +185,7 @@
       "type": "t_address"
     },
     {
-      "astId": 46930,
+      "astId": 54161,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "workerChangeQueuedAt",
       "offset": 0,
@@ -193,7 +193,7 @@
       "type": "t_uint256"
     },
     {
-      "astId": 46103,
+      "astId": 53324,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "peerVault",
       "offset": 0,
@@ -201,7 +201,7 @@
       "type": "t_mapping(t_address,t_bool)"
     },
     {
-      "astId": 46107,
+      "astId": 53328,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "peerVaultChangeQueuedAt",
       "offset": 0,
@@ -209,7 +209,7 @@
       "type": "t_mapping(t_address,t_uint256)"
     },
     {
-      "astId": 46195,
+      "astId": 53422,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "selectorToFacet",
       "offset": 0,
@@ -217,7 +217,7 @@
       "type": "t_mapping(t_bytes4,t_address)"
     },
     {
-      "astId": 46199,
+      "astId": 53426,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "proposedSelectorFacet",
       "offset": 0,
@@ -225,7 +225,7 @@
       "type": "t_mapping(t_bytes4,t_address)"
     },
     {
-      "astId": 46203,
+      "astId": 53430,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "selectorChangeQueuedAt",
       "offset": 0,
@@ -233,7 +233,7 @@
       "type": "t_mapping(t_bytes4,t_uint256)"
     },
     {
-      "astId": 46205,
+      "astId": 53432,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "initialized",
       "offset": 0,
@@ -241,15 +241,15 @@
       "type": "t_bool"
     },
     {
-      "astId": 46144,
+      "astId": 53365,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "QueMemberByIdAndIncentive",
       "offset": 0,
       "slot": "27",
-      "type": "t_mapping(t_uint256,t_mapping(t_int256,t_struct(QueMember)45780_storage))"
+      "type": "t_mapping(t_uint256,t_mapping(t_int256,t_struct(QueMember)53001_storage))"
     },
     {
-      "astId": 46148,
+      "astId": 53369,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "earliestValidQueMemberByIncentive",
       "offset": 0,
@@ -257,7 +257,7 @@
       "type": "t_mapping(t_int256,t_uint256)"
     },
     {
-      "astId": 46152,
+      "astId": 53373,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "currentOrderIdByIncentive",
       "offset": 0,
@@ -265,7 +265,7 @@
       "type": "t_mapping(t_int256,t_uint256)"
     },
     {
-      "astId": 46156,
+      "astId": 53377,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "incentiveAllowed",
       "offset": 0,
@@ -273,7 +273,7 @@
       "type": "t_mapping(t_int256,t_bool)"
     },
     {
-      "astId": 46160,
+      "astId": 53381,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "activeOrderCountByIncentive",
       "offset": 0,
@@ -281,7 +281,7 @@
       "type": "t_mapping(t_int256,t_uint256)"
     },
     {
-      "astId": 46162,
+      "astId": 53383,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "totalActiveOrders",
       "offset": 0,
@@ -289,7 +289,7 @@
       "type": "t_uint256"
     },
     {
-      "astId": 46124,
+      "astId": 53345,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "minDepositAmount",
       "offset": 0,
@@ -297,7 +297,7 @@
       "type": "t_uint256"
     },
     {
-      "astId": 46126,
+      "astId": 53347,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "negativeIncentivesNotAllowed",
       "offset": 0,
@@ -305,7 +305,7 @@
       "type": "t_bool"
     },
     {
-      "astId": 45993,
+      "astId": 53214,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "ccipRouter",
       "offset": 1,
@@ -313,7 +313,7 @@
       "type": "t_address"
     },
     {
-      "astId": 45997,
+      "astId": 53218,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "crossChainPeer",
       "offset": 0,
@@ -321,7 +321,7 @@
       "type": "t_mapping(t_uint64,t_address)"
     },
     {
-      "astId": 46001,
+      "astId": 53222,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "crossChainPeerEnabled",
       "offset": 0,
@@ -329,7 +329,7 @@
       "type": "t_mapping(t_uint64,t_bool)"
     },
     {
-      "astId": 46005,
+      "astId": 53226,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "crossChainPeerDecimals",
       "offset": 0,
@@ -337,7 +337,7 @@
       "type": "t_mapping(t_uint64,t_uint8)"
     },
     {
-      "astId": 46009,
+      "astId": 53230,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "crossChainPeerChangeQueuedAt",
       "offset": 0,
@@ -345,7 +345,7 @@
       "type": "t_mapping(t_uint64,t_uint256)"
     },
     {
-      "astId": 46266,
+      "astId": 53493,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "WISE_TOKEN",
       "offset": 0,
@@ -353,7 +353,7 @@
       "type": "t_address"
     },
     {
-      "astId": 45848,
+      "astId": 53069,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "processedMessageId",
       "offset": 0,
@@ -361,7 +361,7 @@
       "type": "t_mapping(t_bytes32,t_bool)"
     },
     {
-      "astId": 45852,
+      "astId": 53073,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "proposedCrossChainPeer",
       "offset": 0,
@@ -369,7 +369,7 @@
       "type": "t_mapping(t_uint64,t_address)"
     },
     {
-      "astId": 45856,
+      "astId": 53077,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "proposedCrossChainPeerDecimals",
       "offset": 0,
@@ -377,7 +377,7 @@
       "type": "t_mapping(t_uint64,t_uint8)"
     },
     {
-      "astId": 46222,
+      "astId": 53449,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "proposedThirdPartyAddress",
       "offset": 0,
@@ -385,7 +385,7 @@
       "type": "t_address"
     },
     {
-      "astId": 46224,
+      "astId": 53451,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "thirdPartyChangeQueuedAt",
       "offset": 0,
@@ -393,7 +393,7 @@
       "type": "t_uint256"
     },
     {
-      "astId": 46233,
+      "astId": 53460,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "transferHookFacet",
       "offset": 0,
@@ -401,7 +401,7 @@
       "type": "t_address"
     },
     {
-      "astId": 46235,
+      "astId": 53462,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "proposedTransferHookFacet",
       "offset": 0,
@@ -409,7 +409,7 @@
       "type": "t_address"
     },
     {
-      "astId": 46237,
+      "astId": 53464,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "transferHookChangeQueuedAt",
       "offset": 0,
@@ -417,7 +417,7 @@
       "type": "t_uint256"
     },
     {
-      "astId": 45862,
+      "astId": 53083,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "burnWiseIndex",
       "offset": 0,
@@ -425,7 +425,7 @@
       "type": "t_uint256"
     },
     {
-      "astId": 45866,
+      "astId": 53087,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "lastBurnWiseAt",
       "offset": 0,
@@ -433,7 +433,7 @@
       "type": "t_mapping(t_address,t_uint256)"
     },
     {
-      "astId": 46168,
+      "astId": 53389,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "referralEnabled",
       "offset": 0,
@@ -441,7 +441,7 @@
       "type": "t_bool"
     },
     {
-      "astId": 46170,
+      "astId": 53391,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "bridgeGasLimit",
       "offset": 1,
@@ -449,7 +449,7 @@
       "type": "t_uint64"
     },
     {
-      "astId": 46043,
+      "astId": 53264,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "depositsDisabled",
       "offset": 9,
@@ -457,7 +457,7 @@
       "type": "t_bool"
     },
     {
-      "astId": 46070,
+      "astId": 53291,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "gracePeriodDuration",
       "offset": 0,
@@ -465,7 +465,7 @@
       "type": "t_uint256"
     },
     {
-      "astId": 46072,
+      "astId": 53293,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "graceThresholdAmount",
       "offset": 0,
@@ -473,7 +473,7 @@
       "type": "t_uint256"
     },
     {
-      "astId": 46076,
+      "astId": 53297,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "lastLargeDepositAt",
       "offset": 0,
@@ -481,7 +481,7 @@
       "type": "t_mapping(t_address,t_uint256)"
     },
     {
-      "astId": 46078,
+      "astId": 53299,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "graceFreezeEnabled",
       "offset": 0,
@@ -489,7 +489,7 @@
       "type": "t_bool"
     },
     {
-      "astId": 46049,
+      "astId": 53270,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "depositHookFacet",
       "offset": 1,
@@ -497,7 +497,7 @@
       "type": "t_address"
     },
     {
-      "astId": 46051,
+      "astId": 53272,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "proposedDepositHookFacet",
       "offset": 0,
@@ -505,7 +505,7 @@
       "type": "t_address"
     },
     {
-      "astId": 46053,
+      "astId": 53274,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "depositHookChangeQueuedAt",
       "offset": 0,
@@ -513,7 +513,7 @@
       "type": "t_uint256"
     },
     {
-      "astId": 46021,
+      "astId": 53242,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "depositAccumWindow",
       "offset": 0,
@@ -521,7 +521,7 @@
       "type": "t_uint256"
     },
     {
-      "astId": 46025,
+      "astId": 53246,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "depositWindowStart",
       "offset": 0,
@@ -529,7 +529,7 @@
       "type": "t_mapping(t_address,t_uint256)"
     },
     {
-      "astId": 46029,
+      "astId": 53250,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "depositWindowTotal",
       "offset": 0,
@@ -537,7 +537,7 @@
       "type": "t_mapping(t_address,t_uint256)"
     },
     {
-      "astId": 45875,
+      "astId": 53096,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "totalCashedInterest",
       "offset": 0,
@@ -545,7 +545,7 @@
       "type": "t_uint256"
     },
     {
-      "astId": 46216,
+      "astId": 53443,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "isSweeper",
       "offset": 0,
@@ -553,7 +553,7 @@
       "type": "t_mapping(t_address,t_bool)"
     },
     {
-      "astId": 46037,
+      "astId": 53258,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "depositWindowPrevTotal",
       "offset": 0,
@@ -561,7 +561,7 @@
       "type": "t_mapping(t_address,t_uint256)"
     },
     {
-      "astId": 46095,
+      "astId": 53316,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "interestRemainder",
       "offset": 0,
@@ -569,7 +569,7 @@
       "type": "t_mapping(t_address,t_uint256)"
     },
     {
-      "astId": 46187,
+      "astId": 53414,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "referrerOf",
       "offset": 0,
@@ -577,7 +577,7 @@
       "type": "t_mapping(t_address,t_address)"
     },
     {
-      "astId": 45916,
+      "astId": 53137,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "cohortSyncEnabled",
       "offset": 0,
@@ -585,7 +585,7 @@
       "type": "t_bool"
     },
     {
-      "astId": 45920,
+      "astId": 53141,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "trackedContribution",
       "offset": 0,
@@ -593,7 +593,7 @@
       "type": "t_mapping(t_address,t_uint256)"
     },
     {
-      "astId": 45883,
+      "astId": 53104,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "cohortBook",
       "offset": 0,
@@ -601,7 +601,7 @@
       "type": "t_mapping(t_address,t_uint256)"
     },
     {
-      "astId": 45887,
+      "astId": 53108,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "cohortLastSettle",
       "offset": 0,
@@ -609,7 +609,7 @@
       "type": "t_mapping(t_address,t_uint256)"
     },
     {
-      "astId": 45893,
+      "astId": 53114,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "cohortRingYear1",
       "offset": 0,
@@ -617,7 +617,7 @@
       "type": "t_mapping(t_address,t_array(t_uint64)52_storage)"
     },
     {
-      "astId": 45899,
+      "astId": 53120,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "cohortRingYear2",
       "offset": 0,
@@ -625,7 +625,7 @@
       "type": "t_mapping(t_address,t_array(t_uint64)52_storage)"
     },
     {
-      "astId": 45905,
+      "astId": 53126,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "cohortWeekLog",
       "offset": 0,
@@ -633,12 +633,20 @@
       "type": "t_mapping(t_address,t_mapping(t_uint256,t_uint256))"
     },
     {
-      "astId": 45910,
+      "astId": 53131,
       "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
       "label": "cohortGapLog",
       "offset": 0,
       "slot": "72",
       "type": "t_mapping(t_address,t_array(t_uint256)dyn_storage)"
+    },
+    {
+      "astId": 53406,
+      "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
+      "label": "pendingReferralPayout",
+      "offset": 0,
+      "slot": "73",
+      "type": "t_uint256"
     }
   ],
   "types": {
@@ -674,7 +682,7 @@
       "label": "bytes4",
       "numberOfBytes": "4"
     },
-    "t_contract(IERC20)41531": {
+    "t_contract(IERC20)41572": {
       "encoding": "inplace",
       "label": "contract IERC20",
       "numberOfBytes": "20"
@@ -761,12 +769,12 @@
       "numberOfBytes": "32",
       "value": "t_bool"
     },
-    "t_mapping(t_int256,t_struct(QueMember)45780_storage)": {
+    "t_mapping(t_int256,t_struct(QueMember)53001_storage)": {
       "encoding": "mapping",
       "key": "t_int256",
       "label": "mapping(int256 => struct WiseTelecomNodesQueueStructs.QueMember)",
       "numberOfBytes": "32",
-      "value": "t_struct(QueMember)45780_storage"
+      "value": "t_struct(QueMember)53001_storage"
     },
     "t_mapping(t_int256,t_uint256)": {
       "encoding": "mapping",
@@ -775,12 +783,12 @@
       "numberOfBytes": "32",
       "value": "t_uint256"
     },
-    "t_mapping(t_uint256,t_mapping(t_int256,t_struct(QueMember)45780_storage))": {
+    "t_mapping(t_uint256,t_mapping(t_int256,t_struct(QueMember)53001_storage))": {
       "encoding": "mapping",
       "key": "t_uint256",
       "label": "mapping(uint256 => mapping(int256 => struct WiseTelecomNodesQueueStructs.QueMember))",
       "numberOfBytes": "32",
-      "value": "t_mapping(t_int256,t_struct(QueMember)45780_storage)"
+      "value": "t_mapping(t_int256,t_struct(QueMember)53001_storage)"
     },
     "t_mapping(t_uint256,t_uint256)": {
       "encoding": "mapping",
@@ -822,13 +830,13 @@
       "label": "string",
       "numberOfBytes": "32"
     },
-    "t_struct(QueMember)45780_storage": {
+    "t_struct(QueMember)53001_storage": {
       "encoding": "inplace",
       "label": "struct WiseTelecomNodesQueueStructs.QueMember",
       "numberOfBytes": "128",
       "members": [
         {
-          "astId": 45773,
+          "astId": 52994,
           "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
           "label": "member",
           "offset": 0,
@@ -836,7 +844,7 @@
           "type": "t_address"
         },
         {
-          "astId": 45775,
+          "astId": 52996,
           "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
           "label": "amount",
           "offset": 0,
@@ -844,7 +852,7 @@
           "type": "t_uint256"
         },
         {
-          "astId": 45777,
+          "astId": 52998,
           "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
           "label": "tailPointer",
           "offset": 0,
@@ -852,7 +860,7 @@
           "type": "t_uint256"
         },
         {
-          "astId": 45779,
+          "astId": 53000,
           "contract": "src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond",
           "label": "headPointer",
           "offset": 0,
