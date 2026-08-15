@@ -74,7 +74,9 @@ import {WiseTelecomNodesDiamondSelectors} from "./WiseTelecomNodesDiamondSelecto
 /// NOTHING here may be broadcast until the owner gives the explicit go-ahead (repo ruling:
 /// this branch prepares deployment only). After a REAL broadcast is executed and verified:
 /// update src/diamond/DEPLOYED.md (facet rows + addresses + date) and `git mv` the graduated
-/// files out of src/diamond/vault/facets/pending/ in the same commit.
+/// files out of EVERY pending/ segment in the same commit — facets/pending/,
+/// declarations/pending/ (the shards this round's facets were compiled with),
+/// interfaces/pending/ and src/registry/pending/.
 contract UpgradeReferralRegistry is VaultConfig {
 
     function propose()
