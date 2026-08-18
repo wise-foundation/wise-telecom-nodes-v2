@@ -4,6 +4,7 @@ pragma solidity =0.8.36;
 
 import {CohortRecorderBase} from "../../../src/diamond/vault/facets/pending/CohortRecorderBase.sol";
 import {CohortWeeks} from "../../../src/diamond/shared/pending/CohortWeeks.sol";
+import {ReferralRegistry} from "../../../src/registry/pending/ReferralRegistry.sol";
 
 /**
  * @dev Narrow-writer harness over {CohortRecorderBase}, following the
@@ -181,13 +182,36 @@ contract CohortLaneHarness is CohortRecorderBase {
         trackedContribution[_user] = _amount;
     }
 
+    /**
+     * @dev Post-R19 the engine resolves referrers through the
+     * slot-74 pointer into a standalone {ReferralRegistry}, so this
+     * seeder lazily deploys one (harness as master AND allowlisted
+     * writer), wires the pointer directly into its own storage and
+     * forwards the assignment — the engine under test then reads it
+     * through the exact guarded-staticcall path production uses.
+     */
     function harnessSetReferrer(
         address _user,
         address _referrer
     )
         external
     {
-        referrerOf[_user] = _referrer;
+        if (referralRegistry == ZERO_ADDRESS) {
+
+            ReferralRegistry registry = new ReferralRegistry();
+
+            registry.setAllowedVault(
+                address(this),
+                true
+            );
+
+            referralRegistry = address(registry);
+        }
+
+        ReferralRegistry(referralRegistry).assignReferrer(
+            _user,
+            _referrer
+        );
     }
 
     function harnessMintBalance(
