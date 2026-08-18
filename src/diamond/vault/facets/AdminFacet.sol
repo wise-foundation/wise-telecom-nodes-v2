@@ -169,6 +169,61 @@ contract AdminFacet is FacetBase {
         _cancelDepositHookFacetChange();
     }
 
+    function proposeReferralRegistry(
+        address _registry
+    )
+        external
+        onlyDelegateCall
+        onlyMaster
+        nonReentrant
+    {
+        _proposeReferralRegistry(
+            _registry
+        );
+    }
+
+    function executeReferralRegistryChange()
+        external
+        onlyDelegateCall
+        onlyMaster
+        nonReentrant
+    {
+        _applyReferralRegistryChange();
+    }
+
+    function cancelReferralRegistryChange()
+        external
+        onlyDelegateCall
+        onlyMaster
+        nonReentrant
+    {
+        _cancelReferralRegistryChange();
+    }
+
+    function getReferralRegistry()
+        external
+        view
+        returns (address)
+    {
+        return referralRegistry;
+    }
+
+    function getProposedReferralRegistry()
+        external
+        view
+        returns (address)
+    {
+        return proposedReferralRegistry;
+    }
+
+    function getReferralRegistryChangeQueuedAt()
+        external
+        view
+        returns (uint256)
+    {
+        return referralRegistryChangeQueuedAt;
+    }
+
     function proposeWorkerAddress(
         address _worker
     )
