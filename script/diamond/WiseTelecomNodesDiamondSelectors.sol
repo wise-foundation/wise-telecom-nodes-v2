@@ -54,7 +54,11 @@ import {WiseTelecomNodesQueueHelper} from "../../src/diamond/vault/helpers/WiseT
  * (pattern `UpgradeReferralPayout.s.sol`) alongside the O6 writer. `applyTransferHook` and
  * the `applyCohort*` engine entrypoints are deliberately absent from
  * every group: {CohortHookFacet} is reached only through the
- * `transferHookFacet` pointer, never the dispatcher.
+ * `transferHookFacet` pointer, never the dispatcher. That pointer-only
+ * register grew to six entrypoints with Phase 3's move-carry pair
+ * (`applyCohortMoveOut` / `applyCohortMoveIn`, ruling R23) — the
+ * counts above are unchanged by Phase 3, which adds no routed
+ * selector anywhere.
  *
  * `referralSelectors` includes the routed `getReferrerOf` view (the
  * registry-reading replacement for the retired slot-64 auto-getter,
