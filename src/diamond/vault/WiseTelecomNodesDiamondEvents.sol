@@ -308,9 +308,17 @@ abstract contract WiseTelecomNodesDiamondEvents {
 
     // ---- Referral registry ----
 
-    event ReferralSet(
-        address indexed user,
-        address indexed referrer
+    event ReferralRegistrySet(
+        address referralRegistry
+    );
+
+    event ReferralRegistryProposed(
+        address indexed proposedReferralRegistry,
+        uint256 executableAt
+    );
+
+    event ReferralRegistryProposalCancelled(
+        address indexed cancelledReferralRegistry
     );
 
     // ---- Cohort recorder ----
@@ -355,6 +363,10 @@ abstract contract WiseTelecomNodesDiamondEvents {
         uint256 laneKind,
         uint256 index,
         uint256 clippedAmount
+    );
+
+    event CohortReferrerLookupFailed(
+        address indexed user
     );
 
     event CohortSyncEnabledSet(
