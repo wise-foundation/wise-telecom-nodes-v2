@@ -16,6 +16,7 @@ import {Permit2ReferralFacet} from "../../src/diamond/vault/facets/pending/Permi
 import {CohortHookFacet} from "../../src/diamond/vault/facets/pending/CohortHookFacet.sol";
 import {CohortRecorderFacet} from "../../src/diamond/vault/facets/pending/CohortRecorderFacet.sol";
 import {IPermit2} from "../../src/diamond/vault/interfaces/IPermit2.sol";
+import {ReferralRegistry} from "../../src/registry/pending/ReferralRegistry.sol";
 
 import {NotMaster} from "../../src/diamond/shared/OwnableMaster.sol";
 import {WiseTelecomNodesDiamondErrors} from "../../src/diamond/vault/WiseTelecomNodesDiamondErrors.sol";
@@ -135,6 +136,10 @@ contract WiseTelecomNodesCohortTouchpointsTest is DiamondTestHarness {
         "CohortBookReduced(address,uint256,uint256,uint256,uint256)"
     );
 
+    bytes32 internal constant LOOKUP_FAILED_TOPIC = keccak256(
+        "CohortReferrerLookupFailed(address)"
+    );
+
     address internal user1 = address(0xA1);
     address internal user2 = address(0xA2);
     address internal refA = address(0xB1);
@@ -144,6 +149,7 @@ contract WiseTelecomNodesCohortTouchpointsTest is DiamondTestHarness {
 
     WiseTelecomNodesDiamond internal diamond;
     MockUSD internal usd;
+    ReferralRegistry internal registry;
 
     function setUp()
         public
@@ -196,6 +202,10 @@ contract WiseTelecomNodesCohortTouchpointsTest is DiamondTestHarness {
         );
 
         AdminFacet(address(diamond)).executeTransferHookFacetChange();
+
+        registry = _wireReferralRegistry(
+            diamond
+        );
 
         diamond.finalizeSetup();
 
@@ -388,7 +398,7 @@ contract WiseTelecomNodesCohortTouchpointsTest is DiamondTestHarness {
         );
 
         assertEq(
-            ReferralFacet(address(diamond)).referrerOf(user1),
+            ReferralFacet(address(diamond)).getReferrerOf(user1),
             refA
         );
 
@@ -557,9 +567,41 @@ contract WiseTelecomNodesCohortTouchpointsTest is DiamondTestHarness {
 
         AdminFacet(address(bare)).executeTransferHookFacetChange();
 
+        _wireReferralRegistry(
+            bare
+        );
+
         bare.finalizeSetup();
 
         vm.expectRevert();
+
+        AdminFacet(address(bare)).setCohortSyncEnabled(
+            true
+        );
+    }
+
+    function test_setCohortSyncEnabled_revertsWhenRegistryNotSet()
+        public
+    {
+        WiseTelecomNodesDiamond bare = _newDiamond(
+            address(usd)
+        );
+
+        _wireAllFacets(
+            bare
+        );
+
+        AdminFacet(address(bare)).proposeTransferHookFacet(
+            address(new CohortHookFacet())
+        );
+
+        AdminFacet(address(bare)).executeTransferHookFacetChange();
+
+        bare.finalizeSetup();
+
+        vm.expectRevert(
+            WiseTelecomNodesDiamondErrors.ReferralRegistryNotSet.selector
+        );
 
         AdminFacet(address(bare)).setCohortSyncEnabled(
             true
@@ -1446,6 +1488,197 @@ contract WiseTelecomNodesCohortTouchpointsTest is DiamondTestHarness {
         assertLt(
             syncedIndex,
             creditedIndex
+        );
+    }
+
+    // ---- 4. registry lookup-failure arms (guarded staticcall seam) ----
+
+    function _lookupFailedCount()
+        internal
+        returns (uint256 count)
+    {
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].topics[0] == LOOKUP_FAILED_TOPIC) {
+                ++count;
+            }
+        }
+    }
+
+    function test_syncPoke_registryReverts_skipsClampThenRetries()
+        public
+    {
+        _arm();
+
+        _depositWithReferralAs(
+            user1,
+            DEPOSIT,
+            refA
+        );
+
+        _transferAs(
+            user1,
+            outsider,
+            2_000 * 1e6
+        );
+
+        bytes memory realCode = address(registry).code;
+
+        vm.etch(
+            address(registry),
+            hex"60006000fd"
+        );
+
+        vm.recordLogs();
+
+        _recorder().syncReferee(
+            user1
+        );
+
+        assertEq(
+            _lookupFailedCount(),
+            1
+        );
+
+        assertEq(
+            _recorder().getTrackedContribution(user1),
+            DEPOSIT
+        );
+
+        assertEq(
+            _recorder().getCohortScore(refA),
+            DEPOSIT
+        );
+
+        vm.etch(
+            address(registry),
+            realCode
+        );
+
+        _recorder().syncReferee(
+            user1
+        );
+
+        assertEq(
+            _recorder().getTrackedContribution(user1),
+            3_000 * 1e6
+        );
+
+        assertEq(
+            _recorder().getCohortScore(refA),
+            3_000 * 1e6
+        );
+    }
+
+    function test_deposit_registryReverts_tracksButCreditsNobody()
+        public
+    {
+        _arm();
+
+        _depositWithReferralAs(
+            user1,
+            DEPOSIT,
+            refA
+        );
+
+        bytes memory realCode = address(registry).code;
+
+        vm.etch(
+            address(registry),
+            hex"60006000fd"
+        );
+
+        vm.recordLogs();
+
+        _depositAs(
+            user1,
+            2_000 * 1e6
+        );
+
+        assertEq(
+            _lookupFailedCount(),
+            1
+        );
+
+        assertEq(
+            _recorder().getTrackedContribution(user1),
+            DEPOSIT + 2_000 * 1e6
+        );
+
+        assertEq(
+            _recorder().getCohortScore(refA),
+            DEPOSIT
+        );
+
+        vm.etch(
+            address(registry),
+            realCode
+        );
+    }
+
+    function test_syncPoke_registryReturnsShortOrDirty_treatedAsFailure()
+        public
+    {
+        _arm();
+
+        _depositWithReferralAs(
+            user1,
+            DEPOSIT,
+            refA
+        );
+
+        _transferAs(
+            user1,
+            outsider,
+            2_000 * 1e6
+        );
+
+        vm.etch(
+            address(registry),
+            hex"60106000f3"
+        );
+
+        vm.recordLogs();
+
+        _recorder().syncReferee(
+            user1
+        );
+
+        assertEq(
+            _lookupFailedCount(),
+            1
+        );
+
+        assertEq(
+            _recorder().getTrackedContribution(user1),
+            DEPOSIT
+        );
+
+        vm.etch(
+            address(registry),
+            hex"7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff60005260206000f3"
+        );
+
+        vm.recordLogs();
+
+        _recorder().syncReferee(
+            user1
+        );
+
+        assertEq(
+            _lookupFailedCount(),
+            1
+        );
+
+        assertEq(
+            _recorder().getTrackedContribution(user1),
+            DEPOSIT
+        );
+
+        assertEq(
+            _recorder().getCohortScore(refA),
+            DEPOSIT
         );
     }
 }
