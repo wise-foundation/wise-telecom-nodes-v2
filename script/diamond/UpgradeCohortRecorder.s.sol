@@ -20,13 +20,13 @@ import {CohortHookFacet} from "../../src/diamond/vault/facets/pending/CohortHook
 
 import {WiseTelecomNodesDiamondSelectors} from "./WiseTelecomNodesDiamondSelectors.sol";
 
-/// @notice SUPERSEDED by {UpgradeReferralRegistry} — do not broadcast. The Phase-1 slot-74
+/// @notice SUPERSEDED by {UpgradeReferralRegistry} — do not broadcast. The slot-74
 /// registry-pointer shard recompiles every facet in this manifest and the referral facets now
-/// write the per-chain standalone {ReferralRegistry} (ruling R19), so installing this
-/// script's builds would route stale bytecode. Kept for the historical record; its 9/9 fork
-/// rehearsal record lives in `src/diamond/DEPLOYED.md`.
+/// write the per-chain standalone {ReferralRegistry}, so installing this
+/// script's builds would route stale bytecode. Kept for the historical record; its full
+/// per-chain fork rehearsal passed before it was superseded.
 ///
-/// Installs the cohort recorder (Phase 2a+2b of the referral commission plan) on an
+/// Installs the cohort recorder of the referral commission system on an
 /// already-running, finalized diamond, and — because the recorder changes the compiled
 /// bytecode of every balance-moving facet through the shared helper chain — redeploys the
 /// full facet-change manifest in the same timelock round. Supersedes {UpgradeReferral}: the
@@ -41,7 +41,7 @@ import {WiseTelecomNodesDiamondSelectors} from "./WiseTelecomNodesDiamondSelecto
 ///   `arm()`      — the separate go-live step: `setCohortSyncEnabled(true)` (probes the
 ///                  installed hook and reverts if it is not cohort-aware) and raises
 ///                  `bridgeGasLimit` to 1M so a dormant-book clamp inside `ccipReceive`
-///                  always fits (ruling O-gas; keeper `advanceBook` cadence keeps the case
+///                  always fits (keeper `advanceBook` cadence keeps the case
 ///                  rare, CCIP manual re-execution is the backstop).
 ///   `abort()`    — cancels every pending batch and the hook proposal (pre-execute only).
 ///   `status()`   — read-only sanity print for the runbook (no broadcast).
@@ -61,9 +61,8 @@ import {WiseTelecomNodesDiamondSelectors} from "./WiseTelecomNodesDiamondSelecto
 ///   VAULT_PRODUCT=usdc forge script script/diamond/UpgradeCohortRecorder.s.sol --sig "arm()" --rpc-url mainnet --broadcast
 /// repeated for usdc/usdt/usdg on each of their chains (mainnet, base, arbitrum, robinhood).
 ///
-/// NOTHING here may be broadcast until the owner gives the explicit go-ahead (repo ruling:
-/// this branch prepares deployment only). After a REAL broadcast is executed and verified:
-/// update src/diamond/DEPLOYED.md (facet rows + addresses + date) and `git mv` the graduated
+/// NOTHING here may be broadcast until the owner gives the explicit go-ahead. After a REAL
+/// broadcast is executed and verified, `git mv` the graduated
 /// files out of src/diamond/vault/facets/pending/ in the same commit.
 contract UpgradeCohortRecorder is VaultConfig {
 
