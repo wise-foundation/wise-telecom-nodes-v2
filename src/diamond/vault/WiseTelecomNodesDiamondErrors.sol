@@ -120,6 +120,12 @@ abstract contract WiseTelecomNodesDiamondErrors {
 
     error SelfReferral();
 
+    error ReferralRegistryNotSet();
+
+    error NoReferralRegistryChangeProposed();
+
+    error ReferralRegistryTimelockNotElapsed();
+
     // ---- Cohort recorder ----
 
     error CohortHookNotInstalled();
