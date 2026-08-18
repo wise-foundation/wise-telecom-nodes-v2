@@ -4,6 +4,7 @@ pragma solidity =0.8.36;
 
 import {FacetBase} from "../FacetBase.sol";
 import {CohortWeeks} from "../../../shared/pending/CohortWeeks.sol";
+import {IReferralRegistry} from "../../interfaces/pending/IReferralRegistry.sol";
 
 /**
  * @dev CohortRecorderBase — the cohort recorder engine, a 1:1 port of
@@ -46,9 +47,31 @@ import {CohortWeeks} from "../../../shared/pending/CohortWeeks.sol";
  * the referrer score is definitionally laneY1+laneY2+laneM (no
  * separate score variable to desync). The gap record's mature field is
  * structurally bounded by the 80-bit book lane, closing the sandbox's
- * unguarded-width review finding. `referrerOf` is read through the
- * single `_cohortReferrerOf` site so the Phase-1 chain-registry swap
- * is contained to one function plus a hook redeploy.
+ * unguarded-width review finding.
+ *
+ * Referrer resolution (Phase 1, ruling R19): the single
+ * `_cohortReferrerOf` seam staticcalls the standalone
+ * {ReferralRegistry} through the slot-74 pointer — never the
+ * diamond's forever-virgin slot-64 mapping. The read is guarded to
+ * honor I6 for ANY registry condition: assembly staticcall into a
+ * 32-byte scratch window (an oversized return can never force a
+ * memory-expansion bomb), success requires exactly 32 bytes of
+ * returndata with clean upper bits (a dirty word must not revert
+ * through abi.decode), and an unset pointer short-circuits to
+ * "unreferred" without a call — the documented off state, not an
+ * anomaly. A FAILED lookup is returned as `ok == false`, distinct
+ * from "no referrer", and each caller then skips its ENTIRE mutation
+ * unit: `_syncRefereeCohort` leaves the clamp for a later retry
+ * (folding failure into "unreferred" would clamp the referee while
+ * never reducing the referrer's book — a permanent, unrecoverable
+ * over-credit once Phase 4 prices it), and
+ * `_creditContributionCohort` credits nobody for that deposit while
+ * still tracking the contribution (the protocol-favoring direction —
+ * a later clamp can only over-reduce into the saturating clip, never
+ * over-credit). Every failed lookup emits
+ * {CohortReferrerLookupFailed} for monitoring. The routed
+ * {ReferralFacet} view getter deliberately does NOT use this guarded
+ * seam — a view revert DoSes nothing.
  */
 abstract contract CohortRecorderBase is FacetBase {
 
@@ -56,10 +79,64 @@ abstract contract CohortRecorderBase is FacetBase {
         address _user
     )
         internal
-        view
-        returns (address)
+        returns (
+            bool,
+            address
+        )
     {
-        return referrerOf[_user];
+        address registry = referralRegistry;
+
+        if (registry == ZERO_ADDRESS) {
+            return (
+                true,
+                ZERO_ADDRESS
+            );
+        }
+
+        bytes4 selector = IReferralRegistry.referrerOf.selector;
+
+        bool success;
+        uint256 word;
+
+        assembly {
+            mstore(0x00, selector)
+            mstore(0x04, _user)
+
+            success := staticcall(
+                gas(),
+                registry,
+                0x00,
+                0x24,
+                0x00,
+                0x00
+            )
+
+            if iszero(eq(returndatasize(), 32)) {
+                success := 0
+            }
+
+            if success {
+                returndatacopy(0x00, 0, 32)
+                word := mload(0x00)
+            }
+        }
+
+        if (success == false || word > type(uint160).max) {
+
+            emit CohortReferrerLookupFailed(
+                _user
+            );
+
+            return (
+                false,
+                ZERO_ADDRESS
+            );
+        }
+
+        return (
+            true,
+            address(uint160(word))
+        );
     }
 
     function _syncRefereeCohort(
@@ -79,9 +156,16 @@ abstract contract CohortRecorderBase is FacetBase {
 
         uint256 delta = tracked - held;
 
-        address referrer = _cohortReferrerOf(
+        (
+            bool lookupOk,
+            address referrer
+        ) = _cohortReferrerOf(
             _user
         );
+
+        if (lookupOk == false) {
+            return;
+        }
 
         if (referrer != ZERO_ADDRESS) {
             _settleBookCohort(
@@ -116,7 +200,10 @@ abstract contract CohortRecorderBase is FacetBase {
             return;
         }
 
-        address referrer = _cohortReferrerOf(
+        (
+            ,
+            address referrer
+        ) = _cohortReferrerOf(
             _user
         );
 
