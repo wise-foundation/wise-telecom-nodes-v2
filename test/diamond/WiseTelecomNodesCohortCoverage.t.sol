@@ -104,6 +104,10 @@ contract WiseTelecomNodesCohortCoverageTest is DiamondTestHarness {
 
         AdminFacet(address(diamond)).executeTransferHookFacetChange();
 
+        _wireReferralRegistry(
+            diamond
+        );
+
         diamond.finalizeSetup();
     }
 
