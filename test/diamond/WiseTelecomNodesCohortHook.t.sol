@@ -165,6 +165,10 @@ contract WiseTelecomNodesCohortHookTest is DiamondTestHarness {
 
         AdminFacet(address(diamond)).executeTransferHookFacetChange();
 
+        _wireReferralRegistry(
+            diamond
+        );
+
         diamond.finalizeSetup();
 
         usd.mint(
@@ -605,6 +609,10 @@ contract WiseTelecomNodesCohortHookTest is DiamondTestHarness {
         );
 
         AdminFacet(address(live)).executeTransferHookFacetChange();
+
+        _wireReferralRegistry(
+            live
+        );
 
         live.finalizeSetup();
 

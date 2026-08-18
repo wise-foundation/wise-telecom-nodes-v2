@@ -30,18 +30,22 @@ import {WiseTelecomNodesQueueHelper} from "../../src/diamond/vault/helpers/WiseT
  * Deploy scripts and tests both import this library so the wiring
  * cannot drift.
  *
- * Counts: admin=28, proxy=3, user=8, sweep=2, cashedInterest=1,
+ * Counts: admin=34, proxy=3, user=8, sweep=2, cashedInterest=1,
  * burnWise=3, move=7, bridge=14, permit2=3, referral=4,
  * permit2Referral=3, cohortRecorder=10, multicall=1, queueAdmin=2,
  * queueJoinLeave=5, queueFulfill=4, queueView=10, queueForecast=1,
- * interestAdmin=1, rescue=1, referralPayout=1 — total 112, of which
+ * interestAdmin=1, rescue=1, referralPayout=1 — total 118, of which
  * 90 are wired at genesis (the genesis-era admin group had 27;
  * `setCohortSyncEnabled` ships with the cohort upgrade's AdminFacet
- * redeploy). The referral groups (referral=4, permit2Referral=3) and
- * the cohortRecorder group are post-launch: installed exclusively by
- * the cohort upgrade script (which supersedes {UpgradeReferral} as
- * the referral installer), never by the genesis deploy scripts, so
- * the genesis wiring stays identical to what is live in production.
+ * redeploy, and the referral-registry pointer six —
+ * propose/execute/cancel plus the three routed getters backing the
+ * slot-74 shard's `internal` fields — ship with the registry
+ * round's AdminFacet redeploy). The referral groups (referral=4,
+ * permit2Referral=3) and the cohortRecorder group are post-launch:
+ * installed exclusively by the registry upgrade script (which
+ * supersedes {UpgradeCohortRecorder}, which superseded
+ * {UpgradeReferral}), never by the genesis deploy scripts, so the
+ * genesis wiring stays identical to what is live in production.
  * The queueForecast and interestAdmin groups are also post-launch,
  * live on all nine diamonds since early August 2026; the rescue
  * group is live on usdt-base only (see `src/diamond/DEPLOYED.md`).
@@ -52,11 +56,11 @@ import {WiseTelecomNodesQueueHelper} from "../../src/diamond/vault/helpers/WiseT
  * every group: {CohortHookFacet} is reached only through the
  * `transferHookFacet` pointer, never the dispatcher.
  *
- * `referralSelectors` includes the `referrerOf` getter: the live
- * diamond keeps its genesis bytecode, so the declaration-chain
- * auto-getter never reaches its dispatcher and must be routed to
- * the facet instead. On a freshly-compiled diamond the route is
- * shadowed by the dispatcher entry — dead but harmless.
+ * `referralSelectors` includes the routed `getReferrerOf` view (the
+ * registry-reading replacement for the retired slot-64 auto-getter,
+ * ruling R19): the live diamond keeps its genesis bytecode, so every
+ * post-genesis read surface must be routed to a facet explicitly —
+ * same story as the six pointer selectors in the admin group.
  */
 library WiseTelecomNodesDiamondSelectors {
 
@@ -65,7 +69,7 @@ library WiseTelecomNodesDiamondSelectors {
         pure
         returns (bytes4[] memory sels)
     {
-        sels = new bytes4[](28);
+        sels = new bytes4[](34);
         sels[0] = AdminFacet.disAllowSupplyChangeByOwner.selector;
         sels[1] = AdminFacet.mintSupply.selector;
         sels[2] = AdminFacet.burnSupply.selector;
@@ -94,6 +98,12 @@ library WiseTelecomNodesDiamondSelectors {
         sels[25] = AdminFacet.setDepositAccumWindow.selector;
         sels[26] = AdminFacet.setSweeper.selector;
         sels[27] = AdminFacet.setCohortSyncEnabled.selector;
+        sels[28] = AdminFacet.proposeReferralRegistry.selector;
+        sels[29] = AdminFacet.executeReferralRegistryChange.selector;
+        sels[30] = AdminFacet.cancelReferralRegistryChange.selector;
+        sels[31] = AdminFacet.getReferralRegistry.selector;
+        sels[32] = AdminFacet.getProposedReferralRegistry.selector;
+        sels[33] = AdminFacet.getReferralRegistryChangeQueuedAt.selector;
     }
 
     function cohortRecorderSelectors()
@@ -264,11 +274,7 @@ library WiseTelecomNodesDiamondSelectors {
         sels[0] = ReferralFacet.depositWithReferral.selector;
         sels[1] = ReferralFacet.depositAndClaimInterestWithReferral.selector;
         sels[2] = ReferralFacet.depositAndCompoundInterestWithReferral.selector;
-        sels[3] = bytes4(
-            keccak256(
-                "referrerOf(address)"
-            )
-        );
+        sels[3] = ReferralFacet.getReferrerOf.selector;
     }
 
     function permit2ReferralSelectors()

@@ -20,6 +20,8 @@ import {QueueJoinLeaveFacet} from "../../../src/diamond/vault/facets/QueueJoinLe
 import {QueueFulfillFacet} from "../../../src/diamond/vault/facets/QueueFulfillFacet.sol";
 import {QueueViewFacet} from "../../../src/diamond/vault/facets/QueueViewFacet.sol";
 
+import {ReferralRegistry} from "../../../src/registry/pending/ReferralRegistry.sol";
+
 import {WiseTelecomNodesDiamondSelectors} from "../../../script/diamond/WiseTelecomNodesDiamondSelectors.sol";
 
 /**
@@ -217,6 +219,35 @@ abstract contract DiamondTestHarness is Test {
         d.executeSelectorChanges(
             _sels
         );
+    }
+
+    /**
+     * @dev Deploys a fresh {ReferralRegistry} (the test contract
+     * becomes its master), allowlists the diamond as a writer and
+     * wires the slot-74 pointer through the {AdminFacet} trio. Must
+     * run after `_wireAllFacets` (the trio needs routing) and before
+     * `finalizeSetup()` so the pointer timelock is in its instant
+     * pre-initialization window — the same seam the hook install
+     * uses.
+     */
+    function _wireReferralRegistry(
+        WiseTelecomNodesDiamond d
+    )
+        internal
+        returns (ReferralRegistry registry)
+    {
+        registry = new ReferralRegistry();
+
+        registry.setAllowedVault(
+            address(d),
+            true
+        );
+
+        AdminFacet(address(d)).proposeReferralRegistry(
+            address(registry)
+        );
+
+        AdminFacet(address(d)).executeReferralRegistryChange();
     }
 
     /**

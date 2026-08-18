@@ -3,19 +3,28 @@
 pragma solidity =0.8.36;
 
 import {FacetBase} from "../FacetBase.sol";
+import {IReferralRegistry} from "../../interfaces/pending/IReferralRegistry.sol";
 
 /**
  * @dev Shared referral-assignment core for the two referral deposit
- * facets. Validates the referrer (non-zero, not the caller) and
- * applies the write-once assignment rule: the first referral deposit
- * sets `referrerOf` and any later value is permanently ignored — an
- * assigned referrer can never be displaced, not by a larger deposit,
- * not by any transfer, and only the referral deposit entrypoints can
- * take an address from unset to set. Validation runs before the
- * write-once check, so a zero or self referrer always reverts even
- * when an assignment already exists; a different valid referrer after
- * assignment is silently ignored and the deposit proceeds. Emits
- * {ReferralSet} only on the actual first-set storage change.
+ * facets. Validates the referrer (non-zero, not the caller) with the
+ * develop-02 revert priority — a zero or self referrer always
+ * reverts, even when an assignment already exists — then forwards
+ * `(msg.sender, referrer)` to this chain's standalone
+ * {ReferralRegistry} through the slot-74 pointer (ruling R19: the
+ * registry is the single source of referrer truth; the diamond's
+ * slot-64 mapping stays forever virgin). The write-once rule, the
+ * silent-ignore of later different referrers and the
+ * {ReferralAssigned} first-set event all live registry-side,
+ * atomically with the write; the vault emits nothing because the
+ * vault changes no state. An unset pointer reverts
+ * {ReferralRegistryNotSet} — loud, never a silent drop of a user's
+ * referrer — and is reachable only in a mis-sequenced upgrade
+ * because the referral selectors and the pointer ship in the same
+ * round. The high-level CALL lets registry reverts (unallowlisted
+ * vault, zero/self defense-in-depth) bubble into the deposit, and
+ * solc's extcodesize guard on void-returning calls rejects a
+ * codeless pointer instead of silently succeeding.
  */
 abstract contract ReferralFacetBase is FacetBase {
 
@@ -34,13 +43,14 @@ abstract contract ReferralFacetBase is FacetBase {
             SelfReferral()
         );
 
-        if (referrerOf[msg.sender] != ZERO_ADDRESS) {
-            return;
-        }
+        address registry = referralRegistry;
 
-        referrerOf[msg.sender] = _referrer;
+        require(
+            registry != ZERO_ADDRESS,
+            ReferralRegistryNotSet()
+        );
 
-        emit ReferralSet(
+        IReferralRegistry(registry).assignReferrer(
             msg.sender,
             _referrer
         );

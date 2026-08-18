@@ -3,6 +3,7 @@
 pragma solidity =0.8.36;
 
 import {WiseTelecomNodesDeclarations} from "../declarations/WiseTelecomNodesDeclarations.sol";
+import {IReferralRegistry} from "../interfaces/pending/IReferralRegistry.sol";
 
 /**
  * @dev Base helper layer: access modifiers (`supplyChangeAllowed`),
@@ -280,6 +281,101 @@ abstract contract WiseTelecomNodesBaseHelper is WiseTelecomNodesDeclarations {
         );
     }
 
+    function _updateReferralRegistry(
+        address _registry
+    )
+        internal
+    {
+        referralRegistry = _registry;
+
+        emit ReferralRegistrySet(
+            _registry
+        );
+    }
+
+    function _proposeReferralRegistry(
+        address _registry
+    )
+        internal
+    {
+        proposedReferralRegistry = _registry;
+        referralRegistryChangeQueuedAt = block.timestamp;
+
+        emit ReferralRegistryProposed(
+            _registry,
+            block.timestamp + REFERRAL_REGISTRY_CHANGE_DELAY
+        );
+    }
+
+    function _applyReferralRegistryChange()
+        internal
+    {
+        require(
+            referralRegistryChangeQueuedAt > 0,
+            NoReferralRegistryChangeProposed()
+        );
+
+        if (initialized) {
+            require(
+                block.timestamp >= referralRegistryChangeQueuedAt + REFERRAL_REGISTRY_CHANGE_DELAY,
+                ReferralRegistryTimelockNotElapsed()
+            );
+        }
+
+        address newRegistry = proposedReferralRegistry;
+
+        require(
+            newRegistry == ZERO_ADDRESS
+                || _probeReferralRegistry(newRegistry),
+            InvalidValue()
+        );
+
+        proposedReferralRegistry = ZERO_ADDRESS;
+        referralRegistryChangeQueuedAt = 0;
+
+        _updateReferralRegistry(
+            newRegistry
+        );
+    }
+
+    function _cancelReferralRegistryChange()
+        internal
+    {
+        address cancelled = proposedReferralRegistry;
+
+        proposedReferralRegistry = ZERO_ADDRESS;
+        referralRegistryChangeQueuedAt = 0;
+
+        emit ReferralRegistryProposalCancelled(
+            cancelled
+        );
+    }
+
+    function _probeReferralRegistry(
+        address _registry
+    )
+        internal
+        view
+        returns (bool)
+    {
+        if (_registry.code.length == 0) {
+            return false;
+        }
+
+        (
+            bool success,
+            bytes memory returnData
+        ) = _registry.staticcall(
+            abi.encodeWithSelector(
+                IReferralRegistry.referrerOf.selector,
+                address(this)
+            )
+        );
+
+        return success
+            && returnData.length == 32;
+    }
+
     function _proposeWorkerAddress(
         address _worker
     )
@@ -498,6 +594,11 @@ abstract contract WiseTelecomNodesBaseHelper is WiseTelecomNodesDeclarations {
             require(
                 transferHookFacet != ZERO_ADDRESS,
                 CohortHookNotInstalled()
+            );
+
+            require(
+                referralRegistry != ZERO_ADDRESS,
+                ReferralRegistryNotSet()
             );
 
             cohortSyncEnabled = true;

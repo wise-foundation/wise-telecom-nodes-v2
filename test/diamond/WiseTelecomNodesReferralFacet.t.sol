@@ -13,9 +13,12 @@ import {ReferralFacet} from "../../src/diamond/vault/facets/pending/ReferralFace
 import {Permit2ReferralFacet} from "../../src/diamond/vault/facets/pending/Permit2ReferralFacet.sol";
 import {GraceFreezeHookFacet} from "../../src/diamond/vault/facets/GraceFreezeHookFacet.sol";
 import {IPermit2} from "../../src/diamond/vault/interfaces/IPermit2.sol";
+import {ReferralRegistry} from "../../src/registry/pending/ReferralRegistry.sol";
+import {ReferralRegistryDeclarations} from "../../src/registry/pending/ReferralRegistryDeclarations.sol";
 
 import {WiseTelecomNodesDiamondErrors} from "../../src/diamond/vault/WiseTelecomNodesDiamondErrors.sol";
 import {OnlyDelegateCall, SelectorTimelockNotElapsed} from "../../src/diamond/shared/DiamondErrors.sol";
+import {NotMaster} from "../../src/diamond/shared/OwnableMaster.sol";
 
 import {WiseTelecomNodesDiamondSelectors} from "../../script/diamond/WiseTelecomNodesDiamondSelectors.sol";
 
@@ -80,22 +83,35 @@ contract MockPermit2 is IPermit2 {
 }
 
 /**
- * @dev Tests for the referral registry: the six `...WithReferral`
- * deposit entrypoints on {ReferralFacet} / {Permit2ReferralFacet}
- * (validation, the write-once assignment rule — the first referrer
- * sticks forever, parity with the non-referral paths). The
- * registry is deposit-only by design — the deployed transfer-hook
- * interface carries no amount, so transfers deliberately never
- * touch `referrerOf`, pinned here under the production
- * {GraceFreezeHookFacet}. A live-upgrade simulation walks the exact
- * timelocked propose/execute sequence {UpgradeReferral} runs
- * against the production diamond.
+ * @dev Tests for the referral surface under ruling R19 (registry
+ * sole truth): the six `...WithReferral` deposit entrypoints on
+ * {ReferralFacet} / {Permit2ReferralFacet} (validation with the
+ * develop-02 revert priority, the write-once rule now enforced by
+ * the standalone {ReferralRegistry} — first referrer sticks
+ * forever, {ReferralAssigned} emitted by the REGISTRY with the
+ * vault identity, the vault emits nothing), parity with the
+ * non-referral paths, transfers never touching referrer state
+ * (pinned under the production {GraceFreezeHookFacet}), and the
+ * diamond slot-64 mapping staying forever virgin (raw `vm.load`).
+ * The slot-74 pointer's full life is covered: instant pre-finalize
+ * install (setUp), post-finalize 3-day timelocked
+ * propose/execute/cancel through the {AdminFacet} trio and its
+ * routed getters, the shape probe rejecting codeless and
+ * wrong-shaped candidates, the zero-proposal revert-to-off state
+ * ({ReferralRegistryNotSet} on referral deposits, zero from
+ * `getReferrerOf`), and hostile-registry behavior on the view
+ * surface (reverts bubble — the deliberate asymmetry against the
+ * recorder's guarded seam, which the cohort suites pin). A
+ * live-upgrade simulation walks the exact timelocked selector +
+ * pointer sequence the registry upgrade round runs against the
+ * production diamonds.
  */
 contract WiseTelecomNodesReferralFacetTest is DiamondTestHarness {
 
-    event ReferralSet(
+    event ReferralAssigned(
         address indexed user,
-        address indexed referrer
+        address indexed referrer,
+        address indexed vault
     );
 
     event Deposited(
@@ -105,9 +121,10 @@ contract WiseTelecomNodesReferralFacetTest is DiamondTestHarness {
 
     uint256 internal constant THRESHOLD = 10_000 * 1e6;
     uint256 internal constant SELECTOR_DELAY = 3 days;
+    uint256 internal constant REGISTRY_DELAY = 3 days;
 
-    bytes32 internal constant REFERRAL_SET_TOPIC = keccak256(
-        "ReferralSet(address,address)"
+    bytes32 internal constant REFERRAL_ASSIGNED_TOPIC = keccak256(
+        "ReferralAssigned(address,address,address)"
     );
 
     address internal user1 = address(0xA1);
@@ -117,6 +134,7 @@ contract WiseTelecomNodesReferralFacetTest is DiamondTestHarness {
 
     WiseTelecomNodesDiamond internal diamond;
     MockUSD internal usd;
+    ReferralRegistry internal registry;
 
     function setUp()
         public
@@ -159,6 +177,10 @@ contract WiseTelecomNodesReferralFacetTest is DiamondTestHarness {
         );
 
         AdminFacet(address(diamond)).executeTransferHookFacetChange();
+
+        registry = _wireReferralRegistry(
+            diamond
+        );
 
         diamond.finalizeSetup();
 
@@ -267,7 +289,7 @@ contract WiseTelecomNodesReferralFacetTest is DiamondTestHarness {
         view
     {
         assertEq(
-            diamond.referrerOf(user1),
+            ReferralFacet(address(diamond)).getReferrerOf(user1),
             address(0)
         );
     }
@@ -458,14 +480,15 @@ contract WiseTelecomNodesReferralFacetTest is DiamondTestHarness {
         vm.expectEmit(
             true,
             true,
-            false,
             true,
-            address(diamond)
+            true,
+            address(registry)
         );
 
-        emit ReferralSet(
+        emit ReferralAssigned(
             user1,
-            refA
+            refA,
+            address(diamond)
         );
 
         vm.prank(
@@ -478,7 +501,7 @@ contract WiseTelecomNodesReferralFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.referrerOf(user1),
+            ReferralFacet(address(diamond)).getReferrerOf(user1),
             refA
         );
     }
@@ -509,7 +532,7 @@ contract WiseTelecomNodesReferralFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.referrerOf(user1),
+            ReferralFacet(address(diamond)).getReferrerOf(user1),
             refA
         );
 
@@ -545,7 +568,7 @@ contract WiseTelecomNodesReferralFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.referrerOf(user1),
+            ReferralFacet(address(diamond)).getReferrerOf(user1),
             refA
         );
     }
@@ -581,12 +604,12 @@ contract WiseTelecomNodesReferralFacetTest is DiamondTestHarness {
 
         for (uint256 i = 0; i < logs.length; i++) {
             assertTrue(
-                logs[i].topics[0] != REFERRAL_SET_TOPIC
+                logs[i].topics[0] != REFERRAL_ASSIGNED_TOPIC
             );
         }
 
         assertEq(
-            diamond.referrerOf(user1),
+            ReferralFacet(address(diamond)).getReferrerOf(user1),
             refA
         );
     }
@@ -609,7 +632,7 @@ contract WiseTelecomNodesReferralFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.referrerOf(user1),
+            ReferralFacet(address(diamond)).getReferrerOf(user1),
             refA
         );
 
@@ -650,12 +673,12 @@ contract WiseTelecomNodesReferralFacetTest is DiamondTestHarness {
 
         for (uint256 i = 0; i < logs.length; i++) {
             assertTrue(
-                logs[i].topics[0] != REFERRAL_SET_TOPIC
+                logs[i].topics[0] != REFERRAL_ASSIGNED_TOPIC
             );
         }
 
         assertEq(
-            diamond.referrerOf(user1),
+            ReferralFacet(address(diamond)).getReferrerOf(user1),
             refA
         );
     }
@@ -693,7 +716,7 @@ contract WiseTelecomNodesReferralFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.referrerOf(user1),
+            ReferralFacet(address(diamond)).getReferrerOf(user1),
             refA
         );
     }
@@ -1001,7 +1024,7 @@ contract WiseTelecomNodesReferralFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.referrerOf(user1),
+            ReferralFacet(address(diamond)).getReferrerOf(user1),
             refA
         );
 
@@ -1122,7 +1145,7 @@ contract WiseTelecomNodesReferralFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.referrerOf(user1),
+            ReferralFacet(address(diamond)).getReferrerOf(user1),
             refA
         );
     }
@@ -1226,12 +1249,12 @@ contract WiseTelecomNodesReferralFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.referrerOf(user2),
+            ReferralFacet(address(diamond)).getReferrerOf(user2),
             address(0)
         );
 
         assertEq(
-            diamond.referrerOf(user1),
+            ReferralFacet(address(diamond)).getReferrerOf(user1),
             refA
         );
     }
@@ -1285,11 +1308,51 @@ contract WiseTelecomNodesReferralFacetTest is DiamondTestHarness {
 
         assertEq(
             live.selectorToFacet(
-                bytes4(
-                    keccak256("referrerOf(address)")
-                )
+                ReferralFacet.getReferrerOf.selector
             ),
             referral
+        );
+
+        ReferralRegistry liveRegistry = new ReferralRegistry();
+
+        liveRegistry.setAllowedVault(
+            address(live),
+            true
+        );
+
+        AdminFacet(address(live)).proposeReferralRegistry(
+            address(liveRegistry)
+        );
+
+        vm.expectRevert(
+            WiseTelecomNodesDiamondErrors.ReferralRegistryTimelockNotElapsed.selector
+        );
+
+        AdminFacet(address(live)).executeReferralRegistryChange();
+
+        vm.expectRevert(
+            WiseTelecomNodesDiamondErrors.ReferralRegistryNotSet.selector
+        );
+
+        ReferralFacet(address(live)).depositWithReferral(
+            5_000 * 1e6,
+            refA
+        );
+
+        assertEq(
+            ReferralFacet(address(live)).getReferrerOf(user1),
+            address(0)
+        );
+
+        vm.warp(
+            block.timestamp + REGISTRY_DELAY + 1
+        );
+
+        AdminFacet(address(live)).executeReferralRegistryChange();
+
+        assertEq(
+            AdminFacet(address(live)).getReferralRegistry(),
+            address(liveRegistry)
         );
 
         _depositWithReferralAs(
@@ -1300,7 +1363,12 @@ contract WiseTelecomNodesReferralFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            live.referrerOf(user1),
+            ReferralFacet(address(live)).getReferrerOf(user1),
+            refA
+        );
+
+        assertEq(
+            liveRegistry.referrerOf(user1),
             refA
         );
 
@@ -1314,8 +1382,245 @@ contract WiseTelecomNodesReferralFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            live.referrerOf(user2),
+            ReferralFacet(address(live)).getReferrerOf(user2),
             address(0)
+        );
+    }
+
+    // ---- 8. registry pointer lifecycle + hostile registries ----
+
+    function test_registryPointer_lifecycleGettersAndCancel()
+        public
+    {
+        ReferralRegistry next = new ReferralRegistry();
+
+        AdminFacet(address(diamond)).proposeReferralRegistry(
+            address(next)
+        );
+
+        assertEq(
+            AdminFacet(address(diamond)).getProposedReferralRegistry(),
+            address(next)
+        );
+
+        assertEq(
+            AdminFacet(address(diamond)).getReferralRegistryChangeQueuedAt(),
+            block.timestamp
+        );
+
+        AdminFacet(address(diamond)).cancelReferralRegistryChange();
+
+        assertEq(
+            AdminFacet(address(diamond)).getProposedReferralRegistry(),
+            address(0)
+        );
+
+        assertEq(
+            AdminFacet(address(diamond)).getReferralRegistryChangeQueuedAt(),
+            0
+        );
+
+        assertEq(
+            AdminFacet(address(diamond)).getReferralRegistry(),
+            address(registry)
+        );
+    }
+
+    function test_RevertWhen_executeRegistryChange_nothingProposed()
+        public
+    {
+        vm.expectRevert(
+            WiseTelecomNodesDiamondErrors.NoReferralRegistryChangeProposed.selector
+        );
+
+        AdminFacet(address(diamond)).executeReferralRegistryChange();
+    }
+
+    function test_RevertWhen_registryPointer_calledByStranger()
+        public
+    {
+        vm.prank(
+            user2
+        );
+
+        vm.expectRevert(
+            NotMaster.selector
+        );
+
+        AdminFacet(address(diamond)).proposeReferralRegistry(
+            address(registry)
+        );
+
+        vm.prank(
+            user2
+        );
+
+        vm.expectRevert(
+            NotMaster.selector
+        );
+
+        AdminFacet(address(diamond)).executeReferralRegistryChange();
+
+        vm.prank(
+            user2
+        );
+
+        vm.expectRevert(
+            NotMaster.selector
+        );
+
+        AdminFacet(address(diamond)).cancelReferralRegistryChange();
+    }
+
+    function test_registryPointer_shapeProbe_rejectsCodelessAndWrongShape()
+        public
+    {
+        AdminFacet(address(diamond)).proposeReferralRegistry(
+            address(0xDEAD)
+        );
+
+        vm.warp(
+            block.timestamp + REGISTRY_DELAY + 1
+        );
+
+        vm.expectRevert(
+            WiseTelecomNodesDiamondErrors.InvalidValue.selector
+        );
+
+        AdminFacet(address(diamond)).executeReferralRegistryChange();
+
+        AdminFacet(address(diamond)).proposeReferralRegistry(
+            address(usd)
+        );
+
+        vm.warp(
+            block.timestamp + REGISTRY_DELAY + 1
+        );
+
+        vm.expectRevert(
+            WiseTelecomNodesDiamondErrors.InvalidValue.selector
+        );
+
+        AdminFacet(address(diamond)).executeReferralRegistryChange();
+
+        assertEq(
+            AdminFacet(address(diamond)).getReferralRegistry(),
+            address(registry)
+        );
+    }
+
+    function test_registryPointer_zeroProposal_revertsToOffState()
+        public
+    {
+        AdminFacet(address(diamond)).proposeReferralRegistry(
+            address(0)
+        );
+
+        vm.warp(
+            block.timestamp + REGISTRY_DELAY + 1
+        );
+
+        AdminFacet(address(diamond)).executeReferralRegistryChange();
+
+        assertEq(
+            AdminFacet(address(diamond)).getReferralRegistry(),
+            address(0)
+        );
+
+        assertEq(
+            ReferralFacet(address(diamond)).getReferrerOf(user1),
+            address(0)
+        );
+
+        _fundAndApprove(
+            diamond,
+            user1,
+            1_000 * 1e6
+        );
+
+        vm.prank(
+            user1
+        );
+
+        vm.expectRevert(
+            WiseTelecomNodesDiamondErrors.ReferralRegistryNotSet.selector
+        );
+
+        ReferralFacet(address(diamond)).depositWithReferral(
+            1_000 * 1e6,
+            refA
+        );
+    }
+
+    function test_depositWithReferral_unallowlistedVault_reverts()
+        public
+    {
+        registry.setAllowedVault(
+            address(diamond),
+            false
+        );
+
+        _fundAndApprove(
+            diamond,
+            user1,
+            1_000 * 1e6
+        );
+
+        vm.prank(
+            user1
+        );
+
+        vm.expectRevert(
+            ReferralRegistryDeclarations.NotAllowedVault.selector
+        );
+
+        ReferralFacet(address(diamond)).depositWithReferral(
+            1_000 * 1e6,
+            refA
+        );
+    }
+
+    function test_getReferrerOf_hostileRegistry_revertBubbles()
+        public
+    {
+        vm.etch(
+            address(registry),
+            hex"60006000fd"
+        );
+
+        vm.expectRevert();
+
+        ReferralFacet(address(diamond)).getReferrerOf(
+            user1
+        );
+    }
+
+    function test_slot64_staysVirgin_afterAssignment()
+        public
+    {
+        _depositWithReferralAs(
+            diamond,
+            user1,
+            1_000 * 1e6,
+            refA
+        );
+
+        assertEq(
+            registry.referrerOf(user1),
+            refA
+        );
+
+        assertEq(
+            vm.load(
+                address(diamond),
+                keccak256(
+                    abi.encode(
+                        user1,
+                        uint256(64)
+                    )
+                )
+            ),
+            bytes32(0)
         );
     }
 }

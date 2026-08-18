@@ -466,6 +466,10 @@ contract CohortRecorderInvariantTest is DiamondTestHarness {
 
         AdminFacet(address(diamond)).executeTransferHookFacetChange();
 
+        _wireReferralRegistry(
+            diamond
+        );
+
         diamond.finalizeSetup();
 
         usd.mint(
@@ -639,5 +643,24 @@ contract CohortRecorderInvariantTest is DiamondTestHarness {
                 "REC3: finalized week crumb mutated"
             );
         }
+    }
+
+    /// forge-config: default.invariant.runs = 128
+    /// forge-config: default.invariant.depth = 64
+    function invariant_REG1_registryReferrerImmutable()
+        public
+        view
+    {
+        assertEq(
+            ReferralFacet(address(diamond)).getReferrerOf(A1),
+            REF,
+            "REG1: A1 referrer changed"
+        );
+
+        assertEq(
+            ReferralFacet(address(diamond)).getReferrerOf(A2),
+            REF,
+            "REG1: A2 referrer changed"
+        );
     }
 }

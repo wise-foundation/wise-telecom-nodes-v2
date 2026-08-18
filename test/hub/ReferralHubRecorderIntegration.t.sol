@@ -136,6 +136,10 @@ contract ReferralHubRecorderIntegrationTest is DiamondTestHarness {
 
         AdminFacet(address(diamond)).executeTransferHookFacetChange();
 
+        _wireReferralRegistry(
+            diamond
+        );
+
         diamond.finalizeSetup();
 
         AdminFacet(address(diamond)).setCohortSyncEnabled(

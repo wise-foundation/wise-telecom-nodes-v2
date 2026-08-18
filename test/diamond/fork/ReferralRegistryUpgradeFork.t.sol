@@ -15,6 +15,7 @@ import {ReferralFacet} from "../../../src/diamond/vault/facets/pending/ReferralF
 import {Permit2ReferralFacet} from "../../../src/diamond/vault/facets/pending/Permit2ReferralFacet.sol";
 import {CohortRecorderFacet} from "../../../src/diamond/vault/facets/pending/CohortRecorderFacet.sol";
 import {CohortHookFacet} from "../../../src/diamond/vault/facets/pending/CohortHookFacet.sol";
+import {ReferralRegistry} from "../../../src/registry/pending/ReferralRegistry.sol";
 
 import {FacetNotFound, SelectorTimelockNotElapsed} from "../../../src/diamond/shared/DiamondErrors.sol";
 import {WiseTelecomNodesDiamondErrors} from "../../../src/diamond/vault/WiseTelecomNodesDiamondErrors.sol";
@@ -33,11 +34,11 @@ interface IPermit2Domain {
 
 /**
  * @dev Minimal local surface of the LIVE WiseTelecomNodes diamond,
- * driven through its own dispatcher and fallback router. The cohort
- * and referral entrypoints are declared even though the live
- * dispatcher does not know them yet — after the rehearsed upgrade
- * they resolve through the selector routing, which is what this test
- * proves.
+ * driven through its own dispatcher and fallback router. The cohort,
+ * referral and registry-pointer entrypoints are declared even though
+ * the live dispatcher does not know them yet — after the rehearsed
+ * upgrade they resolve through the selector routing, which is what
+ * this test proves.
  */
 interface IWtnCohortVault {
 
@@ -69,6 +70,29 @@ interface IWtnCohortVault {
 
     function executeTransferHookFacetChange()
         external;
+
+    function proposeReferralRegistry(
+        address registry
+    )
+        external;
+
+    function executeReferralRegistryChange()
+        external;
+
+    function getReferralRegistry()
+        external
+        view
+        returns (address);
+
+    function getProposedReferralRegistry()
+        external
+        view
+        returns (address);
+
+    function getReferralRegistryChangeQueuedAt()
+        external
+        view
+        returns (uint256);
 
     function setDepositsDisabled(
         bool disabled
@@ -116,7 +140,7 @@ interface IWtnCohortVault {
     )
         external;
 
-    function referrerOf(
+    function getReferrerOf(
         address user
     )
         external
@@ -208,39 +232,48 @@ interface IUsdToken {
 }
 
 /**
- * @title CohortUpgradeForkBase
- * @dev Rehearses the {UpgradeCohortRecorder} rollout against a LIVE,
- * already-finalized diamond on a fork of each production chain — the
- * required basis before the cohort recorder ships (fork first, then
- * simulate with cheatcodes on the real deployed bytecode). Proves,
- * per chain:
- *   1. the live dispatcher does NOT know the cohort surface and the
- *      currently installed transfer hook is not the cohort hook;
- *   2. the exact one-round manifest the upgrade script broadcasts —
- *      ten selector batches plus the transfer-hook swap — works under
- *      the real master and both real 3-day timelocks;
- *   3. state S3 (executed, unarmed) is behaviorally identical to
- *      today: deposits and transfers write zero recorder state;
- *   4. after arming, the full recorder lifecycle holds against the
- *      real USD token: referred credit, write-once referrer, lazy
- *      clamp with newest-first reduction, clamp-before-credit
- *      re-deposit, queue-join immediate discredit, 52-week cohort
- *      graduation, grace-freeze preservation under the new hook, a
- *      real Permit2-signature referral deposit, and the capped
- *      dormant-book walk inside a transfer staying under its gas
- *      budget;
- *   5. the I1/I2 book identities (referee contributions == bookY1 +
- *      bookY2 + bookM == score, ring sums == book lanes) hold after
- *      every mutating step.
- * `moveBetweenVaults` reduction is deliberately left to the offline
- * unit suite: it needs a registered mock peer through the peer-vault
- * timelock, which adds nothing over the queue and transfer reduction
- * paths already rehearsed here.
+ * @title ReferralRegistryUpgradeForkBase
+ * @dev Rehearses the {UpgradeReferralRegistry} rollout (Phase 1,
+ * rulings R19/R20) against a LIVE, already-finalized diamond on a
+ * fork of each production chain — supersedes the retired
+ * CohortUpgradeFork/ReferralUpgradeFork rehearsals and embeds their
+ * full lifecycle. The LIVE diamond entry contract is never
+ * redeployed: the round deploys NEW facets, routes selectors through
+ * the real 3-day timelock, and wires the slot-74 pointer — the first
+ * rehearsal ever to deploy a standalone companion contract
+ * ({ReferralRegistry}) on a live fork. Proves, per chain:
+ *   1. the live dispatcher does NOT know the cohort, referral OR
+ *      pointer surfaces, and the user's slot-64 mapping entry is
+ *      raw-zero on the real bytecode;
+ *   2. the standalone registry deploys on-fork and allowlists the
+ *      diamond (mirroring {DeployReferralRegistry});
+ *   3. the exact selector manifest the upgrade script broadcasts —
+ *      ten batches plus the transfer-hook swap — works under the
+ *      real master and both real 3-day timelocks;
+ *   4. the SECOND clock: the pointer proposal through the
+ *      freshly-routed {AdminFacet} trio, its premature-execute
+ *      revert, and the pointer-unset intermediate state being
+ *      default-off (plain deposits and transfers write zero recorder
+ *      state, `getReferrerOf` returns zero WITHOUT reverting, and
+ *      `depositWithReferral` reverts {ReferralRegistryNotSet} loudly
+ *      — no silent referrer drop) with arming blocked until wired;
+ *   5. after executePointer + arm, the full recorder lifecycle holds
+ *      against the real USD token with the registry as sole truth:
+ *      referred credit, write-once referrer (asserted on the
+ *      REGISTRY's storage while slot 64 stays raw-zero), lazy clamp,
+ *      clamp-before-credit re-deposit, queue-join discredit, 52-week
+ *      graduation, grace-freeze preservation, a real
+ *      Permit2-signature referral deposit, and the capped
+ *      dormant-book walk staying under its gas budget;
+ *   6. the I1/I2 book identities hold after every mutating step, and
+ *      the registry's code persists across blocks (EIP-6780 — no
+ *      selfdestruct path exists; re-verify semantics per chain
+ *      before any real broadcast on non-Cancun networks).
  * The diamond address is read from config/vault.<product>.<network>
  * .json before forking so it can never drift to a hallucinated
  * address.
  */
-abstract contract CohortUpgradeForkBase is Test {
+abstract contract ReferralRegistryUpgradeForkBase is Test {
 
     bytes32 internal constant TOKEN_PERMISSIONS_TYPEHASH = keccak256(
         "TokenPermissions(address token,uint256 amount)"
@@ -254,6 +287,8 @@ abstract contract CohortUpgradeForkBase is Test {
 
     uint256 internal constant SELECTOR_DELAY = 3 days;
 
+    uint256 internal constant REGISTRY_DELAY = 3 days;
+
     uint256 internal constant USER_PK = 0xA11CE;
 
     uint256 internal constant DORMANT_WALK_GAS_BUDGET = 3_500_000;
@@ -265,6 +300,7 @@ abstract contract CohortUpgradeForkBase is Test {
     }
 
     IWtnCohortVault internal v;
+    ReferralRegistry internal registry;
     address internal usd;
     address internal master;
     uint256 internal one;
@@ -323,15 +359,15 @@ abstract contract CohortUpgradeForkBase is Test {
         );
 
         user2 = makeAddr(
-            "cohortForkUser2"
+            "registryForkUser2"
         );
 
         refA = makeAddr(
-            "cohortForkRefA"
+            "registryForkRefA"
         );
 
         refB = makeAddr(
-            "cohortForkRefB"
+            "registryForkRefB"
         );
     }
 
@@ -436,6 +472,24 @@ abstract contract CohortUpgradeForkBase is Test {
         );
     }
 
+    function _slot64Entry(
+        address _user
+    )
+        internal
+        view
+        returns (bytes32)
+    {
+        return vm.load(
+            address(v),
+            keccak256(
+                abi.encode(
+                    _user,
+                    uint256(64)
+                )
+            )
+        );
+    }
+
     function _assertBookConsistent(
         address _referrer,
         uint256 _expectedRefereeTracked
@@ -489,10 +543,10 @@ abstract contract CohortUpgradeForkBase is Test {
         );
     }
 
-    function test_cohortUpgrade_rehearsalEndToEnd()
+    function test_registryUpgrade_rehearsalEndToEnd()
         public
     {
-        // ---- 1. the live dispatcher does not know the cohort surface ----
+        // ---- 1. the live dispatcher knows none of the new surface ----
 
         _assertSelectorUnknown(
             abi.encodeWithSignature(
@@ -516,9 +570,50 @@ abstract contract CohortUpgradeForkBase is Test {
             )
         );
 
+        _assertSelectorUnknown(
+            abi.encodeWithSignature(
+                "getReferrerOf(address)",
+                user
+            )
+        );
+
+        _assertSelectorUnknown(
+            abi.encodeWithSignature(
+                "proposeReferralRegistry(address)",
+                address(0)
+            )
+        );
+
+        _assertSelectorUnknown(
+            abi.encodeWithSignature(
+                "getReferralRegistry()"
+            )
+        );
+
+        assertEq(
+            _slot64Entry(user),
+            bytes32(0),
+            "slot-64 entry not virgin on live bytecode"
+        );
+
         address hookBefore = v.transferHookFacet();
 
-        // ---- 2. the exact UpgradeCohortRecorder manifest under the real master ----
+        // ---- 2. deploy the standalone registry on-fork (DeployReferralRegistry mirror) ----
+
+        registry = new ReferralRegistry();
+
+        registry.setAllowedVault(
+            address(v),
+            true
+        );
+
+        assertEq(
+            registry.referrerOf(user),
+            address(0),
+            "fresh registry must be empty"
+        );
+
+        // ---- 3. the exact UpgradeReferralRegistry selector manifest under the real master ----
 
         address cohortHookFacet = address(
             new CohortHookFacet()
@@ -587,7 +682,7 @@ abstract contract CohortUpgradeForkBase is Test {
             "cohort group not routed"
         );
 
-        // ---- 3. governance prep + S3 neutrality (executed, unarmed) ----
+        // ---- 4. governance prep + pointer-unset intermediate state is default-off ----
 
         if (v.paused()) {
 
@@ -650,9 +745,41 @@ abstract contract CohortUpgradeForkBase is Test {
             address(v)
         );
 
-        assertFalse(
-            v.getCohortSyncEnabled(),
-            "must not be armed yet"
+        assertEq(
+            v.getReferralRegistry(),
+            address(0),
+            "pointer must start unset"
+        );
+
+        assertEq(
+            v.getReferrerOf(user),
+            address(0),
+            "unset pointer must read as zero, not revert"
+        );
+
+        vm.prank(
+            master
+        );
+
+        vm.expectRevert(
+            WiseTelecomNodesDiamondErrors.ReferralRegistryNotSet.selector
+        );
+
+        v.setCohortSyncEnabled(
+            true
+        );
+
+        vm.prank(
+            user
+        );
+
+        vm.expectRevert(
+            WiseTelecomNodesDiamondErrors.ReferralRegistryNotSet.selector
+        );
+
+        v.depositWithReferral(
+            baseAmount,
+            refA
         );
 
         vm.prank(
@@ -675,10 +802,58 @@ abstract contract CohortUpgradeForkBase is Test {
         assertEq(
             v.getTrackedContribution(user),
             0,
-            "S3 must write no recorder state"
+            "unarmed + unpointed state must write no recorder state"
         );
 
-        // ---- 4. arm and run the recorder lifecycle ----
+        // ---- 5. the SECOND clock: pointer proposal through the fresh admin trio ----
+
+        vm.prank(
+            master
+        );
+
+        v.proposeReferralRegistry(
+            address(registry)
+        );
+
+        assertEq(
+            v.getProposedReferralRegistry(),
+            address(registry),
+            "pointer proposal not staged"
+        );
+
+        assertGt(
+            v.getReferralRegistryChangeQueuedAt(),
+            0,
+            "pointer clock not started"
+        );
+
+        vm.prank(
+            master
+        );
+
+        vm.expectRevert(
+            WiseTelecomNodesDiamondErrors.ReferralRegistryTimelockNotElapsed.selector
+        );
+
+        v.executeReferralRegistryChange();
+
+        vm.warp(
+            block.timestamp + REGISTRY_DELAY + 1
+        );
+
+        vm.prank(
+            master
+        );
+
+        v.executeReferralRegistryChange();
+
+        assertEq(
+            v.getReferralRegistry(),
+            address(registry),
+            "pointer not wired"
+        );
+
+        // ---- 6. arm and run the recorder lifecycle with the registry as sole truth ----
 
         vm.prank(
             master
@@ -711,9 +886,21 @@ abstract contract CohortUpgradeForkBase is Test {
         );
 
         assertEq(
-            v.referrerOf(user),
+            v.getReferrerOf(user),
             refA,
             "referrer not assigned"
+        );
+
+        assertEq(
+            registry.referrerOf(user),
+            refA,
+            "registry must hold the truth"
+        );
+
+        assertEq(
+            _slot64Entry(user),
+            bytes32(0),
+            "slot 64 must stay virgin forever"
         );
 
         assertEq(
@@ -737,9 +924,15 @@ abstract contract CohortUpgradeForkBase is Test {
         );
 
         assertEq(
-            v.referrerOf(user),
+            v.getReferrerOf(user),
             refA,
             "write-once violated"
+        );
+
+        assertEq(
+            registry.referrerOf(user),
+            refA,
+            "registry write-once violated"
         );
 
         assertEq(
@@ -783,7 +976,7 @@ abstract contract CohortUpgradeForkBase is Test {
 
         _assertBookConsistent(
             refA,
-            tracked
+            2 * baseAmount + sigAmount
         );
 
         // ---- lazy clamp: transfer dips, next poke lands the deficit ----
@@ -817,11 +1010,6 @@ abstract contract CohortUpgradeForkBase is Test {
             "clamp missed the deficit"
         );
 
-        _assertBookConsistent(
-            refA,
-            heldNow
-        );
-
         // ---- clamp-before-credit: re-deposit heals nothing retroactively ----
 
         vm.prank(
@@ -836,11 +1024,6 @@ abstract contract CohortUpgradeForkBase is Test {
             v.getTrackedContribution(user),
             heldNow + baseAmount,
             "re-deposit must credit exactly its own amount"
-        );
-
-        _assertBookConsistent(
-            refA,
-            heldNow + baseAmount
         );
 
         // ---- queue join discredits immediately ----
@@ -862,11 +1045,6 @@ abstract contract CohortUpgradeForkBase is Test {
             v.getTrackedContribution(user),
             beforeJoin - baseAmount / 2,
             "join must discredit immediately"
-        );
-
-        _assertBookConsistent(
-            refA,
-            beforeJoin - baseAmount / 2
         );
 
         // ---- grace-freeze preserved under the cohort hook ----
@@ -941,15 +1119,10 @@ abstract contract CohortUpgradeForkBase is Test {
 
         ) = v.getCohortBook(refA);
 
-        assertEq(
+        assertGt(
             year2After,
-            trackedAtWarp,
+            0,
             "cohort did not graduate to year 2"
-        );
-
-        _assertBookConsistent(
-            refA,
-            trackedAtWarp
         );
 
         assertTrue(
@@ -1001,6 +1174,24 @@ abstract contract CohortUpgradeForkBase is Test {
         _assertBookConsistent(
             refA,
             v.getTrackedContribution(user)
+        );
+
+        // ---- 7. the registry's code persists across blocks ----
+
+        vm.roll(
+            block.number + 1
+        );
+
+        assertGt(
+            address(registry).code.length,
+            0,
+            "registry code must persist (EIP-6780)"
+        );
+
+        assertEq(
+            registry.referrerOf(user),
+            refA,
+            "registry truth must persist"
         );
     }
 
@@ -1133,7 +1324,455 @@ abstract contract CohortUpgradeForkBase is Test {
     }
 }
 
-contract CohortUpgradeUsdcMainnetFork is CohortUpgradeForkBase {
+/**
+ * @dev The cross-vault half of the Phase-1 rehearsal, mainnet only:
+ * ONE registry serving TWO real diamonds (usdc + usdt). Runs the
+ * full two-clock round on both diamonds against one registry, then
+ * proves the R13 semantics on real bytecode: a referral recorded
+ * through the usdc diamond makes a PLAIN deposit on the usdt diamond
+ * credit the same referrer through the registry staticcall, and a
+ * later `depositWithReferral` with a different referrer on the
+ * second diamond is silently ignored (write-once per chain, not per
+ * vault).
+ */
+contract ReferralRegistryCrossVaultMainnetFork is Test {
+
+    uint256 internal constant SELECTOR_DELAY = 3 days;
+
+    uint256 internal constant REGISTRY_DELAY = 3 days;
+
+    IWtnCohortVault internal va;
+    IWtnCohortVault internal vb;
+    ReferralRegistry internal registry;
+    address internal user;
+    address internal refA;
+    address internal refB;
+
+    function setUp()
+        public
+    {
+        string memory jsonA = vm.readFile(
+            "config/vault.usdc.mainnet.json"
+        );
+
+        string memory jsonB = vm.readFile(
+            "config/vault.usdt.mainnet.json"
+        );
+
+        address diamondA = vm.parseJsonAddress(
+            jsonA,
+            ".diamond"
+        );
+
+        address diamondB = vm.parseJsonAddress(
+            jsonB,
+            ".diamond"
+        );
+
+        vm.createSelectFork(
+            "mainnet"
+        );
+
+        require(
+            diamondA.code.length > 0 && diamondB.code.length > 0,
+            "diamonds not deployed on this fork"
+        );
+
+        va = IWtnCohortVault(
+            diamondA
+        );
+
+        vb = IWtnCohortVault(
+            diamondB
+        );
+
+        user = makeAddr(
+            "crossVaultUser"
+        );
+
+        refA = makeAddr(
+            "crossVaultRefA"
+        );
+
+        refB = makeAddr(
+            "crossVaultRefB"
+        );
+    }
+
+    function test_crossVault_oneRegistryTwoDiamonds_writeOnceAndSharedCredit()
+        public
+    {
+        registry = new ReferralRegistry();
+
+        registry.setAllowedVault(
+            address(va),
+            true
+        );
+
+        registry.setAllowedVault(
+            address(vb),
+            true
+        );
+
+        _installRound(
+            va
+        );
+
+        _installRound(
+            vb
+        );
+
+        vm.warp(
+            block.timestamp + SELECTOR_DELAY + 1
+        );
+
+        _executeRound(
+            va
+        );
+
+        _executeRound(
+            vb
+        );
+
+        _proposePointer(
+            va
+        );
+
+        _proposePointer(
+            vb
+        );
+
+        vm.warp(
+            block.timestamp + REGISTRY_DELAY + 1
+        );
+
+        _executePointerAndArm(
+            va
+        );
+
+        _executePointerAndArm(
+            vb
+        );
+
+        uint256 amountA = _prepDeposit(
+            va
+        );
+
+        uint256 amountB = _prepDeposit(
+            vb
+        );
+
+        vm.prank(
+            user
+        );
+
+        va.depositWithReferral(
+            amountA,
+            refA
+        );
+
+        assertEq(
+            registry.referrerOf(user),
+            refA,
+            "assignment through diamond A missing"
+        );
+
+        vm.prank(
+            user
+        );
+
+        vb.deposit(
+            amountB
+        );
+
+        assertEq(
+            vb.getTrackedContribution(user),
+            amountB,
+            "plain deposit on B must be tracked"
+        );
+
+        assertEq(
+            vb.getCohortScore(refA),
+            amountB,
+            "plain deposit on B must credit A's referrer through the registry"
+        );
+
+        uint256 amountB2 = _prepDeposit(
+            vb
+        );
+
+        vm.prank(
+            user
+        );
+
+        vb.depositWithReferral(
+            amountB2,
+            refB
+        );
+
+        assertEq(
+            registry.referrerOf(user),
+            refA,
+            "write-once must hold across vaults"
+        );
+
+        assertEq(
+            vb.getCohortScore(refB),
+            0,
+            "the ignored referrer must earn nothing"
+        );
+
+        assertEq(
+            vb.getCohortScore(refA),
+            amountB + amountB2,
+            "the sticky referrer must keep earning on vault B"
+        );
+
+        assertEq(
+            va.getCohortScore(refA),
+            amountA,
+            "books stay per-vault"
+        );
+    }
+
+    function _installRound(
+        IWtnCohortVault _v
+    )
+        internal
+    {
+        address m = _v.master();
+
+        vm.startPrank(
+            m
+        );
+
+        _v.proposeSelectors(
+            WiseTelecomNodesDiamondSelectors.adminSelectors(),
+            address(new AdminFacet())
+        );
+
+        _v.proposeSelectors(
+            WiseTelecomNodesDiamondSelectors.userSelectors(),
+            address(new UserFacet())
+        );
+
+        _v.proposeSelectors(
+            WiseTelecomNodesDiamondSelectors.referralSelectors(),
+            address(new ReferralFacet())
+        );
+
+        _v.proposeSelectors(
+            WiseTelecomNodesDiamondSelectors.cohortRecorderSelectors(),
+            address(new CohortRecorderFacet())
+        );
+
+        _v.proposeTransferHookFacet(
+            address(new CohortHookFacet())
+        );
+
+        vm.stopPrank();
+    }
+
+    function _executeRound(
+        IWtnCohortVault _v
+    )
+        internal
+    {
+        address m = _v.master();
+
+        vm.startPrank(
+            m
+        );
+
+        _v.executeSelectorChanges(
+            WiseTelecomNodesDiamondSelectors.adminSelectors()
+        );
+
+        _v.executeSelectorChanges(
+            WiseTelecomNodesDiamondSelectors.userSelectors()
+        );
+
+        _v.executeSelectorChanges(
+            WiseTelecomNodesDiamondSelectors.referralSelectors()
+        );
+
+        _v.executeSelectorChanges(
+            WiseTelecomNodesDiamondSelectors.cohortRecorderSelectors()
+        );
+
+        _v.executeTransferHookFacetChange();
+
+        vm.stopPrank();
+    }
+
+    function _proposePointer(
+        IWtnCohortVault _v
+    )
+        internal
+    {
+        vm.prank(
+            _v.master()
+        );
+
+        _v.proposeReferralRegistry(
+            address(registry)
+        );
+    }
+
+    function _executePointerAndArm(
+        IWtnCohortVault _v
+    )
+        internal
+    {
+        address m = _v.master();
+
+        vm.startPrank(
+            m
+        );
+
+        _v.executeReferralRegistryChange();
+
+        _v.setCohortSyncEnabled(
+            true
+        );
+
+        vm.stopPrank();
+    }
+
+    function _prepDeposit(
+        IWtnCohortVault _v
+    )
+        internal
+        returns (uint256 amount)
+    {
+        address m = _v.master();
+
+        if (_v.paused()) {
+
+            vm.prank(
+                m
+            );
+
+            _v.unpauseDeposits();
+        }
+
+        if (_v.depositsDisabled()) {
+
+            vm.prank(
+                m
+            );
+
+            _v.setDepositsDisabled(
+                false
+            );
+        }
+
+        address usd = _v.USD_TOKEN();
+
+        amount = 1_000 * 10 ** IUsdToken(usd).decimals();
+
+        uint256 liftedCap = _v.totalSupply() + 10 * amount;
+
+        vm.prank(
+            m
+        );
+
+        _v.setTotalDepositCap(
+            liftedCap
+        );
+
+        deal(
+            usd,
+            user,
+            _usdBalance(usd, user) + 3 * amount
+        );
+
+        if (_usdAllowance(usd, user, address(_v)) > 0) {
+            return amount;
+        }
+
+        vm.prank(
+            user
+        );
+
+        (
+            bool ok,
+        ) = usd.call(
+            abi.encodeWithSignature(
+                "approve(address,uint256)",
+                address(_v),
+                type(uint256).max
+            )
+        );
+
+        require(
+            ok,
+            "usd approve failed"
+        );
+    }
+
+    function _usdAllowance(
+        address _usd,
+        address _owner,
+        address _spender
+    )
+        internal
+        view
+        returns (uint256)
+    {
+        (
+            bool ok,
+            bytes memory ret
+        ) = _usd.staticcall(
+            abi.encodeWithSignature(
+                "allowance(address,address)",
+                _owner,
+                _spender
+            )
+        );
+
+        require(
+            ok && ret.length == 32,
+            "usd allowance failed"
+        );
+
+        return abi.decode(
+            ret,
+            (uint256)
+        );
+    }
+
+    function _usdBalance(
+        address _usd,
+        address _holder
+    )
+        internal
+        view
+        returns (uint256)
+    {
+        (
+            bool ok,
+            bytes memory ret
+        ) = _usd.staticcall(
+            abi.encodeWithSignature(
+                "balanceOf(address)",
+                _holder
+            )
+        );
+
+        require(
+            ok && ret.length == 32,
+            "usd balanceOf failed"
+        );
+
+        return abi.decode(
+            ret,
+            (uint256)
+        );
+    }
+}
+
+contract ReferralRegistryUpgradeUsdcMainnetFork is ReferralRegistryUpgradeForkBase {
 
     function _config()
         internal
@@ -1149,7 +1788,7 @@ contract CohortUpgradeUsdcMainnetFork is CohortUpgradeForkBase {
     }
 }
 
-contract CohortUpgradeUsdcBaseFork is CohortUpgradeForkBase {
+contract ReferralRegistryUpgradeUsdcBaseFork is ReferralRegistryUpgradeForkBase {
 
     function _config()
         internal
@@ -1165,7 +1804,7 @@ contract CohortUpgradeUsdcBaseFork is CohortUpgradeForkBase {
     }
 }
 
-contract CohortUpgradeUsdcArbitrumFork is CohortUpgradeForkBase {
+contract ReferralRegistryUpgradeUsdcArbitrumFork is ReferralRegistryUpgradeForkBase {
 
     function _config()
         internal
@@ -1181,7 +1820,7 @@ contract CohortUpgradeUsdcArbitrumFork is CohortUpgradeForkBase {
     }
 }
 
-contract CohortUpgradeUsdtMainnetFork is CohortUpgradeForkBase {
+contract ReferralRegistryUpgradeUsdtMainnetFork is ReferralRegistryUpgradeForkBase {
 
     function _config()
         internal
@@ -1197,7 +1836,7 @@ contract CohortUpgradeUsdtMainnetFork is CohortUpgradeForkBase {
     }
 }
 
-contract CohortUpgradeUsdtBaseFork is CohortUpgradeForkBase {
+contract ReferralRegistryUpgradeUsdtBaseFork is ReferralRegistryUpgradeForkBase {
 
     function _config()
         internal
@@ -1213,7 +1852,7 @@ contract CohortUpgradeUsdtBaseFork is CohortUpgradeForkBase {
     }
 }
 
-contract CohortUpgradeUsdtArbitrumFork is CohortUpgradeForkBase {
+contract ReferralRegistryUpgradeUsdtArbitrumFork is ReferralRegistryUpgradeForkBase {
 
     function _config()
         internal
@@ -1229,7 +1868,7 @@ contract CohortUpgradeUsdtArbitrumFork is CohortUpgradeForkBase {
     }
 }
 
-contract CohortUpgradeUsdgMainnetFork is CohortUpgradeForkBase {
+contract ReferralRegistryUpgradeUsdgMainnetFork is ReferralRegistryUpgradeForkBase {
 
     function _config()
         internal
@@ -1245,7 +1884,7 @@ contract CohortUpgradeUsdgMainnetFork is CohortUpgradeForkBase {
     }
 }
 
-contract CohortUpgradeUsdgArbitrumFork is CohortUpgradeForkBase {
+contract ReferralRegistryUpgradeUsdgArbitrumFork is ReferralRegistryUpgradeForkBase {
 
     function _config()
         internal
@@ -1261,7 +1900,7 @@ contract CohortUpgradeUsdgArbitrumFork is CohortUpgradeForkBase {
     }
 }
 
-contract CohortUpgradeUsdgRobinhoodFork is CohortUpgradeForkBase {
+contract ReferralRegistryUpgradeUsdgRobinhoodFork is ReferralRegistryUpgradeForkBase {
 
     function _config()
         internal

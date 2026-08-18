@@ -218,6 +218,106 @@ abstract contract VaultConfig is CCIPConfig {
         usd     = vm.parseJsonAddress(json, ".usd");
     }
 
+    function _registryPath(
+        string memory _network
+    )
+        internal
+        pure
+        returns (string memory)
+    {
+        return string.concat(
+            "config/registry.",
+            _network,
+            ".json"
+        );
+    }
+
+    function _registryConfigExists(
+        string memory _network
+    )
+        internal
+        returns (bool)
+    {
+        return vm.exists(
+            _registryPath(
+                _network
+            )
+        );
+    }
+
+    function _saveRegistry(
+        string memory _network,
+        address _registry
+    )
+        internal
+    {
+        string memory obj = "registry";
+
+        string memory out = vm.serializeAddress(
+            obj,
+            "registry",
+            _registry
+        );
+
+        vm.writeJson(
+            out,
+            _registryPath(
+                _network
+            )
+        );
+    }
+
+    function _loadRegistry(
+        string memory _network
+    )
+        internal
+        view
+        returns (address registry)
+    {
+        string memory json = vm.readFile(
+            _registryPath(
+                _network
+            )
+        );
+
+        registry = vm.parseJsonAddress(json, ".registry");
+    }
+
+    function _vaultConfigPath(
+        string memory _product,
+        string memory _network
+    )
+        internal
+        pure
+        returns (string memory)
+    {
+        return string.concat(
+            "config/vault.",
+            _product,
+            ".",
+            _network,
+            ".json"
+        );
+    }
+
+    function _loadVaultDiamond(
+        string memory _product,
+        string memory _network
+    )
+        internal
+        view
+        returns (address diamond)
+    {
+        string memory json = vm.readFile(
+            _vaultConfigPath(
+                _product,
+                _network
+            )
+        );
+
+        diamond = vm.parseJsonAddress(json, ".diamond");
+    }
+
     function _signoffPath(
         string memory _network
     )

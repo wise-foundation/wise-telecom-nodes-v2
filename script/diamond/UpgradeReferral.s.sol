@@ -10,10 +10,10 @@ import {WiseTelecomNodesDiamond} from "../../src/diamond/vault/WiseTelecomNodesD
 
 import {WiseTelecomNodesDiamondSelectors} from "./WiseTelecomNodesDiamondSelectors.sol";
 
-/// @notice SUPERSEDED by {UpgradeCohortRecorder} — do not broadcast. The referral groups were
-/// never installed onchain, and the cohort upgrade's manifest now carries them (the referral
-/// facets recompile with the cohort helper chain anyway, so installing this script's builds
-/// would route stale bytecode). Kept for the historical record and its fork rehearsal.
+/// @notice SUPERSEDED twice over — do not broadcast: first by {UpgradeCohortRecorder}, now by
+/// {UpgradeReferralRegistry} (Phase 1, ruling R19: the referral facets write the per-chain
+/// standalone {ReferralRegistry}; this script's slot-64 flow no longer exists in the facets).
+/// Kept for the historical record; its fork rehearsal was retired with the registry rework.
 ///
 /// Installs the referral feature on an already-running, finalized diamond. Two phases,
 /// mirroring the diamond's own propose/execute timelock: `propose()` deploys the two new
