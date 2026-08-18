@@ -37,10 +37,11 @@ import {SweeperDeclaration} from "./SweeperDeclaration.sol";
 import {DepositAccumPrevDeclaration} from "./DepositAccumPrevDeclaration.sol";
 import {HookGuardDeclaration} from "./HookGuardDeclaration.sol";
 import {InterestRemainderDeclaration} from "./InterestRemainderDeclaration.sol";
-import {ReferralRegistryDeclaration} from "./ReferralRegistryDeclaration.sol";
-import {CohortContributionDeclaration} from "./CohortContributionDeclaration.sol";
-import {CohortBookDeclaration} from "./CohortBookDeclaration.sol";
-import {ReferralPayoutDeclaration} from "./ReferralPayoutDeclaration.sol";
+import {ReferralRegistryDeclaration} from "./pending/ReferralRegistryDeclaration.sol";
+import {CohortContributionDeclaration} from "./pending/CohortContributionDeclaration.sol";
+import {CohortBookDeclaration} from "./pending/CohortBookDeclaration.sol";
+import {ReferralPayoutDeclaration} from "./pending/ReferralPayoutDeclaration.sol";
+import {ReferralRegistryPointerDeclaration} from "./pending/ReferralRegistryPointerDeclaration.sol";
 
 /**
  * @title WiseTelecomNodesDeclarations
@@ -84,7 +85,8 @@ abstract contract WiseTelecomNodesDeclarations is
     ReferralRegistryDeclaration,
     CohortContributionDeclaration,
     CohortBookDeclaration,
-    ReferralPayoutDeclaration
+    ReferralPayoutDeclaration,
+    ReferralRegistryPointerDeclaration
 {
 
     constructor(
