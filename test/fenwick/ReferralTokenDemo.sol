@@ -4,13 +4,12 @@ pragma solidity =0.8.36;
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
-import {ReferralTopDecile} from "./ReferralTopDecile.sol";
-
 /**
- * @dev Extends the fenwick practice sandbox with a faithful miniature
- * of the live diamond's transfer-hook mechanics, so referral-hook
- * ideas can be rehearsed against the real constraints. A plain
- * 6-decimal ERC20 hosts the ReferralTopDecile score storage, and both
+ * @dev Referral practice sandbox: a faithful miniature of the live
+ * diamond's transfer-hook mechanics, so referral-hook ideas can be
+ * rehearsed against the real constraints. A plain 6-decimal ERC20
+ * hosts a cumulative per-referrer score (referralScore) with
+ * `addVolume` / `removeVolume` test drivers, and both
  * `transfer` and `transferFrom` mirror the production overrides in
  * WiseTelecomNodesHelper exactly: non-zero amount check, then the
  * pre-transfer hook, then `super`. The hook mirrors
@@ -36,7 +35,9 @@ import {ReferralTopDecile} from "./ReferralTopDecile.sol";
  * burn-based movements run NO hook, matching the live rule that
  * `_burn`-based exits and deposit mints never touch the hook path.
  */
-contract ReferralTokenDemo is ERC20, ReferralTopDecile {
+contract ReferralTokenDemo is ERC20 {
+
+    mapping(address => uint256) public referralScore;
 
     address public transferHookFacet;
 
@@ -52,7 +53,17 @@ contract ReferralTokenDemo is ERC20, ReferralTopDecile {
         address hookFacet
     );
 
+    event ScoreUpdated(
+        address indexed referrer,
+        uint256 oldScore,
+        uint256 newScore
+    );
+
     error InvalidValue();
+
+    error ZeroAddress();
+
+    error InsufficientScore();
 
     constructor()
         ERC20(
@@ -79,6 +90,44 @@ contract ReferralTokenDemo is ERC20, ReferralTopDecile {
         _mint(
             _to,
             _amount
+        );
+    }
+
+    function addVolume(
+        address _referrer,
+        uint256 _amount
+    )
+        external
+        virtual
+    {
+        require(
+            _referrer != address(0),
+            ZeroAddress()
+        );
+
+        _setScore(
+            _referrer,
+            referralScore[_referrer] + _amount
+        );
+    }
+
+    function removeVolume(
+        address _referrer,
+        uint256 _amount
+    )
+        external
+        virtual
+    {
+        uint256 currentScore = referralScore[_referrer];
+
+        require(
+            _amount <= currentScore,
+            InsufficientScore()
+        );
+
+        _setScore(
+            _referrer,
+            currentScore - _amount
         );
     }
 
@@ -141,6 +190,27 @@ contract ReferralTokenDemo is ERC20, ReferralTopDecile {
             from,
             to,
             amount
+        );
+    }
+
+    function _setScore(
+        address _referrer,
+        uint256 _newScore
+    )
+        internal
+    {
+        uint256 oldScore = referralScore[_referrer];
+
+        if (oldScore == _newScore) {
+            return;
+        }
+
+        referralScore[_referrer] = _newScore;
+
+        emit ScoreUpdated(
+            _referrer,
+            oldScore,
+            _newScore
         );
     }
 
