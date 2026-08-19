@@ -9,17 +9,16 @@ import {ReferralTokenDemo} from "./ReferralTokenDemo.sol";
  * the referral commission system, on top of the transfer-hook +
  * Fenwick-ranking practice stack. NOT production code and NOT wired
  * into the diamond; it rehearses the mechanism before a real facet is
- * designed, like every sibling here. Architecture context and the
- * phase plan live in docs/referral-commission-implementation-plan.md.
+ * designed, like every sibling here.
  *
- * Under the claim-at-hub architecture (ruling R10) a vault never
+ * Under the claim-at-hub architecture a vault never
  * prices anything: rates, the ladder, top-decile ranking, bot shares
  * and claimable balances all live in the mainnet hub. The vault is a
  * measuring instrument. Its entire job is to answer, exactly and
  * loop-free, "how much referred principal did each referrer have on
  * each age track, for how long" — and to keep that answer honest
- * against every balance movement. Pricing those measurements at the
- * hub is Phase 4; this contract is the Phase 2 shape.
+ * against every balance movement. Pricing those measurements is the
+ * mainnet hub's job; this contract is the recorder shape.
  *
  * Engine ("three buckets, two rings"): per referrer the book tracks
  * bookY1/bookY2/bookM — total referred principal in its first year,
@@ -41,7 +40,7 @@ import {ReferralTokenDemo} from "./ReferralTokenDemo.sol";
  * toWeekExclusive, constant mature principal) instead of per-week
  * words.
  *
- * Never-block settle (ruling R5): the boundary walk is capped at 104
+ * Never-block settle: the boundary walk is capped at 104
  * steps — after 104 rotations both rings are provably empty, so
  * anything beyond is a closed-form M-only tail plus one gap record —
  * and the walk has no revert paths, because it runs inside the
@@ -49,7 +48,7 @@ import {ReferralTokenDemo} from "./ReferralTokenDemo.sol";
  * itself. `advanceBook` lets anyone pre-walk a dormant book in
  * bounded chunks so the hook path stays cheap in practice.
  *
- * Movement rules (rulings R4/R8): the clamp is one-sided — any
+ * Movement rules: the clamp is one-sided — any
  * ownership-changing movement (transfer, queue join, exit burn)
  * permanently reduces the referee's tracked contribution, the book
  * and the score by exactly tracked − held; NOTHING re-credits except
@@ -61,7 +60,7 @@ import {ReferralTokenDemo} from "./ReferralTokenDemo.sol";
  * beneficiary and a sell-plus-redeposit cycle cannot upgrade old
  * low-rate credit while fresh cover exists. System relocations
  * (moveBetweenVaults, bridge) are OUT of this sandbox's scope: they
- * carry attribution per ruling R8 instead of destroying it.
+ * carry attribution instead of destroying it.
  *
  * Ordering discipline: every path that mutates a referrer's score
  * settles the book FIRST. Settle-before-reduce keeps ring slot
@@ -78,7 +77,7 @@ import {ReferralTokenDemo} from "./ReferralTokenDemo.sol";
  *
  * Deliberate divergences from production, process not mechanics: the
  * local referralScore stands in for the report to the chain registry
- * / mainnet hub (Phase 5 accumulators and flush messages are not
+ * / mainnet hub (cross-chain accumulators and flush messages are not
  * modeled here); the queue is a two-function miniature (escrow in,
  * escrow out, P2P fulfill) that mirrors only the hook-and-balance
  * shape of the real queue paths; rings are unpacked uint256 slots for
