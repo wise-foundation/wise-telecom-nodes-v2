@@ -10,15 +10,15 @@ import {NotMaster} from "../../src/diamond/shared/OwnableMaster.sol";
 
 /**
  * @dev Unit suite for {ReferralHubRates} on the actual deployed
- * {ReferralHub}. Pins ruling R7 (the genesis rate table: thresholds
+ * {ReferralHub}. Pins the genesis rate table (thresholds
  * 5k/10k/20k/30k/50k/100k/500k/1M USD 6-dec, tiers 100..800 bps,
  * Year-1 rate = min(tier(self) + tier(referred), capBps) over the
- * R14 dwell-min ladder inputs) at every threshold edge, both below
+ * dwell-min ladder inputs) at every threshold edge, both below
  * and exactly at each rung, for the referred and self components
  * separately as well as summed and capped. Exercises the
  * append-only, future-only `pushRateTable` governance path — every
  * `InvalidRateTable`/`TableNotFuture`/`TableNotOrdered` revert arm
- * and the master gate — and the I5 property that a table can never
+ * and the master gate — and the property that a table can never
  * retroactively reprice a week whose opening boundary has already
  * passed, even after a later table lands and its own effective week
  * arrives. The decile gate wired into Year-2/mature pricing is priced
@@ -26,7 +26,7 @@ import {NotMaster} from "../../src/diamond/shared/OwnableMaster.sol";
  * schedules nonzero `y2RateBps`/`mRateBps`, distinguishing a
  * qualified single active referrer from one held at bucket zero by
  * `MIN_ACTIVE_SCORE`. Reported scores need a full two-week dwell
- * before they price under the default-on R14 knob, so every
+ * before they price under the default-on dwell-min knob, so every
  * tier-edge assertion warps two weeks past its report before reading
  * `weeklyRates`.
  */
