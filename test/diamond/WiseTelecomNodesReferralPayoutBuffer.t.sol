@@ -47,11 +47,11 @@ contract MockUSD is ERC20 {
 }
 
 /**
- * @dev O6 dormant-accumulator suite: proves the `pendingReferralPayout`
+ * @dev Dormant-accumulator suite: proves the `pendingReferralPayout`
  * tail shard (slot 73) enters `_calculateNeededBuffer` as one more
  * additive liability term — the exact `totalCashedInterest` pattern —
- * while remaining fully dormant (no writer exists in this branch, so
- * `vm.store` on slot 73 stands in for the not-yet-existing Phase-4
+ * while remaining fully dormant (no writer exists yet, so
+ * `vm.store` on slot 73 stands in for the not-yet-existing hub
  * payout intake). The slot-pin test couples every `vm.store` here to
  * the routed getter, so a future renumbering fails loudly in one
  * place. The dormancy test walks the real user flows (deposit, accrue,
