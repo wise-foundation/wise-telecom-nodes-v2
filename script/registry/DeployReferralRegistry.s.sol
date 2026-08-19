@@ -6,8 +6,8 @@ import "forge-std/console2.sol";
 import {VaultConfig} from "../vault/VaultConfig.sol";
 import {ReferralRegistry} from "../../src/registry/pending/ReferralRegistry.sol";
 
-/// @notice Deploys the Phase-1 per-chain {ReferralRegistry} — ONE instance per CHAIN, never
-/// per vault (rulings R13/R19: one shared referrer book serving every diamond on the chain).
+/// @notice Deploys the per-chain {ReferralRegistry} — ONE instance per CHAIN, never
+/// per vault (one shared referrer book serving every diamond on the chain).
 /// This is deliberately a separate script from the per-vault upgrade round: the round runs
 /// once per VAULT_PRODUCT while the registry must exist exactly once per chain, and the
 /// round's `proposePointer()` reads the address this script records in
@@ -29,9 +29,9 @@ import {ReferralRegistry} from "../../src/registry/pending/ReferralRegistry.sol"
 /// Plain CREATE is used; CREATE3 (same registry address on all four chains, matching the
 /// diamonds' own deployment style) remains an option at broadcast time — the config file is
 /// the source of truth either way. NOTHING here may be broadcast until the owner gives the
-/// explicit go-ahead (repo ruling: this branch prepares deployment only). After a REAL
-/// broadcast is executed and verified: update src/diamond/DEPLOYED.md ("Standalone
-/// contracts" section) and `git mv` the registry out of src/registry/pending/ in the same
+/// explicit go-ahead. After a REAL
+/// broadcast is executed and verified, `git mv` the registry out of
+/// src/registry/pending/ in the same
 /// commit.
 contract DeployReferralRegistry is VaultConfig {
 
