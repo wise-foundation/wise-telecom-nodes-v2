@@ -9,9 +9,9 @@ import {ReferralHubDeclarations} from "../../src/hub/pending/ReferralHubDeclarat
 import {CohortWeeks} from "../../src/diamond/shared/pending/CohortWeeks.sol";
 
 /**
- * @dev Intake suite for the Phase-4 referral hub {ReferralHub} /
+ * @dev Intake suite for the mainnet referral hub {ReferralHub} /
  * {ReferralHubIntake} — the crumb and gap pricing choke point. Covered:
- * exact-integer single-crumb pricing against the genesis R7 tier
+ * exact-integer single-crumb pricing against the genesis tier
  * ladder under the dwell-min W/W+1/W+2 activation schedule; growing
  * current-week words paying only the fresh increment; replay and
  * fuzzed-lane redelivery idempotency; reordered/duplicated delivery
