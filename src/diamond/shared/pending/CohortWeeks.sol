@@ -15,8 +15,8 @@ pragma solidity =0.8.36;
  * same three 80-bit lanes (year-1 at bit 0, year-2 at bit 80, mature
  * at bit 160). Crumb words additionally carry the written flag at bit
  * 252; bits 240..251 and 253..255 stay zero forever. The crumb word
- * format is FROZEN as of Phase 2b and consumed by the hub in Phase 4;
- * `CRUMB_VERSION` is stamped into every Phase-5 flush envelope so the
+ * format is FROZEN and consumed by the hub's pricing intake;
+ * `CRUMB_VERSION` is stamped into every flush envelope so the
  * hub can accept version 1 forever. Ring slots pack four uint64 lanes
  * per storage word (52 slots = 13 words per ring per referrer).
  *
@@ -27,7 +27,7 @@ pragma solidity =0.8.36;
  * at compile time, and therefore safe under DELEGATECALL from any
  * facet.
  *
- * Carry codec (Phase 3, same-chain moves ONLY): the attribution-carry
+ * Carry codec (same-chain moves ONLY): the attribution-carry
  * payload staged through the chain registry during `moveBetweenVaults`
  * is word0 envelope `referrer(160) | version(8) | pairCount(8)`, word1
  * `trackedDelta(uint128 low) | mature(uint128 high)`, then two pairs
@@ -39,11 +39,12 @@ pragma solidity =0.8.36;
  * bounded by the vault deposit cap). SAME-CHAIN-ONLY ASSUMPTION: pairs
  * address ring slots by index, which is meaningful only while source
  * and destination share `block.timestamp` inside one atomic move
- * transaction. Phase 5 MUST NOT reuse this encoding cross-chain — R8
- * mandates the 3-aggregate payload with oldest-position landing there,
- * and the bridge carry only applies at all when the destination
- * recipient equals the source owner (a different recipient is an
- * ownership change: R4 destroy, no carry).
+ * transaction. The cross-chain bridge carry MUST NOT reuse this
+ * encoding: it carries the three aggregate lanes instead, landing
+ * them at the oldest live position, and applies at all only when the
+ * destination recipient equals the source owner (a different
+ * recipient is an ownership change — the credit is destroyed, not
+ * carried).
  */
 library CohortWeeks {
 
