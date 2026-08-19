@@ -373,6 +373,39 @@ abstract contract WiseTelecomNodesDiamondEvents {
         bool enabled
     );
 
+    event CohortCarryStaged(
+        address indexed user,
+        address indexed dstVault,
+        address indexed referrer,
+        uint256 trackedDelta,
+        uint256 year1,
+        uint256 year2,
+        uint256 mature,
+        uint256 pairCount
+    );
+
+    event CohortCarryApplied(
+        address indexed user,
+        address indexed srcVault,
+        address indexed referrer,
+        uint256 trackedDelta,
+        uint256 year1,
+        uint256 year2,
+        uint256 mature,
+        uint256 pairCount
+    );
+
+    event CohortCarrySkipped(
+        address indexed user,
+        address indexed dstVault
+    );
+
+    event CohortCarryDiscarded(
+        address indexed user,
+        address indexed srcVault,
+        uint256 stagedAt
+    );
+
     // ---- Queue surface ----
 
     event JoinQue(
