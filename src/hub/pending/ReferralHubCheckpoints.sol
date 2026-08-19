@@ -2,18 +2,13 @@
 
 pragma solidity =0.8.36;
 
-import {ReferralHubRanking} from "./ReferralHubRanking.sol";
+import {ReferralHubDeclarations} from "./ReferralHubDeclarations.sol";
 import {CohortWeeks} from "../../diamond/shared/pending/CohortWeeks.sol";
 
 /**
- * @dev Historical-truth layer: the weekly cutoff log (port of
- * `test/fenwick/ReferralCutoffOracleDemo.sol` — review as a diff) and
- * the per-referrer checkpoint machinery that the sandbox deliberately
- * lacked. The sandbox's flagged divergence was that `qualifiedAt`
- * compared a historical cutoff against the referrer's CURRENT bucket;
- * here the week-w bucket is derived from the referrer's own
- * append-only checkpoint log, which is what makes every past week's
- * verdict immutable under late-arriving data.
+ * @dev Historical-truth layer: the per-referrer checkpoint machinery
+ * that makes every past week's rate inputs immutable under
+ * late-arriving data.
  *
  * Checkpoint discipline: every score mutation calls
  * `_checkpointReferrer` AFTER applying the diff — the first mutation
@@ -23,98 +18,19 @@ import {CohortWeeks} from "../../diamond/shared/pending/CohortWeeks.sol";
  * change again. The opening value of any week w is therefore the
  * value of the last entry with entryWeek < w (strict predecessor,
  * binary search), zero before the first entry — exact for every week
- * with no anchor entries and no live-value fallback. Buckets are
- * never checkpointed: `bucketAt` recomputes them from the checkpointed
- * score through the pure `_bucketFor`, so score and bucket history
- * cannot desync.
+ * with no anchor entries and no live-value fallback.
  *
- * Cutoff discipline (ported): `_snapshotCutoffIfNewWeek` runs
- * first-write-wins per week and must execute BEFORE any tree mutation
- * of a new week — {ReferralHubIntake}'s choke point enforces the
- * ordering the sandbox left to its tests. Quiet weeks carry the last
- * checkpoint forward exactly (sticky binary search); weeks before the
- * first snapshot resolve NOBODY_QUALIFIES, pessimistic and final.
- * Port hardening: an empty tree snapshots NOBODY_QUALIFIES rather
- * than the sandbox's 1 — with zero active referrers the target
- * ceil(0/10) is zero, so "nobody" is the truthful verdict rather
- * than one that merely prices nothing by accident.
- *
- * Dwell-min (hub-side policy knob, default ON): ladder inputs
+ * Dwell-min (hub-side policy knob, genesis ON): ladder inputs
  * for week w are min(opening(w), opening(w-1)) per component, so a
  * deposit straddling a weekly boundary must dwell a full week before
- * it can raise the rate; the decile cutoff deliberately uses the
- * plain opening snapshot. Every loop here is log-bounded binary
- * search; nothing iterates referrers or weeks.
+ * it can raise the rate. The knob is week-versioned in the
+ * append-only, future-only `dwellMinLog` — the same discipline as
+ * the rate tables — so the setting that prices any week is fixed
+ * once that week's opening boundary passes, and a policy change can
+ * never re-verdict an undelivered past week. Every loop here is
+ * log-bounded binary search; nothing iterates referrers or weeks.
  */
-abstract contract ReferralHubCheckpoints is ReferralHubRanking {
-
-    function cutoffAt(
-        uint256 _week
-    )
-        external
-        view
-        returns (uint256)
-    {
-        return _cutoffAt(
-            _week
-        );
-    }
-
-    function qualifyingBucket()
-        external
-        view
-        returns (uint256)
-    {
-        return _qualifyingBucket();
-    }
-
-    function qualifiedAt(
-        uint256 _week,
-        address _referrer
-    )
-        public
-        view
-        returns (bool)
-    {
-        uint256 cutoff = _cutoffAt(
-            _week
-        );
-
-        if (cutoff > BUCKET_COUNT) {
-            return false;
-        }
-
-        uint256 bucket = bucketAt(
-            _referrer,
-            _week
-        );
-
-        if (bucket == 0) {
-            return false;
-        }
-
-        return bucket >= cutoff;
-    }
-
-    function bucketAt(
-        address _referrer,
-        uint256 _week
-    )
-        public
-        view
-        returns (uint256)
-    {
-        (
-            uint256 referred,
-        ) = _openingScoresAt(
-            _referrer,
-            _week
-        );
-
-        return bucketForScore(
-            referred
-        );
-    }
+abstract contract ReferralHubCheckpoints is ReferralHubDeclarations {
 
     function openingScoresAt(
         address _referrer,
@@ -150,6 +66,18 @@ abstract contract ReferralHubCheckpoints is ReferralHubRanking {
         );
     }
 
+    function dwellMinAt(
+        uint256 _week
+    )
+        external
+        view
+        returns (bool)
+    {
+        return _dwellMinAt(
+            _week
+        );
+    }
+
     function checkpointCount(
         address _referrer
     )
@@ -179,98 +107,6 @@ abstract contract ReferralHubCheckpoints is ReferralHubRanking {
             (entry >> CHECKPOINT_REFERRED_SHIFT) & CHECKPOINT_VALUE_MASK,
             entry & CHECKPOINT_VALUE_MASK
         );
-    }
-
-    function _snapshotCutoffIfNewWeek()
-        internal
-    {
-        uint256 week = block.timestamp / CohortWeeks.WEEK;
-
-        uint256 length = cutoffLog.length;
-
-        if (length > 0 && cutoffLog[length - 1] >> 16 == week) {
-            return;
-        }
-
-        uint256 bucket = _qualifyingBucket();
-
-        cutoffLog.push(
-            (week << 16) | bucket
-        );
-
-        emit CutoffSnapshot(
-            week,
-            bucket
-        );
-    }
-
-    function _qualifyingBucket()
-        internal
-        view
-        returns (uint256)
-    {
-        uint256 active = activeReferrerCount;
-
-        if (active == 0) {
-            return NOBODY_QUALIFIES;
-        }
-
-        uint256 need = active - _targetTopCount(active);
-
-        if (need == 0) {
-            return 1;
-        }
-
-        uint256 position;
-
-        uint256 remaining = need;
-
-        for (uint256 power = BUCKET_COUNT / 2; power > 0; power >>= 1) {
-
-            uint256 probe = position + power;
-
-            if (probe <= BUCKET_COUNT && fenwickTree[probe] < remaining) {
-                position = probe;
-                remaining -= fenwickTree[probe];
-            }
-        }
-
-        return position + 2;
-    }
-
-    function _cutoffAt(
-        uint256 _week
-    )
-        internal
-        view
-        returns (uint256)
-    {
-        uint256 length = cutoffLog.length;
-
-        if (length == 0) {
-            return NOBODY_QUALIFIES;
-        }
-
-        if (cutoffLog[0] >> 16 > _week) {
-            return NOBODY_QUALIFIES;
-        }
-
-        uint256 low;
-
-        uint256 high = length - 1;
-
-        while (low < high) {
-
-            uint256 mid = (low + high + 1) / 2;
-
-            if (cutoffLog[mid] >> 16 <= _week) {
-                low = mid;
-            } else {
-                high = mid - 1;
-            }
-        }
-
-        return cutoffLog[low] & PACKED_BUCKET_MASK;
     }
 
     function _checkpointReferrer(
@@ -371,7 +207,7 @@ abstract contract ReferralHubCheckpoints is ReferralHubRanking {
             _week
         );
 
-        if (dwellMinEnabled == false || _week == 0) {
+        if (_week == 0 || _dwellMinAt(_week) == false) {
             return (referredNow, selfNow);
         }
 
@@ -391,5 +227,69 @@ abstract contract ReferralHubCheckpoints is ReferralHubRanking {
                 ? selfNow
                 : selfPrev
         );
+    }
+
+    function _seedGenesisDwellMin()
+        internal
+    {
+        dwellMinLog.push(
+            1
+        );
+
+        emit DwellMinScheduled(
+            0,
+            true
+        );
+    }
+
+    function _scheduleDwellMin(
+        uint256 _effectiveFromWeek,
+        bool _enabled
+    )
+        internal
+    {
+        require(
+            _effectiveFromWeek > block.timestamp / CohortWeeks.WEEK,
+            DwellMinNotFuture()
+        );
+
+        require(
+            _effectiveFromWeek > dwellMinLog[dwellMinLog.length - 1] >> 1,
+            DwellMinNotOrdered()
+        );
+
+        dwellMinLog.push(
+            (_effectiveFromWeek << 1) | (_enabled ? 1 : 0)
+        );
+
+        emit DwellMinScheduled(
+            _effectiveFromWeek,
+            _enabled
+        );
+    }
+
+    function _dwellMinAt(
+        uint256 _week
+    )
+        internal
+        view
+        returns (bool)
+    {
+        uint256 low;
+
+        uint256 high = dwellMinLog.length - 1;
+
+        while (low < high) {
+
+            uint256 mid = (low + high + 1) / 2;
+
+            if (dwellMinLog[mid] >> 1 <= _week) {
+                low = mid;
+            } else {
+                high = mid - 1;
+            }
+        }
+
+        return dwellMinLog[low] & 1 == 1;
     }
 }
