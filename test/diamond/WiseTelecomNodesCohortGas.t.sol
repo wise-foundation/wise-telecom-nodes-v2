@@ -47,7 +47,7 @@ contract MockUSD is ERC20 {
  * @dev Gas-bound proof for the cohort recorder's dormancy handling.
  * Measurements are gasleft() deltas around a raw `.call()` with the
  * calldata encoded and the caller pranked strictly before the window,
- * mirroring the discipline in `test/fenwick/ReferralTopDecileGas.t.sol`.
+ * so nothing but the measured call's own execution lands inside it.
  * Every cell pins one claim from {CohortRecorderBase}'s @dev block:
  * the settle walk is hard-capped at `MAX_SETTLE_BOUNDARIES = 104`
  * steps so a transfer hook can never be blocked by an arbitrarily

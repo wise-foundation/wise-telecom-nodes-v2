@@ -6,14 +6,14 @@ import {ReferralTokenDemo} from "./ReferralTokenDemo.sol";
 
 /**
  * @dev ReferralCommissionDemo — sandbox for the per-vault RECORDER of
- * the referral commission system, on top of the transfer-hook +
- * Fenwick-ranking practice stack. NOT production code and NOT wired
- * into the diamond; it rehearses the mechanism before a real facet is
+ * the referral commission system, on top of the transfer-hook
+ * practice stack. NOT production code and NOT wired into the
+ * diamond; it rehearses the mechanism before a real facet is
  * designed, like every sibling here.
  *
- * Under the claim-at-hub architecture a vault never
- * prices anything: rates, the ladder, top-decile ranking, bot shares
- * and claimable balances all live in the mainnet hub. The vault is a
+ * Under the claim-at-hub architecture a vault never prices anything:
+ * rates, the ladder, bot shares and claimable balances all live in
+ * the mainnet hub. The vault is a
  * measuring instrument. Its entire job is to answer, exactly and
  * loop-free, "how much referred principal did each referrer have on
  * each age track, for how long" — and to keep that answer honest

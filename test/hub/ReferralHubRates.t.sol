@@ -21,14 +21,16 @@ import {NotMaster} from "../../src/diamond/shared/OwnableMaster.sol";
  * and the master gate — and the property that a table can never
  * retroactively reprice a week whose opening boundary has already
  * passed, even after a later table lands and its own effective week
- * arrives. The decile gate wired into Year-2/mature pricing is priced
- * out at genesis (both zero) and asserted live once a future table
- * schedules nonzero `y2RateBps`/`mRateBps`, distinguishing a
- * qualified single active referrer from one held at bucket zero by
- * `MIN_ACTIVE_SCORE`. Reported scores need a full two-week dwell
- * before they price under the default-on dwell-min knob, so every
- * tier-edge assertion warps two weeks past its report before reading
- * `weeklyRates`.
+ * arrives. Year-2 and mature rates pay only in weeks where the
+ * referrer's uncapped ladder sum reaches a nonzero `capBps`: the
+ * cap-gate battery pins at-cap, one-rung-below and above-cap
+ * referrers against the genesis tail rates (500/100 bps), tables
+ * with zero tail rates or a zero cap, the dwell-min delay before an
+ * at-cap report qualifies, and a cap raise closing the gate for
+ * future weeks while already-priced past weeks keep their verdict.
+ * Reported scores need a full two-week dwell before they price under
+ * the default-on dwell-min knob, so every tier-edge assertion warps
+ * two weeks past its report before reading `weeklyRates`.
  */
 contract ReferralHubRatesTest is Test {
 
@@ -149,9 +151,46 @@ contract ReferralHubRatesTest is Test {
         );
     }
 
+    function _genesisTierBps(
+        uint256 _value
+    )
+        internal
+        pure
+        returns (uint256 tier)
+    {
+        uint256[8] memory thresholds = [
+            uint256(5_000 * 1e6),
+            10_000 * 1e6,
+            20_000 * 1e6,
+            30_000 * 1e6,
+            50_000 * 1e6,
+            100_000 * 1e6,
+            500_000 * 1e6,
+            1_000_000 * 1e6
+        ];
+
+        uint256[8] memory tierBps = [
+            uint256(100),
+            200,
+            300,
+            400,
+            500,
+            600,
+            700,
+            800
+        ];
+
+        for (uint256 i; i < 8; ++i) {
+
+            if (_value >= thresholds[i]) {
+                tier = tierBps[i];
+            }
+        }
+    }
+
     // ---- genesis table ----
 
-    function test_rateTableAt_genesis_matchesR7()
+    function test_rateTableAt_genesis_matchesLaunchLadder()
         public
         view
     {
@@ -161,8 +200,8 @@ contract ReferralHubRatesTest is Test {
 
         assertEq(table.effectiveFromWeek, 0);
         assertEq(table.capBps, 1_000);
-        assertEq(table.y2RateBps, 0);
-        assertEq(table.mRateBps, 0);
+        assertEq(table.y2RateBps, 500);
+        assertEq(table.mRateBps, 100);
 
         uint16[8] memory expectedTierBps = [
             uint16(100),
@@ -412,6 +451,42 @@ contract ReferralHubRatesTest is Test {
         );
     }
 
+    function test_pushRateTable_y2RateBpsTooLarge_reverts()
+        public
+    {
+        ReferralHub.RateTable memory table = _validTable(
+            uint32(BASE_WEEK + 3)
+        );
+
+        table.y2RateBps = 10_001;
+
+        vm.expectRevert(
+            ReferralHubDeclarations.InvalidRateTable.selector
+        );
+
+        hub.pushRateTable(
+            table
+        );
+    }
+
+    function test_pushRateTable_mRateBpsTooLarge_reverts()
+        public
+    {
+        ReferralHub.RateTable memory table = _validTable(
+            uint32(BASE_WEEK + 3)
+        );
+
+        table.mRateBps = 10_001;
+
+        vm.expectRevert(
+            ReferralHubDeclarations.InvalidRateTable.selector
+        );
+
+        hub.pushRateTable(
+            table
+        );
+    }
+
     function test_pushRateTable_tierBpsTooLarge_reverts()
         public
     {
@@ -486,7 +561,7 @@ contract ReferralHubRatesTest is Test {
         );
     }
 
-    // ---- table churn & decile gate ----
+    // ---- table churn ----
 
     function test_weeklyRates_pastWeek_immutableUnderTableChurn()
         public
@@ -526,34 +601,174 @@ contract ReferralHubRatesTest is Test {
         assertEq(y1AtPlus4, 510);
     }
 
-    function test_weeklyRates_decileGate_y2AndM_qualifiedVsUnqualified()
+    // ---- cap gate ----
+
+    function test_weeklyRates_atCap_paysTailRates()
         public
     {
-        address refQualified = address(0xD1);
-        address refUnqualified = address(0xD2);
+        address referrer = address(0xE1);
 
         _report(
-            refQualified,
-            60_000 * 1e6,
-            0
+            referrer,
+            1_000_000 * 1e6,
+            10_000 * 1e6
         );
+
+        _warpToWeek(2);
+
+        (uint256 y1Bps, uint256 y2Bps, uint256 mBps) = hub.weeklyRates(referrer, BASE_WEEK + 2);
+
+        assertEq(y1Bps, 1_000);
+        assertEq(y2Bps, 500);
+        assertEq(mBps, 100);
+    }
+
+    function test_weeklyRates_oneRungBelowCap_noTailRates()
+        public
+    {
+        address referrer = address(0xE2);
 
         _report(
-            refUnqualified,
-            500 * 1e6,
-            0
+            referrer,
+            1_000_000 * 1e6,
+            5_000 * 1e6
         );
 
-        _warpToWeek(1);
+        _warpToWeek(2);
 
-        hub.snapshotWeek();
+        (uint256 y1Bps, uint256 y2Bps, uint256 mBps) = hub.weeklyRates(referrer, BASE_WEEK + 2);
+
+        assertEq(y1Bps, 900);
+        assertEq(y2Bps, 0);
+        assertEq(mBps, 0);
+    }
+
+    function test_weeklyRates_aboveCap_paysTailRates()
+        public
+    {
+        address referrer = address(0xE3);
+
+        _report(
+            referrer,
+            1_000_000 * 1e6,
+            1_000_000 * 1e6
+        );
+
+        _warpToWeek(2);
+
+        (uint256 y1Bps, uint256 y2Bps, uint256 mBps) = hub.weeklyRates(referrer, BASE_WEEK + 2);
+
+        assertEq(y1Bps, 1_000);
+        assertEq(y2Bps, 500);
+        assertEq(mBps, 100);
+    }
+
+    function test_weeklyRates_zeroTailTable_atCapPaysZeroTail()
+        public
+    {
+        address referrer = address(0xE4);
+
+        _report(
+            referrer,
+            1_000_000 * 1e6,
+            10_000 * 1e6
+        );
 
         ReferralHub.RateTable memory table = _validTable(
             uint32(BASE_WEEK + 2)
         );
 
+        hub.pushRateTable(
+            table
+        );
+
+        _warpToWeek(2);
+
+        (uint256 y1Bps, uint256 y2Bps, uint256 mBps) = hub.weeklyRates(referrer, BASE_WEEK + 2);
+
+        assertEq(y1Bps, 1_000);
+        assertEq(y2Bps, 0);
+        assertEq(mBps, 0);
+    }
+
+    function test_weeklyRates_zeroCapTable_closesGate()
+        public
+    {
+        address referrer = address(0xE5);
+
+        _report(
+            referrer,
+            1_000_000 * 1e6,
+            10_000 * 1e6
+        );
+
+        ReferralHub.RateTable memory table = _validTable(
+            uint32(BASE_WEEK + 2)
+        );
+
+        table.capBps = 0;
         table.y2RateBps = 500;
-        table.mRateBps = 250;
+        table.mRateBps = 100;
+
+        hub.pushRateTable(
+            table
+        );
+
+        _warpToWeek(2);
+
+        (uint256 y1Bps, uint256 y2Bps, uint256 mBps) = hub.weeklyRates(referrer, BASE_WEEK + 2);
+
+        assertEq(y1Bps, 0);
+        assertEq(y2Bps, 0);
+        assertEq(mBps, 0);
+    }
+
+    function test_weeklyRates_capGate_dwellMinDelaysQualification()
+        public
+    {
+        address referrer = address(0xE6);
+
+        _report(
+            referrer,
+            1_000_000 * 1e6,
+            10_000 * 1e6
+        );
+
+        _warpToWeek(2);
+
+        (uint256 y1AtPlus0, uint256 y2AtPlus0, uint256 mAtPlus0) = hub.weeklyRates(referrer, BASE_WEEK);
+        (uint256 y1AtPlus1, uint256 y2AtPlus1, uint256 mAtPlus1) = hub.weeklyRates(referrer, BASE_WEEK + 1);
+        (uint256 y1AtPlus2, uint256 y2AtPlus2, uint256 mAtPlus2) = hub.weeklyRates(referrer, BASE_WEEK + 2);
+
+        assertEq(y1AtPlus0, 0);
+        assertEq(y2AtPlus0, 0);
+        assertEq(mAtPlus0, 0);
+        assertEq(y1AtPlus1, 0);
+        assertEq(y2AtPlus1, 0);
+        assertEq(mAtPlus1, 0);
+        assertEq(y1AtPlus2, 1_000);
+        assertEq(y2AtPlus2, 500);
+        assertEq(mAtPlus2, 100);
+    }
+
+    function test_weeklyRates_capRaise_disqualifiesGoingForward()
+        public
+    {
+        address referrer = address(0xE7);
+
+        _report(
+            referrer,
+            1_000_000 * 1e6,
+            10_000 * 1e6
+        );
+
+        ReferralHub.RateTable memory table = _validTable(
+            uint32(BASE_WEEK + 3)
+        );
+
+        table.capBps = 1_200;
+        table.y2RateBps = 500;
+        table.mRateBps = 100;
 
         hub.pushRateTable(
             table
@@ -561,15 +776,96 @@ contract ReferralHubRatesTest is Test {
 
         _warpToWeek(5);
 
-        assertTrue(hub.qualifiedAt(BASE_WEEK + 5, refQualified));
-        assertFalse(hub.qualifiedAt(BASE_WEEK + 5, refUnqualified));
+        (uint256 y1Before, uint256 y2Before, uint256 mBefore) = hub.weeklyRates(referrer, BASE_WEEK + 2);
+        (uint256 y1After, uint256 y2After, uint256 mAfter) = hub.weeklyRates(referrer, BASE_WEEK + 3);
 
-        (, uint256 y2Q, uint256 mQ) = hub.weeklyRates(refQualified, BASE_WEEK + 5);
-        (, uint256 y2U, uint256 mU) = hub.weeklyRates(refUnqualified, BASE_WEEK + 5);
+        assertEq(y1Before, 1_000);
+        assertEq(y2Before, 500);
+        assertEq(mBefore, 100);
+        assertEq(y1After, 1_000);
+        assertEq(y2After, 0);
+        assertEq(mAfter, 0);
 
-        assertEq(y2Q, 500);
-        assertEq(mQ, 250);
-        assertEq(y2U, 0);
-        assertEq(mU, 0);
+        (uint256 y1Replay, uint256 y2Replay, uint256 mReplay) = hub.weeklyRates(referrer, BASE_WEEK + 2);
+
+        assertEq(y1Replay, 1_000);
+        assertEq(y2Replay, 500);
+        assertEq(mReplay, 100);
+    }
+
+    function test_weeklyRates_pushedTailRates_paidAtGateOpen()
+        public
+    {
+        address referrer = address(0xE8);
+
+        _report(
+            referrer,
+            1_000_000 * 1e6,
+            10_000 * 1e6
+        );
+
+        ReferralHub.RateTable memory table = _validTable(
+            uint32(BASE_WEEK + 3)
+        );
+
+        table.y2RateBps = 600;
+        table.mRateBps = 200;
+
+        hub.pushRateTable(
+            table
+        );
+
+        _warpToWeek(5);
+
+        (uint256 y1Genesis, uint256 y2Genesis, uint256 mGenesis) = hub.weeklyRates(referrer, BASE_WEEK + 2);
+        (uint256 y1Pushed, uint256 y2Pushed, uint256 mPushed) = hub.weeklyRates(referrer, BASE_WEEK + 3);
+
+        assertEq(y1Genesis, 1_000);
+        assertEq(y2Genesis, 500);
+        assertEq(mGenesis, 100);
+        assertEq(y1Pushed, 1_000);
+        assertEq(y2Pushed, 600);
+        assertEq(mPushed, 200);
+    }
+
+    function testFuzz_weeklyRates_capGate_matchesLocalLadder(
+        uint256 _referredAbs,
+        uint256 _selfAbs
+    )
+        public
+    {
+        _referredAbs = bound(
+            _referredAbs,
+            0,
+            1_100_000 * 1e6
+        );
+
+        _selfAbs = bound(
+            _selfAbs,
+            0,
+            1_100_000 * 1e6
+        );
+
+        address referrer = address(0xF1);
+
+        _report(
+            referrer,
+            _referredAbs,
+            _selfAbs
+        );
+
+        _warpToWeek(2);
+
+        (uint256 y1Bps, uint256 y2Bps, uint256 mBps) = hub.weeklyRates(referrer, BASE_WEEK + 2);
+
+        uint256 ladderSum = _genesisTierBps(
+            _referredAbs
+        ) + _genesisTierBps(
+            _selfAbs
+        );
+
+        assertEq(y1Bps, ladderSum > 1_000 ? 1_000 : ladderSum);
+        assertEq(y2Bps, ladderSum >= 1_000 ? 500 : 0);
+        assertEq(mBps, ladderSum >= 1_000 ? 100 : 0);
     }
 }

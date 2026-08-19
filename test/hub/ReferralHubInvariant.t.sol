@@ -9,7 +9,7 @@ import {CohortWeeks} from "../../src/diamond/shared/pending/CohortWeeks.sol";
 
 /**
  * @dev Drives the mainnet referral hub through bounded random
- * `reportScores` / `deliverCrumbs` / `deliverGap` / `snapshotWeek` /
+ * `reportScores` / `deliverCrumbs` / `deliverGap` /
  * `warpWeeks` actions across a closed universe of 3 allowlisted
  * reporters and 6 referrers, matching the handler-plus-ghost shape of
  * `test/diamond/invariant/CohortRecorderInvariant.t.sol`. Crumb words
@@ -20,10 +20,11 @@ import {CohortWeeks} from "../../src/diamond/shared/pending/CohortWeeks.sol";
  * `deliverCrumbs` and the per-week loop inside `deliverGap` are
  * restricted to strictly-past weeks so the handler's pre-read of
  * `weeklyRates`/`paidCursorAt` is guaranteed stable against the exact
- * state the real call will observe (a current-week delivery could
- * trigger a same-call `_snapshotCutoffIfNewWeek` the handler cannot
- * see from a separate view call — this suite sidesteps that seam
- * entirely rather than modeling it).
+ * state the real call will observe (rates for a week are frozen once
+ * the week's opening boundary passes — checkpoints written during or
+ * after a week can no longer move its opening scores, and rate tables
+ * are future-only — so for a strictly-past week the handler's view
+ * read and the hub's pricing read can never diverge).
  *
  * Ghost state: `ghostCrumbWord` (per cell, last word this handler
  * chose to send, grow-or-replay only); `ghostCursorY1/Y2/M` and
@@ -33,13 +34,16 @@ import {CohortWeeks} from "../../src/diamond/shared/pending/CohortWeeks.sol";
  * `_laneIncrement` / `_advanceCursor` / `_payIncrements` verbatim —
  * this is what makes I4 an exact equality rather than a bound);
  * `touchedCells` (every (reporter, referrer, week) triple either
- * action has ever priced, deduplicated); `journaledWeeks` plus
- * `journalCutoff` / `journalBucket` / `journalQualified` (a snapshot
+ * action has ever priced, deduplicated); `journaledWeeks` plus the
+ * `journalY1Bps` / `journalY2Bps` / `journalMBps` /
+ * `journalOpeningReferred` / `journalOpeningSelf` maps (a snapshot of
+ * every referrer's `weeklyRates` triple and `openingScoresAt` pair,
  * taken the FIRST time each week crosses from current into fully past,
  * i.e. inside `warpWeeks` right after the warp, for exactly the weeks
  * newly left behind — re-verified every invariant check to prove no
  * later-arriving report or delivery can ever move a closed week's
- * verdict, per I5). I3 is checked by reading `lastReportOf` for
+ * rates or opening scores, per I5). I3 is checked by reading
+ * `lastReportOf` for
  * each of the 3 reporters directly off the hub rather than mirroring
  * it in a second ghost mapping — the invariant already cross-checks
  * two independently-updated storage locations (`globalReferredScore`
@@ -72,11 +76,15 @@ contract ReferralHubInvariantHandler is Test {
 
     uint256[] public journaledWeeks;
 
-    mapping(uint256 => uint256) public journalCutoff;
+    mapping(uint256 => mapping(address => uint256)) public journalY1Bps;
 
-    mapping(uint256 => mapping(address => uint256)) public journalBucket;
+    mapping(uint256 => mapping(address => uint256)) public journalY2Bps;
 
-    mapping(uint256 => mapping(address => bool)) public journalQualified;
+    mapping(uint256 => mapping(address => uint256)) public journalMBps;
+
+    mapping(uint256 => mapping(address => uint256)) public journalOpeningReferred;
+
+    mapping(uint256 => mapping(address => uint256)) public journalOpeningSelf;
 
     mapping(bytes32 => uint256) internal ghostCrumbWord;
 
@@ -281,12 +289,6 @@ contract ReferralHubInvariantHandler is Test {
         hub.deliverGap(referrer, record, fromWeek, span);
     }
 
-    function pokeSnapshot()
-        external
-    {
-        hub.snapshotWeek();
-    }
-
     function warpWeeks(
         uint256 _seed
     )
@@ -452,14 +454,28 @@ contract ReferralHubInvariantHandler is Test {
             uint256 week = journaledUpToExclusive;
 
             journaledWeeks.push(week);
-            journalCutoff[week] = hub.cutoffAt(week);
 
             for (uint256 i; i < referrers.length; ++i) {
 
                 address referrer = referrers[i];
 
-                journalBucket[week][referrer] = hub.bucketAt(referrer, week);
-                journalQualified[week][referrer] = hub.qualifiedAt(week, referrer);
+                (
+                    uint256 y1Bps,
+                    uint256 y2Bps,
+                    uint256 mBps
+                ) = hub.weeklyRates(referrer, week);
+
+                journalY1Bps[week][referrer] = y1Bps;
+                journalY2Bps[week][referrer] = y2Bps;
+                journalMBps[week][referrer] = mBps;
+
+                (
+                    uint256 referredScore,
+                    uint256 selfScore
+                ) = hub.openingScoresAt(referrer, week);
+
+                journalOpeningReferred[week][referrer] = referredScore;
+                journalOpeningSelf[week][referrer] = selfScore;
             }
 
             journaledUpToExclusive = week + 1;
@@ -469,27 +485,26 @@ contract ReferralHubInvariantHandler is Test {
 
 /**
  * @dev Stateful-fuzz invariants for the mainnet referral hub
- * ({ReferralHub} / {ReferralHubIntake} / {ReferralHubRanking} /
+ * ({ReferralHub} / {ReferralHubIntake} / {ReferralHubRates} /
  * {ReferralHubCheckpoints}), driven by {ReferralHubInvariantHandler}.
  * I3 pins the source-report/global-aggregate identity that
- * `_applyScoreReport`'s diff-and-apply arithmetic must preserve; the
- * Fenwick invariant pins the active-count/tree identity the ranking
- * layer must preserve under arbitrary activation, deactivation and
- * re-crossing sequences; I4 pins cursor idempotency and exact pricing
+ * `_applyScoreReport`'s diff-and-apply arithmetic must preserve; I4
+ * pins cursor idempotency and exact pricing
  * (replayed, reordered or partially-overlapping deliveries must accrue
  * exactly once, at exactly the rate the ladder implies); I5 pins
- * verdict immutability for every week this run ever watched cross into
- * the past; the final invariant pins the `claimable` / `totalAccrued`
+ * rate and opening-score immutability for every week this run ever
+ * watched cross into the past; the cap-gate invariant pins the rule
+ * that year-2 and mature rates pay in exactly the weeks where the
+ * referrer's uncapped ladder sum reaches a nonzero cap, recomputing
+ * that sum from `ladderInputsAt` against the effective rate table
+ * independently of `_weeklyRates`; the final invariant pins the
+ * `claimable` / `totalAccrued`
  * accounting identity that will anchor the hub-to-vault payout
  * message once claims exist.
  */
 contract ReferralHubInvariantTest is Test {
 
     uint256 internal constant BASE_TIME = 3_000 weeks + 1 hours;
-
-    uint256 internal constant MIN_ACTIVE_SCORE = 1_000 * 1e6;
-
-    uint256 internal constant BUCKET_COUNT = 2_048;
 
     ReferralHub internal hub;
 
@@ -595,43 +610,6 @@ contract ReferralHubInvariantTest is Test {
 
     /// forge-config: default.invariant.runs = 64
     /// forge-config: default.invariant.depth = 32
-    function invariant_fenwick_countAndSumConsistent()
-        public
-        view
-    {
-        address[6] memory referrers = [
-            address(0xB1),
-            address(0xB2),
-            address(0xB3),
-            address(0xB4),
-            address(0xB5),
-            address(0xB6)
-        ];
-
-        uint256 activeCount;
-
-        for (uint256 i; i < referrers.length; ++i) {
-
-            if (hub.globalReferredScore(referrers[i]) >= MIN_ACTIVE_SCORE) {
-                activeCount += 1;
-            }
-        }
-
-        assertEq(
-            hub.activeReferrerCount(),
-            activeCount,
-            "fenwick: activeReferrerCount != count(score >= MIN_ACTIVE_SCORE)"
-        );
-
-        assertEq(
-            hub.prefixCount(BUCKET_COUNT),
-            hub.activeReferrerCount(),
-            "fenwick: prefixCount(2048) != activeReferrerCount"
-        );
-    }
-
-    /// forge-config: default.invariant.runs = 64
-    /// forge-config: default.invariant.depth = 32
     function invariant_I4_cursorsMonotone_paidMatchesGhost()
         public
         view
@@ -682,7 +660,7 @@ contract ReferralHubInvariantTest is Test {
 
     /// forge-config: default.invariant.runs = 64
     /// forge-config: default.invariant.depth = 32
-    function invariant_I5_pastVerdictsFrozen()
+    function invariant_I5_pastRatesFrozen()
         public
         view
     {
@@ -701,28 +679,99 @@ contract ReferralHubInvariantTest is Test {
 
             uint256 week = handler.journaledWeeks(i);
 
-            assertEq(
-                hub.cutoffAt(week),
-                handler.journalCutoff(week),
-                "I5: cutoffAt drifted for a past week"
-            );
-
             for (uint256 j; j < referrers.length; ++j) {
 
                 address referrer = referrers[j];
 
+                (
+                    uint256 y1Bps,
+                    uint256 y2Bps,
+                    uint256 mBps
+                ) = hub.weeklyRates(referrer, week);
+
                 assertEq(
-                    hub.bucketAt(referrer, week),
-                    handler.journalBucket(week, referrer),
-                    "I5: bucketAt drifted for a past week"
+                    y1Bps,
+                    handler.journalY1Bps(week, referrer),
+                    "I5: y1 rate drifted for a past week"
                 );
 
                 assertEq(
-                    hub.qualifiedAt(week, referrer),
-                    handler.journalQualified(week, referrer),
-                    "I5: qualifiedAt drifted for a past week"
+                    y2Bps,
+                    handler.journalY2Bps(week, referrer),
+                    "I5: y2 rate drifted for a past week"
+                );
+
+                assertEq(
+                    mBps,
+                    handler.journalMBps(week, referrer),
+                    "I5: mature rate drifted for a past week"
+                );
+
+                (
+                    uint256 referredScore,
+                    uint256 selfScore
+                ) = hub.openingScoresAt(referrer, week);
+
+                assertEq(
+                    referredScore,
+                    handler.journalOpeningReferred(week, referrer),
+                    "I5: opening referred score drifted for a past week"
+                );
+
+                assertEq(
+                    selfScore,
+                    handler.journalOpeningSelf(week, referrer),
+                    "I5: opening self score drifted for a past week"
                 );
             }
+        }
+    }
+
+    /// forge-config: default.invariant.runs = 64
+    /// forge-config: default.invariant.depth = 32
+    function invariant_capGate_y2mPaidOnlyAtCap()
+        public
+        view
+    {
+        uint256 length = handler.touchedCellsLength();
+
+        for (uint256 i; i < length; ++i) {
+
+            (
+                ,
+                address referrer,
+                uint256 week
+            ) = handler.touchedCells(i);
+
+            ReferralHub.RateTable memory table = _effectiveTable(
+                week
+            );
+
+            (
+                uint256 referredInput,
+                uint256 selfInput
+            ) = hub.ladderInputsAt(referrer, week);
+
+            uint256 ladderSum = _tierBpsOf(table, selfInput)
+                + _tierBpsOf(table, referredInput);
+
+            (
+                ,
+                uint256 y2Bps,
+                uint256 mBps
+            ) = hub.weeklyRates(referrer, week);
+
+            bool tailPaid = y2Bps != 0 || mBps != 0;
+
+            bool gateOpen = table.capBps > 0
+                && ladderSum >= table.capBps
+                && (table.y2RateBps != 0 || table.mRateBps != 0);
+
+            assertEq(
+                tailPaid,
+                gateOpen,
+                "capGate: nonzero y2/m rates iff uncapped ladder sum reaches a nonzero cap"
+            );
         }
     }
 
@@ -752,5 +801,46 @@ contract ReferralHubInvariantTest is Test {
             sumClaimable,
             "totalAccrued != sum(claimable)"
         );
+    }
+
+    // ---- internal helpers ----
+
+    function _effectiveTable(
+        uint256 _week
+    )
+        internal
+        view
+        returns (ReferralHub.RateTable memory table)
+    {
+        uint256 count = hub.rateTableCount();
+
+        table = hub.rateTableAt(0);
+
+        for (uint256 i = 1; i < count; ++i) {
+
+            ReferralHub.RateTable memory candidate = hub.rateTableAt(i);
+
+            if (candidate.effectiveFromWeek <= _week) {
+                table = candidate;
+            }
+        }
+    }
+
+    function _tierBpsOf(
+        ReferralHub.RateTable memory _table,
+        uint256 _value
+    )
+        internal
+        pure
+        returns (uint256)
+    {
+        for (uint256 i = 8; i > 0; --i) {
+
+            if (_value >= _table.thresholds[i - 1]) {
+                return _table.tierBps[i - 1];
+            }
+        }
+
+        return 0;
     }
 }

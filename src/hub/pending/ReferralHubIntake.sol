@@ -20,12 +20,12 @@ import {CohortWeeks} from "../../diamond/shared/pending/CohortWeeks.sol";
  *
  * Scores are ABSOLUTE per source, not deltas: `_applyScoreReport`
  * diffs the reported values against `lastSourceReport` and applies
- * the signed difference to the global aggregates and the Fenwick
- * tree. Re-reports are idempotent no-ops, recorder clamp decreases
+ * the signed difference to the global aggregates.
+ * Re-reports are idempotent no-ops, recorder clamp decreases
  * arrive as plain lower absolutes, and score consistency reduces to
  * the equality `globalReferredScore == Σ lastSourceReport` per
- * referrer. Ordering is load-bearing: cutoff snapshot (pre-mutation)
- * → apply diff → checkpoint referrer (post-mutation closing value).
+ * referrer. Ordering is load-bearing: apply diff → checkpoint
+ * referrer (post-mutation closing value).
  *
  * Cursors enforce exactly-once accrual:
  * `paidCursor[source][referrer][week]` stores the
@@ -35,9 +35,7 @@ import {CohortWeeks} from "../../diamond/shared/pending/CohortWeeks.sol";
  * exactly once, and a growing current-week word pays only fresh
  * increments at the week's already-frozen rate (continuous
  * claims). A regressive lane emits the `CrumbLaneRegression` anomaly
- * and pays zero — never a revert. Pricing the current week snapshots
- * the cutoff first, so a pre-first-mutation price cannot use a sticky
- * value that a later same-week mutation would flip.
+ * and pays zero — never a revert.
  *
  * Pricing floors per lane: `inc × bps / 10_000 / YEAR`, dust
  * retained, so total paid per (source, referrer, week) can never
@@ -79,16 +77,11 @@ abstract contract ReferralHubIntake is ReferralHubRates {
             return;
         }
 
-        _snapshotCutoffIfNewWeek();
-
         lastSourceReport[_source][_referrer] = packed;
 
-        _setReferredScore(
-            _referrer,
-            globalReferredScore[_referrer]
-                - (previous >> REPORT_REFERRED_SHIFT)
-                + _referredAbs
-        );
+        globalReferredScore[_referrer] = globalReferredScore[_referrer]
+            - (previous >> REPORT_REFERRED_SHIFT)
+            + _referredAbs;
 
         globalSelfScore[_referrer] = globalSelfScore[_referrer]
             - (previous & REPORT_VALUE_MASK)
@@ -307,10 +300,6 @@ abstract contract ReferralHubIntake is ReferralHubRates {
             uint256 incrementWord
         )
     {
-        if (_week == block.timestamp / CohortWeeks.WEEK) {
-            _snapshotCutoffIfNewWeek();
-        }
-
         incrementWord = _cursorIncrements(
             _source,
             _referrer,

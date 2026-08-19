@@ -6,8 +6,8 @@ pragma solidity =0.8.36;
  * @dev Cohort-book tail shard: the per-referrer commission
  * book — "three buckets, two rings" — ported from the proven
  * `test/fenwick/ReferralCommissionDemo.sol` sandbox with production
- * lane packing. The vault is a measuring instrument only: no rates, no
- * ranking, no claimables live here (those are the mainnet hub's
+ * lane packing. The vault is a measuring instrument only: no rates,
+ * no claimables live here (those are the mainnet hub's
  * business).
  *
  * `cohortBook` packs bookY1|bookY2|bookM into one word as three 80-bit

@@ -4,7 +4,6 @@ pragma solidity =0.8.36;
 
 import {Test} from "forge-std/Test.sol";
 import {Vm} from "forge-std/Vm.sol";
-import {ReferralTopDecile} from "./ReferralTopDecile.sol";
 import {ReferralTokenDemo} from "./ReferralTokenDemo.sol";
 import {
     ReferralCommissionDemo,
@@ -24,11 +23,11 @@ import {
  * empty-book settle writing no crumbs; the mint-never-credits rule;
  * and a randomized-operation fuzz asserting after every operation
  * that sum of referee contributions == bookY1 + bookY2 + bookM ==
- * referralScore. No pricing exists in the recorder — rates, claims,
- * bot shares and ranking live at the hub — so nothing here asserts
+ * referralScore. No pricing exists in the recorder — rates, claims
+ * and bot shares live at the hub — so nothing here asserts
  * accrual amounts; crumb words (three 80-bit token-seconds lanes plus
- * the written bit) are the only settle output. Gap-record details and
- * the cutoff oracle are covered by sibling suites.
+ * the written bit) are the only settle output. Gap-record details
+ * are covered by the sibling crumb suite.
  */
 contract ReferralCommissionCoreTest is Test {
 
@@ -253,7 +252,7 @@ contract ReferralCommissionCoreTest is Test {
         );
 
         vm.expectRevert(
-            ReferralTopDecile.ZeroAddress.selector
+            ReferralTokenDemo.ZeroAddress.selector
         );
 
         token.depositWithReferral(
@@ -272,7 +271,7 @@ contract ReferralCommissionCoreTest is Test {
         );
 
         vm.expectRevert(
-            ReferralTopDecile.ZeroAddress.selector
+            ReferralTokenDemo.ZeroAddress.selector
         );
 
         token.depositWithReferral(

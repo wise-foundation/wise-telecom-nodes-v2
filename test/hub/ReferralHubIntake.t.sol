@@ -22,8 +22,12 @@ import {CohortWeeks} from "../../src/diamond/shared/pending/CohortWeeks.sol";
  * versus real-word trichotomy; every `deliverCrumbs`/`deliverGap`
  * validation revert; per-source cursor and score isolation across two
  * independently allowed reporters; exact and windowed-resume gap
- * pricing (mRate genesis-zero, cursors still advance); and the I7
- * rational pricing bound `claimable * 10_000 * YEAR <= lanes * bps`
+ * pricing (the unscored referrer never reaches the cap that unlocks
+ * the mature rate, so the span prices zero while cursors still
+ * advance); at-cap referrers — uncapped ladder sum reaching
+ * `capBps` — unlocking the genesis year-2/mature rates for both
+ * crumb and gap pricing; and the I7 rational pricing bound
+ * `claimable * 10_000 * YEAR <= lanes * bps`
  * under arbitrary split-delivery sequences. `address(this)` is both
  * deployer/master and, once self-allowed in `setUp`, the default
  * reporter — `deliverer == address(this)` is therefore the default
@@ -71,6 +75,16 @@ contract ReferralHubIntakeTest is Test {
     uint256 internal constant HIGH_SCORE = 100_000 * 1e6;
 
     uint256 internal constant TIER6_BPS = 600;
+
+    uint256 internal constant AT_CAP_REFERRED = 1_000_000 * 1e6;
+
+    uint256 internal constant AT_CAP_SELF = 10_000 * 1e6;
+
+    uint256 internal constant CAP_BPS = 1_000;
+
+    uint256 internal constant Y2_GENESIS_BPS = 500;
+
+    uint256 internal constant M_GENESIS_BPS = 100;
 
     address internal refA = address(0xB1);
 
@@ -223,6 +237,22 @@ contract ReferralHubIntakeTest is Test {
         );
 
         return week + 2;
+    }
+
+    function _reportAtCapScores(
+        address _referrer
+    )
+        internal
+        returns (uint256 gateOpenWeek)
+    {
+        gateOpenWeek = block.timestamp / WEEK + 2;
+
+        _reportScoresAs(
+            address(this),
+            _referrer,
+            AT_CAP_REFERRED,
+            AT_CAP_SELF
+        );
     }
 
     function _permutationOf(
@@ -942,6 +972,177 @@ contract ReferralHubIntakeTest is Test {
         );
 
         assertEq(vm.getRecordedLogs().length, 0);
+    }
+
+    // ---- at-cap tail rates ----
+
+    function test_deliverCrumbs_atCapReferrer_paysY2AndMAtGenesisRates()
+        public
+    {
+        uint256 week = _reportAtCapScores(
+            refA
+        );
+
+        vm.warp(
+            block.timestamp + 3 weeks
+        );
+
+        uint256 qY1 = 1_000 * 1e6 * WEEK;
+
+        uint256 qY2 = 400 * 1e6 * WEEK;
+
+        uint256 qM = 200 * 1e6 * WEEK;
+
+        uint256 expectedPaid = qY1 * CAP_BPS / 10_000 / YEAR
+            + qY2 * Y2_GENESIS_BPS / 10_000 / YEAR
+            + qM * M_GENESIS_BPS / 10_000 / YEAR;
+
+        bytes32 source = _sourceKeyOf(
+            address(this)
+        );
+
+        vm.expectEmit(
+            true,
+            true,
+            true,
+            true,
+            address(hub)
+        );
+
+        emit CrumbPriced(
+            source,
+            refA,
+            week,
+            address(this),
+            qY1,
+            qY2,
+            qM,
+            expectedPaid
+        );
+
+        _deliverCrumbAs(
+            address(this),
+            refA,
+            week,
+            _word(qY1, qY2, qM)
+        );
+
+        assertEq(hub.claimable(refA), expectedPaid);
+        assertEq(hub.totalAccrued(), expectedPaid);
+    }
+
+    function test_deliverGap_atCapReferrer_paysMatureAtGenesisRate()
+        public
+    {
+        uint256 fromWeek = _reportAtCapScores(
+            refA
+        );
+
+        uint256 toWeekExclusive = fromWeek + 6;
+
+        uint256 mature = 5_000 * 1e6;
+
+        uint256 record = _gapRecord(
+            fromWeek,
+            toWeekExclusive,
+            mature
+        );
+
+        vm.warp(
+            block.timestamp + 10 weeks
+        );
+
+        uint256 perWeekPaid = mature * WEEK * M_GENESIS_BPS / 10_000 / YEAR;
+
+        uint256 expectedPaid = perWeekPaid * 6;
+
+        bytes32 source = _sourceKeyOf(
+            address(this)
+        );
+
+        vm.expectEmit(
+            true,
+            true,
+            false,
+            true,
+            address(hub)
+        );
+
+        emit GapPriced(
+            source,
+            refA,
+            fromWeek,
+            toWeekExclusive,
+            expectedPaid
+        );
+
+        hub.deliverGap(
+            refA,
+            record,
+            fromWeek,
+            6
+        );
+
+        assertEq(hub.claimable(refA), expectedPaid);
+        assertEq(hub.totalAccrued(), expectedPaid);
+    }
+
+    function test_deliverGap_straddlesGateOpening_pricesPerWeekRates()
+        public
+    {
+        uint256 gateOpenWeek = _reportAtCapScores(
+            refA
+        );
+
+        uint256 fromWeek = gateOpenWeek - 2;
+
+        uint256 toWeekExclusive = fromWeek + 4;
+
+        uint256 mature = 5_000 * 1e6;
+
+        uint256 record = _gapRecord(
+            fromWeek,
+            toWeekExclusive,
+            mature
+        );
+
+        vm.warp(
+            block.timestamp + 10 weeks
+        );
+
+        uint256 perWeekPaid = mature * WEEK * M_GENESIS_BPS / 10_000 / YEAR;
+
+        uint256 expectedPaid = perWeekPaid * 2;
+
+        bytes32 source = _sourceKeyOf(
+            address(this)
+        );
+
+        vm.expectEmit(
+            true,
+            true,
+            false,
+            true,
+            address(hub)
+        );
+
+        emit GapPriced(
+            source,
+            refA,
+            fromWeek,
+            toWeekExclusive,
+            expectedPaid
+        );
+
+        hub.deliverGap(
+            refA,
+            record,
+            fromWeek,
+            4
+        );
+
+        assertEq(hub.claimable(refA), expectedPaid);
+        assertEq(hub.totalAccrued(), expectedPaid);
     }
 
     // ---- gap validation reverts ----

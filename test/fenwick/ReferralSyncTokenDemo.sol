@@ -8,7 +8,7 @@ import {ReferralTokenDemo} from "./ReferralTokenDemo.sol";
  * @dev Lazy-sync referral accounting on top of the transfer-hook
  * sandbox — the mechanism under formal proof. Each referred user
  * carries `referredContribution` (their deposit-sourced credit toward
- * their referrer's Fenwick score), and `_syncReferee` enforces the
+ * their referrer's score), and `_syncReferee` enforces the
  * clamp lazily at every touchpoint: if the tracked contribution
  * exceeds the user's current balance, both the contribution and the
  * referrer's score are reduced by exactly the difference, so

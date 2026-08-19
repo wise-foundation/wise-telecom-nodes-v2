@@ -21,17 +21,12 @@ import {
  * Kontrol tractability scope (mirrors test/diamond/kontrol
  * conventions): actor addresses are concrete literals so mapping
  * slots stay concrete for the symbolic engine; amounts are fully
- * symbolic within stated bounds. The REFS family bounds amounts below
- * MIN_ACTIVE_SCORE, so the Fenwick tree is never touched and the
- * contribution/score algebra is proven with zero concrete-index
- * restrictions. The REFT family deposits exactly MIN_ACTIVE_SCORE
- * (Fenwick bucket 1 — a concrete 12-node walk) and clamps by a
- * symbolic partial amount, which always lands below the activation
- * threshold, so the deactivation walk is the same concrete node set —
- * every Fenwick storage key in every proof is concrete while all
- * clamp deltas stay symbolic. Arbitrary-bucket coverage of the same
+ * symbolic within stated bounds. The REFS family bounds amounts to a
+ * fixed 1,000-USD budget purely to keep the symbolic arithmetic
+ * small; the contribution/score algebra is proven with zero
+ * concrete-index restrictions. Arbitrary-amount coverage of the same
  * theorem comes from the wide-range randomized fuzz in
- * {ReferralSync.t.sol} and the base contract's own suite.
+ * {ReferralSync.t.sol}.
  */
 contract ReferralSyncPropertiesTest is Test {
 
@@ -75,7 +70,7 @@ contract ReferralSyncPropertiesTest is Test {
         );
     }
 
-    // ---- REFS: fully symbolic amounts, sub-activation (no tree) ----
+    // ---- REFS: fully symbolic amounts within the budget bound ----
 
     function testFuzz_REFS1_transferNeverIncreasesContributionOrScore(
         uint256 _deposit,
@@ -309,70 +304,5 @@ contract ReferralSyncPropertiesTest is Test {
 
         assert(token.referredContribution(USER_C) == 0);
         assert(token.balanceOf(USER_C) == _mintAmount);
-    }
-
-    // ---- REFT: concrete bucket-1 activation, symbolic clamp ----
-
-    function testFuzz_REFT1_clampBelowMinDeactivatesReferrer(
-        uint256 _send
-    )
-        public
-    {
-        vm.assume(
-            _send > 0 && _send <= MIN_SCORE
-        );
-
-        _depositA(
-            MIN_SCORE
-        );
-
-        assert(token.activeReferrerCount() == 1);
-        assert(token.referrerBucket(REF_B) == 1);
-
-        vm.prank(
-            USER_A
-        );
-
-        token.transfer(
-            USER_C,
-            _send
-        );
-
-        token.syncReferee(
-            USER_A
-        );
-
-        assert(token.referredContribution(USER_A) == MIN_SCORE - _send);
-        assert(token.referralScore(REF_B) == MIN_SCORE - _send);
-        assert(token.activeReferrerCount() == 0);
-        assert(token.referrerBucket(REF_B) == 0);
-        assert(token.isTopTenPercent(REF_B) == false);
-    }
-
-    function testFuzz_REFT2_moveOutClampDeactivatesImmediately(
-        uint256 _out
-    )
-        public
-    {
-        vm.assume(
-            _out > 0 && _out <= MIN_SCORE
-        );
-
-        _depositA(
-            MIN_SCORE
-        );
-
-        vm.prank(
-            USER_A
-        );
-
-        token.moveBetweenVaultsExit(
-            _out
-        );
-
-        assert(token.referredContribution(USER_A) == MIN_SCORE - _out);
-        assert(token.referralScore(REF_B) == MIN_SCORE - _out);
-        assert(token.activeReferrerCount() == 0);
-        assert(token.referrerBucket(REF_B) == 0);
     }
 }
