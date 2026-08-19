@@ -31,11 +31,12 @@ import {CohortWeeks} from "../../diamond/shared/pending/CohortWeeks.sol";
  *   u112 is structurally unreachable: one source's report is bounded
  *   at intake to `3 × LANE_MASK_80` and a u112 fits ~1.4e9 such
  *   sources, so no guard (and no untestable revert arm) is needed.
- * - cutoffLog entry: `week << 16 | b*` (b* in 1..2049, 2049 = nobody
- *   qualifies — bucket 2048 is unbounded above so "nobody" has no
- *   finite score representation).
  * - lastSourceReport entry: `referred << 128 | self` (both bounded to
  *   `3 × LANE_MASK_80` at intake, so each fits u128 exactly).
+ * - dwellMinLog entry: `effectiveFromWeek << 1 | enabled`. Append-only
+ *   and future-only exactly like `rateTables`, so the dwell setting
+ *   that priced any week whose opening boundary has passed can never
+ *   change.
  * - paidCursor entry: three 80-bit token-second lanes in the crumb
  *   geometry (Y1 at bit 0, Y2 at 80, M at 160), decoded with the
  *   {CohortWeeks} lane accessors.
@@ -45,29 +46,13 @@ import {CohortWeeks} from "../../diamond/shared/pending/CohortWeeks.sol";
  * has; the keeper-bot policy matrix gates the cross-chain flush
  * transport, which does not
  * exist yet). Cursors make every delivery idempotent and replay-safe;
- * the append-only checkpoint and cutoff logs make every past
- * week's verdict and rate immutable; pricing floors per lane so
- * the hub can never overpay exact.
+ * the append-only checkpoint log, the future-only rate tables and
+ * the future-only dwell-min schedule together make every past week's
+ * rates a pure function of frozen data — immutable even against
+ * master. Pricing floors per lane so the hub can never overpay
+ * exact.
  */
 abstract contract ReferralHubDeclarations is OwnableMaster {
-
-    uint256 internal constant MIN_ACTIVE_SCORE = 1_000 * 1e6;
-
-    uint256 internal constant SUB_BUCKETS = 64;
-
-    uint256 internal constant EXPONENT_COUNT = 32;
-
-    uint256 internal constant BUCKET_COUNT = 2_048;
-
-    uint256 internal constant FENWICK_ADD_STEPS = 12;
-
-    uint256 internal constant FENWICK_SUM_STEPS = 11;
-
-    uint256 internal constant TOP_DIVISOR = 10;
-
-    uint256 internal constant NOBODY_QUALIFIES = BUCKET_COUNT + 1;
-
-    uint256 internal constant PACKED_BUCKET_MASK = (1 << 16) - 1;
 
     uint256 internal constant CHECKPOINT_WEEK_SHIFT = 224;
 
@@ -94,23 +79,15 @@ abstract contract ReferralHubDeclarations is OwnableMaster {
         uint96[8] thresholds;
     }
 
-    // ---- Ranking ----
-
-    uint256 public activeReferrerCount;
+    // ---- Global scores ----
 
     mapping(address => uint256) public globalReferredScore;
 
     mapping(address => uint256) public globalSelfScore;
 
-    mapping(address => uint256) public referrerBucket;
-
-    mapping(uint256 => uint256) internal fenwickTree;
-
     // ---- Append-only history ----
 
     mapping(address => uint256[]) internal referrerCheckpoints;
-
-    uint256[] internal cutoffLog;
 
     // ---- Per-source reports ----
 
@@ -132,19 +109,11 @@ abstract contract ReferralHubDeclarations is OwnableMaster {
 
     mapping(address => bool) public allowedReporter;
 
-    bool public dwellMinEnabled;
+    uint256[] internal dwellMinLog;
 
     mapping(address => address) internal payoutAddress;
 
     // ---- Events ----
-
-    event ScoreUpdated(
-        address indexed referrer,
-        uint256 oldScore,
-        uint256 newScore,
-        uint256 oldBucket,
-        uint256 newBucket
-    );
 
     event SourceScoresReported(
         bytes32 indexed source,
@@ -158,11 +127,6 @@ abstract contract ReferralHubDeclarations is OwnableMaster {
         uint256 indexed week,
         uint256 referredScore,
         uint256 selfScore
-    );
-
-    event CutoffSnapshot(
-        uint256 indexed week,
-        uint256 qualifyingBucket
     );
 
     event RateTableScheduled(
@@ -203,7 +167,8 @@ abstract contract ReferralHubDeclarations is OwnableMaster {
         bool allowed
     );
 
-    event DwellMinSet(
+    event DwellMinScheduled(
+        uint256 indexed effectiveFromWeek,
         bool enabled
     );
 
@@ -215,8 +180,6 @@ abstract contract ReferralHubDeclarations is OwnableMaster {
     // ---- Errors ----
 
     error ZeroAddress();
-
-    error InvalidBucket();
 
     error NotReporter();
 
@@ -237,6 +200,10 @@ abstract contract ReferralHubDeclarations is OwnableMaster {
     error TableNotFuture();
 
     error TableNotOrdered();
+
+    error DwellMinNotFuture();
+
+    error DwellMinNotOrdered();
 
     error InvalidRateTable();
 }
