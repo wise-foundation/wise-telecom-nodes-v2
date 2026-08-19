@@ -56,7 +56,7 @@ contract MockUSD is ERC20 {
  * closed-form gap tail beyond `MAX_SETTLE_BOUNDARIES`. `transferOut`
  * and `transferBetween` run WITHOUT try/catch by design: a transfer
  * hook revert must fail the run, because the recorder's never-block
- * guarantee (ruling R5) means a transfer should never revert on
+ * guarantee means a transfer should never revert on
  * recorder grounds — a revert here is a real bug, not noise to swallow.
  */
 contract CohortRecorderHandler is Test {
