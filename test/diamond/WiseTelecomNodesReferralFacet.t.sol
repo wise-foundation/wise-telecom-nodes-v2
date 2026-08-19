@@ -83,10 +83,10 @@ contract MockPermit2 is IPermit2 {
 }
 
 /**
- * @dev Tests for the referral surface under ruling R19 (registry
- * sole truth): the six `...WithReferral` deposit entrypoints on
+ * @dev Tests for the referral surface with the registry as
+ * sole truth: the six `...WithReferral` deposit entrypoints on
  * {ReferralFacet} / {Permit2ReferralFacet} (validation with the
- * develop-02 revert priority, the write-once rule now enforced by
+ * fixed revert priority, the write-once rule now enforced by
  * the standalone {ReferralRegistry} — first referrer sticks
  * forever, {ReferralAssigned} emitted by the REGISTRY with the
  * vault identity, the vault emits nothing), parity with the

@@ -3,15 +3,15 @@
 pragma solidity =0.8.36;
 
 /**
- * @dev Cohort-contribution tail shard (Phase 2a of the referral
- * commission plan). `trackedContribution` is the per-user cumulative
+ * @dev Cohort-contribution tail shard of the referral commission
+ * system. `trackedContribution` is the per-user cumulative
  * deposit-and-compound ledger the one-way clamp maintains: it is
  * tracked for EVERY depositor — not only referred ones — because a
  * referrer's own stake is a rate-ladder input at the hub, and it is
  * lazily clamped down to `min(tracked, balanceOf)` at every balance
  * touchpoint. It only ever increases inside a deposit or compound and
- * only ever decreases through the clamp; nothing re-credits (ruling
- * R4). Kept full-word exact and never saturated — it is the accounting
+ * only ever decreases through the clamp; nothing re-credits. Kept
+ * full-word exact and never saturated — it is the accounting
  * root the packed book mirrors.
  *
  * `cohortSyncEnabled` is the instant master switch (precedent:
@@ -22,7 +22,13 @@ pragma solidity =0.8.36;
  * Arming requires the cohort-aware transfer hook to be installed: the
  * recorder engine is compiled once into {CohortHookFacet} and reached
  * exclusively through the `transferHookFacet` pointer (slot 45), which
- * the `COHORT_*` selectors below address (ruling R17). Appended after
+ * the `COHORT_*` selectors below address. The same-chain
+ * move-carry pair (`COHORT_MOVE_OUT_SELECTOR` /
+ * `COHORT_MOVE_IN_SELECTOR`) extends the same pointer-only register:
+ * like the original three these are deliberately absent from the
+ * dispatcher and reachable solely through the transient
+ * `hookExecuting` bracket. Constants take no storage — this shard
+ * still occupies exactly slots 65-66. Appended after
  * {ReferralRegistryDeclaration} (slot 64) so it takes fresh tail slots
  * 65-66 and moves no pre-existing slot.
  */
@@ -47,6 +53,18 @@ abstract contract CohortContributionDeclaration {
     bytes4 internal constant COHORT_ADVANCE_SELECTOR = bytes4(
         keccak256(
             "applyCohortAdvance(address,uint256)"
+        )
+    );
+
+    bytes4 internal constant COHORT_MOVE_OUT_SELECTOR = bytes4(
+        keccak256(
+            "applyCohortMoveOut(address,address,uint256,uint256,uint256)"
+        )
+    );
+
+    bytes4 internal constant COHORT_MOVE_IN_SELECTOR = bytes4(
+        keccak256(
+            "applyCohortMoveIn(address,address)"
         )
     );
 }

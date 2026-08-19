@@ -3,8 +3,8 @@
 pragma solidity =0.8.36;
 
 /**
- * @dev Referral-registry tail shard — declared but FOREVER VIRGIN
- * (ruling R19). Referrer truth lives in the per-chain standalone
+ * @dev Referral-registry tail shard — declared but FOREVER VIRGIN.
+ * Referrer truth lives in the per-chain standalone
  * {ReferralRegistry}, reached through the slot-74 pointer in
  * {ReferralRegistryPointerDeclaration}; no shipped code path reads
  * or writes this mapping and the fork rehearsals assert it stays

@@ -12,7 +12,7 @@ import {IReferralRegistry} from "../../interfaces/pending/IReferralRegistry.sol"
  * the diamond's packed tail-shard storage ({CohortContributionDeclaration},
  * {CohortBookDeclaration}). The engine is compiled once into
  * {CohortHookFacet} and reached exclusively through the
- * `transferHookFacet` pointer (ruling R17); nothing else in the
+ * `transferHookFacet` pointer; nothing else in the
  * diamond carries this code.
  *
  * Ordering discipline (preserved verbatim from the sandbox): every
@@ -20,14 +20,14 @@ import {IReferralRegistry} from "../../interfaces/pending/IReferralRegistry.sol"
  * Settle-before-reduce keeps ring slot indices meaningful (rotations
  * current before the walk); settle-before-credit keeps crumb
  * time-weights exact (the elapsed window accrues at the balances that
- * actually existed). The clamp is one-way (ruling R4): `_syncRefereeCohort`
+ * actually existed). The clamp is one-way: `_syncRefereeCohort`
  * only ever lowers `trackedContribution` to the held balance — for
  * EVERY depositor, referred or not, because the self-stake ladder
  * input must stay honest — and reduces the referrer's book
  * newest-credit-first so a sell-plus-redeposit cycle can never upgrade
  * old credit while fresh cover exists.
  *
- * Never-block guarantee (ruling R5, invariant I6): the settle walk is
+ * Never-block guarantee: the settle walk is
  * capped at MAX_SETTLE_BOUNDARIES = 104 steps — after 104 rotations
  * both rings are provably empty, so anything further is a closed-form
  * mature-only gap record plus one partial segment — and no function
@@ -46,14 +46,15 @@ import {IReferralRegistry} from "../../interfaces/pending/IReferralRegistry.sol"
  * geometry, so a settle segment reads all three sums in one SLOAD and
  * the referrer score is definitionally laneY1+laneY2+laneM (no
  * separate score variable to desync). The gap record's mature field is
- * structurally bounded by the 80-bit book lane, closing the sandbox's
- * unguarded-width review finding.
+ * structurally bounded by the 80-bit book lane, closing a width gap
+ * the sandbox left unguarded.
  *
- * Referrer resolution (Phase 1, ruling R19): the single
+ * Referrer resolution: the single
  * `_cohortReferrerOf` seam staticcalls the standalone
  * {ReferralRegistry} through the slot-74 pointer — never the
  * diamond's forever-virgin slot-64 mapping. The read is guarded to
- * honor I6 for ANY registry condition: assembly staticcall into a
+ * keep the hook path revert-free for ANY registry condition:
+ * assembly staticcall into a
  * 32-byte scratch window (an oversized return can never force a
  * memory-expansion bomb), success requires exactly 32 bytes of
  * returndata with clean upper bits (a dirty word must not revert
@@ -64,7 +65,7 @@ import {IReferralRegistry} from "../../interfaces/pending/IReferralRegistry.sol"
  * unit: `_syncRefereeCohort` leaves the clamp for a later retry
  * (folding failure into "unreferred" would clamp the referee while
  * never reducing the referrer's book — a permanent, unrecoverable
- * over-credit once Phase 4 prices it), and
+ * over-credit once the hub prices it), and
  * `_creditContributionCohort` credits nobody for that deposit while
  * still tracking the contribution (the protocol-favoring direction —
  * a later clamp can only over-reduce into the saturating clip, never
@@ -72,6 +73,45 @@ import {IReferralRegistry} from "../../interfaces/pending/IReferralRegistry.sol"
  * {CohortReferrerLookupFailed} for monitoring. The routed
  * {ReferralFacet} view getter deliberately does NOT use this guarded
  * seam — a view revert DoSes nothing.
+ *
+ * Move carry: same-chain `moveBetweenVaults` is
+ * a system relocation, not a sale, so the moved slice of the
+ * referrer's book RELOCATES instead of being destroyed.
+ * `_captureMoveOutCohort` replaces the move path's post-burn sync: it
+ * clamps exactly like `_syncRefereeCohort`, but the reduction of
+ * `carryDelta = min(delta, burnedAmount)` runs through the captured
+ * walk, whose exact `(ring, slot, take)` pairs — plus the week-less
+ * mature residual — are scaled per component to destination units
+ * (floor division, sum-of-scaled-parts so the destination adds
+ * exactly what it is told) and staged in the chain registry keyed
+ * `(thisVault, dstVault, user)`. Any excess deficit beyond the burned
+ * amount reduces sale-like first, so a pre-burn lookup failure can
+ * never launder a sale deficit into the carry. On the destination,
+ * `_applyMoveInCohort` drains the mailbox and replants: same slots,
+ * same rings, same `block.timestamp` — a byte-identical graduation
+ * schedule, which is what makes wash-moving A→B→A provably a no-op.
+ * Unreferred movers stage a tracked-only envelope (the self-stake
+ * ladder input survives relocation).
+ *
+ * Carry failure doctrine (the never-block guarantee extended to the
+ * move path): the move
+ * itself must NEVER be blocked by attribution machinery. Both
+ * registry interactions are failure-tolerant — `_stageCarryGuarded`
+ * try/catches the void call, `_consumeCarryGuarded` pre-checks
+ * code.length then try/catches — and every non-applied outcome
+ * degrades to attribution loss plus an anomaly event
+ * ({CohortCarrySkipped} source-side, {CohortCarryDiscarded}
+ * destination-side). A payload applies only when `stagedAt` equals
+ * the destination's own `block.timestamp` (stage and consume are
+ * synchronous inside one move transaction), which makes every orphan
+ * from a not-yet-carry-aware or unarmed counterparty structurally
+ * inert; `_carryPayloadValid` then rejects any malformed word
+ * wholesale before a single lane is touched. Replants go through the
+ * saturating helpers with {CohortLaneSaturated} on clip — never a
+ * revert, because a destination revert would revert the source's
+ * entire move. Loop bounds: capture and replant walk at most
+ * MAX_CARRY_PAIRS = 104 pairs (52 per ring), payloads at most
+ * MAX_CARRY_WORDS = 54 words — cited from {CohortWeeks} at each site.
  */
 abstract contract CohortRecorderBase is FacetBase {
 
@@ -614,6 +654,20 @@ abstract contract CohortRecorderBase is FacetBase {
         }
     }
 
+    struct CarryPairBuffer {
+        uint256[] pairs;
+        uint256 count;
+    }
+
+    struct CarryStage {
+        uint256[] pairs;
+        uint256 pairCount;
+        uint256 mature;
+        uint256 year1Sum;
+        uint256 year2Sum;
+        uint256 trackedDelta;
+    }
+
     function _reduceBookCohort(
         address _referrer,
         uint256 _delta
@@ -625,59 +679,72 @@ abstract contract CohortRecorderBase is FacetBase {
             uint256 fromMature
         )
     {
-        uint256 remaining = _delta;
+        CarryPairBuffer memory buffer;
 
-        uint256 currentWeek = block.timestamp / CohortWeeks.WEEK;
+        return _reduceBookCohortCore(
+            _referrer,
+            _delta,
+            buffer
+        );
+    }
 
-        for (uint256 back; back < CohortWeeks.RING_SLOTS; ++back) {
+    function _reduceBookCohortCaptured(
+        address _referrer,
+        uint256 _delta
+    )
+        internal
+        returns (
+            uint256[] memory pairs,
+            uint256 pairCount,
+            uint256 fromYear1,
+            uint256 fromYear2,
+            uint256 fromMature
+        )
+    {
+        CarryPairBuffer memory buffer;
 
-            if (remaining == 0 || back > currentWeek) {
-                break;
-            }
+        buffer.pairs = new uint256[](
+            CohortWeeks.MAX_CARRY_PAIRS
+        );
 
-            uint256 slot = (currentWeek - back) % CohortWeeks.RING_SLOTS;
+        (
+            fromYear1,
+            fromYear2,
+            fromMature
+        ) = _reduceBookCohortCore(
+            _referrer,
+            _delta,
+            buffer
+        );
 
-            uint256 held = uint256(cohortRingYear1[_referrer][slot]);
+        pairs = buffer.pairs;
 
-            if (held == 0) {
-                continue;
-            }
+        pairCount = buffer.count;
+    }
 
-            uint256 take = held < remaining
-                ? held
-                : remaining;
+    function _reduceBookCohortCore(
+        address _referrer,
+        uint256 _delta,
+        CarryPairBuffer memory _buffer
+    )
+        private
+        returns (
+            uint256 fromYear1,
+            uint256 fromYear2,
+            uint256 fromMature
+        )
+    {
+        uint256 remaining;
 
-            cohortRingYear1[_referrer][slot] = uint64(held - take);
-
-            remaining -= take;
-
-            fromYear1 += take;
-        }
-
-        for (uint256 back; back < CohortWeeks.RING_SLOTS; ++back) {
-
-            if (remaining == 0 || back > currentWeek) {
-                break;
-            }
-
-            uint256 slot = (currentWeek - back) % CohortWeeks.RING_SLOTS;
-
-            uint256 held = uint256(cohortRingYear2[_referrer][slot]);
-
-            if (held == 0) {
-                continue;
-            }
-
-            uint256 take = held < remaining
-                ? held
-                : remaining;
-
-            cohortRingYear2[_referrer][slot] = uint64(held - take);
-
-            remaining -= take;
-
-            fromYear2 += take;
-        }
+        (
+            fromYear1,
+            fromYear2,
+            remaining
+        ) = _walkReduceRingsCohort(
+            _referrer,
+            _delta,
+            _buffer
+        );
 
         uint256 book = cohortBook[_referrer];
 
@@ -752,5 +819,725 @@ abstract contract CohortRecorderBase is FacetBase {
             fromYear2,
             fromMature
         );
+    }
+
+    function _walkReduceRingsCohort(
+        address _referrer,
+        uint256 _delta,
+        CarryPairBuffer memory _buffer
+    )
+        private
+        returns (
+            uint256 fromYear1,
+            uint256 fromYear2,
+            uint256 remaining
+        )
+    {
+        remaining = _delta;
+
+        uint256 currentWeek = block.timestamp / CohortWeeks.WEEK;
+
+        for (uint256 back; back < CohortWeeks.RING_SLOTS; ++back) {
+
+            if (remaining == 0 || back > currentWeek) {
+                break;
+            }
+
+            uint256 slot = (currentWeek - back) % CohortWeeks.RING_SLOTS;
+
+            uint256 held = uint256(cohortRingYear1[_referrer][slot]);
+
+            if (held == 0) {
+                continue;
+            }
+
+            uint256 take = held < remaining
+                ? held
+                : remaining;
+
+            cohortRingYear1[_referrer][slot] = uint64(held - take);
+
+            remaining -= take;
+
+            fromYear1 += take;
+
+            if (_buffer.pairs.length > 0) {
+
+                _buffer.pairs[_buffer.count] = CohortWeeks.packCarryPair(
+                    take,
+                    slot,
+                    CohortWeeks.CARRY_RING_YEAR1
+                );
+
+                ++_buffer.count;
+            }
+        }
+
+        for (uint256 back; back < CohortWeeks.RING_SLOTS; ++back) {
+
+            if (remaining == 0 || back > currentWeek) {
+                break;
+            }
+
+            uint256 slot = (currentWeek - back) % CohortWeeks.RING_SLOTS;
+
+            uint256 held = uint256(cohortRingYear2[_referrer][slot]);
+
+            if (held == 0) {
+                continue;
+            }
+
+            uint256 take = held < remaining
+                ? held
+                : remaining;
+
+            cohortRingYear2[_referrer][slot] = uint64(held - take);
+
+            remaining -= take;
+
+            fromYear2 += take;
+
+            if (_buffer.pairs.length > 0) {
+
+                _buffer.pairs[_buffer.count] = CohortWeeks.packCarryPair(
+                    take,
+                    slot,
+                    CohortWeeks.CARRY_RING_YEAR2
+                );
+
+                ++_buffer.count;
+            }
+        }
+    }
+
+    // ---- Move carry ----
+
+    function _captureMoveOutCohort(
+        address _user,
+        address _dstVault,
+        uint256 _burnedAmount,
+        uint256 _scaleNumerator,
+        uint256 _scaleDenominator
+    )
+        internal
+    {
+        uint256 tracked = trackedContribution[_user];
+
+        uint256 held = balanceOf(
+            _user
+        );
+
+        if (held >= tracked) {
+            return;
+        }
+
+        if (referralRegistry == ZERO_ADDRESS) {
+
+            _syncRefereeCohort(
+                _user
+            );
+
+            emit CohortCarrySkipped(
+                _user,
+                _dstVault
+            );
+
+            return;
+        }
+
+        (
+            bool lookupOk,
+            address referrer
+        ) = _cohortReferrerOf(
+            _user
+        );
+
+        if (lookupOk == false) {
+
+            emit CohortCarrySkipped(
+                _user,
+                _dstVault
+            );
+
+            return;
+        }
+
+        uint256 carryDelta = tracked - held < _burnedAmount
+            ? tracked - held
+            : _burnedAmount;
+
+        if (referrer != ZERO_ADDRESS) {
+
+            _settleBookCohort(
+                referrer
+            );
+
+            if (tracked - held > carryDelta) {
+                _reduceBookCohort(
+                    referrer,
+                    tracked - held - carryDelta
+                );
+            }
+        }
+
+        trackedContribution[_user] = held;
+
+        _stageMoveCarryCohort(
+            _user,
+            _dstVault,
+            referrer,
+            carryDelta,
+            _scaleNumerator,
+            _scaleDenominator
+        );
+
+        emit CohortContributionSynced(
+            _user,
+            referrer,
+            tracked,
+            held
+        );
+    }
+
+    function _stageMoveCarryCohort(
+        address _user,
+        address _dstVault,
+        address _referrer,
+        uint256 _carryDelta,
+        uint256 _scaleNumerator,
+        uint256 _scaleDenominator
+    )
+        internal
+    {
+        CarryStage memory stage;
+
+        if (_referrer != ZERO_ADDRESS) {
+            (
+                stage.pairs,
+                stage.pairCount,
+                ,
+                ,
+                stage.mature
+            ) = _reduceBookCohortCaptured(
+                _referrer,
+                _carryDelta
+            );
+        }
+
+        stage.mature = _scaleCarryAmount(
+            stage.mature,
+            _scaleNumerator,
+            _scaleDenominator,
+            CohortWeeks.LANE_MASK_80
+        );
+
+        (
+            stage.year1Sum,
+            stage.year2Sum
+        ) = _scaleCarryPairsCohort(
+            stage.pairs,
+            stage.pairCount,
+            _scaleNumerator,
+            _scaleDenominator
+        );
+
+        stage.trackedDelta = stage.year1Sum + stage.year2Sum + stage.mature;
+
+        if (_referrer == ZERO_ADDRESS) {
+            stage.trackedDelta = _scaleCarryAmount(
+                _carryDelta,
+                _scaleNumerator,
+                _scaleDenominator,
+                CohortWeeks.CARRY_HALF_MASK
+            );
+        }
+
+        if (stage.trackedDelta == 0 && stage.pairCount == 0) {
+            return;
+        }
+
+        if (
+            _stageCarryGuarded(
+                referralRegistry,
+                _dstVault,
+                _user,
+                _packCarryPayloadCohort(
+                    _referrer,
+                    stage.pairs,
+                    stage.pairCount,
+                    stage.trackedDelta,
+                    stage.mature
+                )
+            ) == false
+        ) {
+
+            emit CohortCarrySkipped(
+                _user,
+                _dstVault
+            );
+
+            return;
+        }
+
+        emit CohortCarryStaged(
+            _user,
+            _dstVault,
+            _referrer,
+            stage.trackedDelta,
+            stage.year1Sum,
+            stage.year2Sum,
+            stage.mature,
+            stage.pairCount
+        );
+    }
+
+    function _scaleCarryPairsCohort(
+        uint256[] memory _pairs,
+        uint256 _pairCount,
+        uint256 _scaleNumerator,
+        uint256 _scaleDenominator
+    )
+        internal
+        pure
+        returns (
+            uint256 year1Sum,
+            uint256 year2Sum
+        )
+    {
+        for (uint256 i; i < _pairCount; ++i) {
+
+            uint256 pair = _pairs[i];
+
+            uint256 scaledAmount = _scaleCarryAmount(
+                CohortWeeks.carryPairAmount(pair),
+                _scaleNumerator,
+                _scaleDenominator,
+                CohortWeeks.RING_LANE_MAX
+            );
+
+            uint256 ring = CohortWeeks.carryPairRing(pair);
+
+            if (ring == CohortWeeks.CARRY_RING_YEAR1) {
+                year1Sum += scaledAmount;
+            } else {
+                year2Sum += scaledAmount;
+            }
+
+            _pairs[i] = CohortWeeks.packCarryPair(
+                scaledAmount,
+                CohortWeeks.carryPairSlot(pair),
+                ring
+            );
+        }
+    }
+
+    function _packCarryPayloadCohort(
+        address _referrer,
+        uint256[] memory _pairs,
+        uint256 _pairCount,
+        uint256 _trackedDelta,
+        uint256 _mature
+    )
+        internal
+        pure
+        returns (uint256[] memory payload)
+    {
+        payload = new uint256[](
+            2 + (_pairCount + 1) / 2
+        );
+
+        payload[0] = CohortWeeks.packCarryEnvelope(
+            _referrer,
+            _pairCount
+        );
+
+        payload[1] = CohortWeeks.packCarryAmounts(
+            _trackedDelta,
+            _mature
+        );
+
+        for (uint256 i; i < _pairCount; ++i) {
+
+            uint256 wordIndex = 2 + i / 2;
+
+            if (i % 2 == 0) {
+                payload[wordIndex] = _pairs[i];
+            } else {
+                payload[wordIndex] = CohortWeeks.packCarryPairsWord(
+                    payload[wordIndex],
+                    _pairs[i]
+                );
+            }
+        }
+    }
+
+    function _scaleCarryAmount(
+        uint256 _amount,
+        uint256 _scaleNumerator,
+        uint256 _scaleDenominator,
+        uint256 _cap
+    )
+        internal
+        pure
+        returns (uint256)
+    {
+        uint256 scaled = _amount * _scaleNumerator / _scaleDenominator;
+
+        return scaled > _cap
+            ? _cap
+            : scaled;
+    }
+
+    function _stageCarryGuarded(
+        address _registry,
+        address _dstVault,
+        address _user,
+        uint256[] memory _payload
+    )
+        internal
+        returns (bool)
+    {
+        try IReferralRegistry(_registry).stageCarry(
+            _dstVault,
+            _user,
+            _payload
+        ) {
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    function _applyMoveInCohort(
+        address _user,
+        address _srcVault
+    )
+        internal
+    {
+        address registry = referralRegistry;
+
+        if (registry == ZERO_ADDRESS) {
+            return;
+        }
+
+        (
+            bool consumeOk,
+            uint256 stagedAt,
+            uint256[] memory payload
+        ) = _consumeCarryGuarded(
+            registry,
+            _srcVault,
+            _user
+        );
+
+        if (
+            consumeOk == false
+            || stagedAt != block.timestamp
+            || _carryPayloadValid(payload) == false
+        ) {
+
+            emit CohortCarryDiscarded(
+                _user,
+                _srcVault,
+                stagedAt
+            );
+
+            return;
+        }
+
+        _applyCarryPayloadCohort(
+            _user,
+            _srcVault,
+            payload
+        );
+    }
+
+    function _applyCarryPayloadCohort(
+        address _user,
+        address _srcVault,
+        uint256[] memory _payload
+    )
+        internal
+    {
+        address referrer = CohortWeeks.carryEnvelopeReferrer(
+            _payload[0]
+        );
+
+        uint256 pairCount = CohortWeeks.carryEnvelopePairCount(
+            _payload[0]
+        );
+
+        uint256 trackedDelta = CohortWeeks.carryTrackedDelta(
+            _payload[1]
+        );
+
+        uint256 mature = CohortWeeks.carryMature(
+            _payload[1]
+        );
+
+        trackedContribution[_user] += trackedDelta;
+
+        uint256 year1Sum;
+
+        uint256 year2Sum;
+
+        if (referrer != ZERO_ADDRESS && (pairCount > 0 || mature > 0)) {
+
+            _settleBookCohort(
+                referrer
+            );
+
+            (
+                year1Sum,
+                year2Sum
+            ) = _replantRingsCohort(
+                referrer,
+                _payload,
+                pairCount
+            );
+
+            _replantBookCohort(
+                referrer,
+                year1Sum,
+                year2Sum,
+                mature
+            );
+        }
+
+        emit CohortCarryApplied(
+            _user,
+            _srcVault,
+            referrer,
+            trackedDelta,
+            year1Sum,
+            year2Sum,
+            mature,
+            pairCount
+        );
+    }
+
+    function _carryPayloadValid(
+        uint256[] memory _payload
+    )
+        private
+        pure
+        returns (bool)
+    {
+        if (_payload.length < 2) {
+            return false;
+        }
+
+        if (_payload.length > CohortWeeks.MAX_CARRY_WORDS) {
+            return false;
+        }
+
+        uint256 envelope = _payload[0];
+
+        if (CohortWeeks.carryEnvelopeVersion(envelope) != CohortWeeks.CARRY_VERSION) {
+            return false;
+        }
+
+        uint256 pairCount = CohortWeeks.carryEnvelopePairCount(
+            envelope
+        );
+
+        if (pairCount > CohortWeeks.MAX_CARRY_PAIRS) {
+            return false;
+        }
+
+        if (_payload.length != 2 + (pairCount + 1) / 2) {
+            return false;
+        }
+
+        for (uint256 i; i < pairCount; ++i) {
+
+            uint256 word = _payload[2 + i / 2];
+
+            uint256 pair = i % 2 == 0
+                ? CohortWeeks.carryPairLo(word)
+                : CohortWeeks.carryPairHi(word);
+
+            if (CohortWeeks.carryPairSlot(pair) >= CohortWeeks.RING_SLOTS) {
+                return false;
+            }
+
+            if (CohortWeeks.carryPairRing(pair) > CohortWeeks.CARRY_RING_YEAR2) {
+                return false;
+            }
+        }
+
+        if (pairCount % 2 == 1) {
+
+            uint256 lastWord = _payload[_payload.length - 1];
+
+            if (CohortWeeks.carryPairHi(lastWord) != 0) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    function _consumeCarryGuarded(
+        address _registry,
+        address _srcVault,
+        address _user
+    )
+        internal
+        returns (
+            bool ok,
+            uint256 stagedAt,
+            uint256[] memory payload
+        )
+    {
+        if (_registry.code.length == 0) {
+            return (
+                false,
+                0,
+                payload
+            );
+        }
+
+        try IReferralRegistry(_registry).consumeCarry(
+            _srcVault,
+            _user
+        ) returns (
+            uint256 returnedStagedAt,
+            uint256[] memory returnedPayload
+        ) {
+            return (
+                true,
+                returnedStagedAt,
+                returnedPayload
+            );
+        } catch {
+            return (
+                false,
+                0,
+                payload
+            );
+        }
+    }
+
+    function _replantRingsCohort(
+        address _referrer,
+        uint256[] memory _payload,
+        uint256 _pairCount
+    )
+        internal
+        returns (
+            uint256 year1Sum,
+            uint256 year2Sum
+        )
+    {
+        for (uint256 i; i < _pairCount; ++i) {
+
+            uint256 pair = i % 2 == 0
+                ? CohortWeeks.carryPairLo(_payload[2 + i / 2])
+                : CohortWeeks.carryPairHi(_payload[2 + i / 2]);
+
+            if (CohortWeeks.carryPairAmount(pair) == 0) {
+                continue;
+            }
+
+            uint256 slot = CohortWeeks.carryPairSlot(
+                pair
+            );
+
+            (
+                uint256 newLane,
+                uint256 clipped
+            ) = CohortWeeks.saturatingAdd64(
+                CohortWeeks.carryPairRing(pair) == CohortWeeks.CARRY_RING_YEAR1
+                    ? uint256(cohortRingYear1[_referrer][slot])
+                    : uint256(cohortRingYear2[_referrer][slot]),
+                CohortWeeks.carryPairAmount(pair)
+            );
+
+            if (CohortWeeks.carryPairRing(pair) == CohortWeeks.CARRY_RING_YEAR1) {
+
+                cohortRingYear1[_referrer][slot] = uint64(newLane);
+
+                year1Sum += CohortWeeks.carryPairAmount(pair);
+            } else {
+
+                cohortRingYear2[_referrer][slot] = uint64(newLane);
+
+                year2Sum += CohortWeeks.carryPairAmount(pair);
+            }
+
+            if (clipped > 0) {
+                emit CohortLaneSaturated(
+                    _referrer,
+                    CohortWeeks.carryPairRing(pair) == CohortWeeks.CARRY_RING_YEAR1
+                        ? 0
+                        : 1,
+                    slot,
+                    clipped
+                );
+            }
+        }
+    }
+
+    function _replantBookCohort(
+        address _referrer,
+        uint256 _year1,
+        uint256 _year2,
+        uint256 _mature
+    )
+        internal
+    {
+        uint256 book = cohortBook[_referrer];
+
+        uint256 clippedTotal;
+
+        (
+            uint256 newYear1,
+            uint256 clipped
+        ) = CohortWeeks.saturatingAdd80(
+            CohortWeeks.laneY1(book),
+            _year1
+        );
+
+        clippedTotal += clipped;
+
+        uint256 newYear2;
+
+        (
+            newYear2,
+            clipped
+        ) = CohortWeeks.saturatingAdd80(
+            CohortWeeks.laneY2(book),
+            _year2
+        );
+
+        clippedTotal += clipped;
+
+        uint256 newMature;
+
+        (
+            newMature,
+            clipped
+        ) = CohortWeeks.saturatingAdd80(
+            CohortWeeks.laneM(book),
+            _mature
+        );
+
+        clippedTotal += clipped;
+
+        cohortBook[_referrer] = CohortWeeks.packLanes(
+            newYear1,
+            newYear2,
+            newMature
+        );
+
+        if (clippedTotal > 0) {
+            emit CohortLaneSaturated(
+                _referrer,
+                2,
+                0,
+                clippedTotal
+            );
+        }
     }
 }

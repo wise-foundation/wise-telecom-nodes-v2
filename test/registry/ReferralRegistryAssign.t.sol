@@ -9,15 +9,15 @@ import {ReferralRegistry} from "../../src/registry/pending/ReferralRegistry.sol"
 import {ReferralRegistryDeclarations} from "../../src/registry/pending/ReferralRegistryDeclarations.sol";
 
 /**
- * @dev Assignment-semantics suite for {ReferralRegistry} — the R1
- * rules enforced registry-side under ruling R19: zero user/referrer
+ * @dev Assignment-semantics suite for {ReferralRegistry} — the
+ * rules enforced registry-side: zero user/referrer
  * revert, self-referral revert, the InvalidReferrer hardening pair
  * (calling vault, the registry itself), write-once with the loser
  * silently ignored (across repeat calls, different referrers,
  * different vaults, and same-block races), the {ReferralAssigned}
  * event only on the actual first-set transition, and the
- * validation-before-write-once revert priority pinned since
- * develop-02 (a zero/self referrer reverts even for an
+ * fixed validation-before-write-once revert
+ * priority (a zero/self referrer reverts even for an
  * already-assigned user). Includes the two-allowed-vaults same-block
  * race pin: first write wins and exactly one event is ever emitted
  * per user.

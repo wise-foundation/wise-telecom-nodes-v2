@@ -6,10 +6,9 @@ import {ReferralTopDecile} from "./ReferralTopDecile.sol";
 
 /**
  * @dev ReferralCutoffOracleDemo — sandbox for the HUB-side weekly
- * top-decile cutoff machinery (Phase 4 of
- * docs/referral-commission-implementation-plan.md). NOT production
- * code and NOT wired into the diamond. Under claim-at-hub (ruling
- * R10) ranking lives only in the mainnet hub, so this piece is kept
+ * top-decile cutoff machinery. NOT production
+ * code and NOT wired into the diamond. Under claim-at-hub
+ * ranking lives only in the mainnet hub, so this piece is kept
  * separate from the per-vault recorder sandbox
  * ({ReferralCommissionDemo}), which deliberately knows nothing about
  * rates or rank.
@@ -39,9 +38,10 @@ import {ReferralTopDecile} from "./ReferralTopDecile.sol";
  * and `cutoffAt` resolves any past week by binary search over the
  * append-only checkpoint log. Weeks before the first checkpoint
  * report NOBODY_QUALIFIES — pessimistic and final, consistent with
- * ruling R9 (late data counts for later weeks, verdicts immutable).
+ * the cutoff law (late data counts for later weeks, verdicts
+ * immutable).
  *
- * Deliberate sandbox simplifications versus the Phase-4 hub, both
+ * Deliberate sandbox simplifications versus the production hub, both
  * flagged during review: `qualifiedAt` compares the historical cutoff
  * against the referrer's CURRENT bucket — the production hub instead
  * derives the week-w bucket from its append-only per-referrer score

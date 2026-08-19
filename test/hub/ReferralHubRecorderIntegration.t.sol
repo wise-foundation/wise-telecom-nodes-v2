@@ -48,14 +48,14 @@ contract MockUSD is ERC20 {
 }
 
 /**
- * @dev Anti-hand-built-vector suite for the Phase-4 referral hub: the
+ * @dev Anti-hand-built-vector suite for the mainnet referral hub: the
  * PRODUCER is the real cohort recorder running inside a real diamond
  * (deposits, warps, `advanceBook`, transfers + `syncReferee`), never a
  * hand-crafted word; the CONSUMER is a real standalone {ReferralHub}
  * fed exclusively through its public reporter surface
  * (`reportScores` / `deliverCrumbs` / `deliverGap`), never a direct
  * storage write. Every expected value is computed independently in
- * the test — replaying `docs/referral-commission-implementation-plan.md`'s
+ * the test — replaying the hub's
  * pricing formula (`floor(laneIncrement * laneBps / 10_000 / YEAR)`)
  * against lanes decoded from REAL crumb/gap words via
  * {CohortWeeks}, and against rates read from the hub's own

@@ -11,7 +11,7 @@ import {WiseTelecomNodesDiamond} from "../../src/diamond/vault/WiseTelecomNodesD
 import {WiseTelecomNodesDiamondSelectors} from "./WiseTelecomNodesDiamondSelectors.sol";
 
 /// @notice SUPERSEDED twice over — do not broadcast: first by {UpgradeCohortRecorder}, now by
-/// {UpgradeReferralRegistry} (Phase 1, ruling R19: the referral facets write the per-chain
+/// {UpgradeReferralRegistry} (the referral facets write the per-chain
 /// standalone {ReferralRegistry}; this script's slot-64 flow no longer exists in the facets).
 /// Kept for the historical record; its fork rehearsal was retired with the registry rework.
 ///

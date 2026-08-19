@@ -7,41 +7,43 @@ import {CohortWeeks} from "../../diamond/shared/pending/CohortWeeks.sol";
 import {OwnableMaster} from "../../diamond/shared/OwnableMaster.sol";
 
 /**
- * @dev The Phase-4 mainnet hub (scoreboard + paymaster) of the
- * referral commission plan — ONE standalone deployed contract closing
- * the chain Declarations → Ranking → Checkpoints → Rates → Intake.
- * This branch ships the structural groundwork: everything the frozen
+ * @dev The mainnet hub (scoreboard + paymaster) of the
+ * referral commission system — ONE standalone deployed contract
+ * closing the chain Declarations → Ranking → Checkpoints → Rates →
+ * Intake. It ships the structural groundwork: everything the frozen
  * recorder interface exercises (score aggregation, ranking, weekly
  * verdict history, crumb/gap pricing into claimable balances) is
- * live and fully tested; everything an open ruling blocks is a
+ * live and fully tested; everything still undecided is a
  * documented seam, not code.
  *
- * Phase-4 completion register (the seams, in ruling order):
- * - O1 sybil countermeasure: attaches inside `_weeklyRates` /
+ * Completion register (the open seams):
+ * - Sybil countermeasure: attaches inside `_weeklyRates` /
  *   MIN_ACTIVE_SCORE — policy-module change only.
- * - O2 Year-2/mature rates: genesis table holds 0; landing O2 is one
- *   `pushRateTable` call. The decile gate is wired and tested now.
- * - O3 payout asset/funding: NO `claim()` exists — `claimable` is
+ * - Year-2/mature rates: the genesis table holds 0; landing them is
+ *   one `pushRateTable` call. The decile gate is wired and tested
+ *   now.
+ * - Payout asset/funding: NO `claim()` exists — `claimable` is
  *   accrual-only accounting. A value-less claim would zero balances
- *   against nothing; the entrypoint ships with O3. `totalAccrued`
- *   is the anchor the O6 hub→vault `pendingReferralPayout` message
- *   will read (raise = accrual delta, lower = claims once O3 lands).
- * - O4 payout addresses: `setPayoutAddress` registry stub ships
+ *   against nothing; the entrypoint ships with the funding decision.
+ *   `totalAccrued` is the anchor the hub→vault
+ *   `pendingReferralPayout` message will read (raise = accrual
+ *   delta, lower = claims once claiming lands).
+ * - Payout addresses: `setPayoutAddress` registry stub ships
  *   (default self); claim pays there when it exists.
- * - Phase-5 transport: reporters are the single trust boundary —
+ * - Cross-chain transport: reporters are the single trust boundary —
  *   the mailbox becomes an allowed reporter with `keccak256(chainId,
- *   vault)` source keys (see README register); envelope and
- *   crumbVersion checks live in that mailbox (R15); the R11 10% bot
- *   share attaches at the accrual site when cross-chain transport
- *   makes a non-100% deliverer reachable; R12's bot matrix gates
- *   that flush path, not this branch's intake.
+ *   vault)` source keys; envelope and crumbVersion checks live in
+ *   that mailbox; the 10% bot share attaches at the accrual site
+ *   when cross-chain transport makes a non-100% deliverer
+ *   reachable, and the keeper-bot policy matrix gates that flush
+ *   path, not this intake.
  * - Mainnet-vault inline reporting: the vault becomes an allowed
  *   reporter calling `reportScores`/`deliverCrumbs` from its own
  *   flows — zero new hub surface.
  *
  * Threat model: master (two-step {OwnableMaster}) governs the
  * reporter allowlist, future rate tables (future-week-only, so past
- * pricing is immutable even against master) and the R14 dwell knob;
+ * pricing is immutable even against master) and the dwell-min knob;
  * it can NEVER touch scores, cursors, checkpoints or claimables
  * directly. Reporters are trusted for their OWN source's data only —
  * cursors and per-source score diffs contain a malicious reporter's

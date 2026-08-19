@@ -6,22 +6,21 @@ import {OwnableMaster} from "../../diamond/shared/OwnableMaster.sol";
 import {CohortWeeks} from "../../diamond/shared/pending/CohortWeeks.sol";
 
 /**
- * @dev Storage, events, errors and constants for the Phase-4 referral
- * hub (docs/referral-commission-implementation-plan.md §3, rulings
- * R7/R9/R10/R14). One standalone mainnet contract — never a facet,
+ * @dev Storage, events, errors and constants for the mainnet
+ * referral hub. One standalone mainnet contract — never a facet,
  * never delegatecalled — so this chain owns its layout outright and
  * `check_storage_layout.sh` deliberately does not cover it. Inherits
  * {OwnableMaster} (slots 0-1) as the house two-step ownership base;
  * governance here is plain `onlyMaster` — parameter timelocks are a
- * Phase-7 hardening item.
+ * future hardening item.
  *
  * Keying: intake cursors and per-source score reports are keyed by
  * `bytes32 source`, not `address`, because CREATE3 gives each product
  * the SAME diamond address on every chain it runs on — address keys
- * would collide the day Phase-5 spokes report remotely. This branch
- * derives `bytes32(uint256(uint160(reporter)))` (top 96 bits zero,
- * reserved); Phase 5 derives `keccak256(chainId, vault)` for remote
- * sources (see `src/hub/pending/README.md` for the register).
+ * would collide the day remote spokes report cross-chain. The local
+ * form is `bytes32(uint256(uint160(reporter)))` (top 96 bits zero,
+ * reserved); remote sources will derive `keccak256(chainId, vault)`
+ * instead.
  *
  * Packed formats owned by this contract (the crumb/gap word formats
  * belong to {CohortWeeks} and are never restated):
@@ -42,12 +41,13 @@ import {CohortWeeks} from "../../diamond/shared/pending/CohortWeeks.sol";
  *   {CohortWeeks} lane accessors.
  *
  * Threat model: score truth enters ONLY through `allowedReporter`
- * (master-gated allowlist — the single trust boundary this branch
- * has; R12's bot matrix gates Phase-5 flush transport, which does not
- * exist yet). Cursors make every delivery idempotent and replay-safe
- * (I4); the append-only checkpoint and cutoff logs make every past
- * week's verdict and rate immutable (I5); pricing floors per lane so
- * the hub can never overpay exact (I7).
+ * (master-gated allowlist — the single trust boundary the hub
+ * has; the keeper-bot policy matrix gates the cross-chain flush
+ * transport, which does not
+ * exist yet). Cursors make every delivery idempotent and replay-safe;
+ * the append-only checkpoint and cutoff logs make every past
+ * week's verdict and rate immutable; pricing floors per lane so
+ * the hub can never overpay exact.
  */
 abstract contract ReferralHubDeclarations is OwnableMaster {
 

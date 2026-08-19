@@ -10,7 +10,7 @@ import {IReferralRegistry} from "../../interfaces/pending/IReferralRegistry.sol"
  * @dev Referral variants of the three plain deposit entrypoints.
  * Modifier stacks mirror {UserFacet} exactly; the write-once referral
  * assignment runs first (forwarded to the standalone
- * {ReferralRegistry} per ruling R19), then the flow is identical to
+ * {ReferralRegistry}), then the flow is identical to
  * the non-referral path.
  * Also carries the routed referrer view surface `getReferrerOf` (the
  * post-genesis routed-getter naming, and a name the inherited slot-64

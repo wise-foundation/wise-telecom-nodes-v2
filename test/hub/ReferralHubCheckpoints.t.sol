@@ -22,12 +22,12 @@ import {NotMaster} from "../../src/diamond/shared/OwnableMaster.sol";
  * query week, zero before the first entry); the checkpoint discipline
  * that a week's tail entry updates in place while past entries never
  * change again (`checkpointCount` grows at most once per
- * referrer-week); the R9 cutoff snapshot's pre-mutation, sticky
- * carry-forward semantics; the I5 immutability of every past week's
+ * referrer-week); the cutoff snapshot's pre-mutation, sticky
+ * carry-forward semantics; the immutability of every past week's
  * verdict (`qualifiedAt`/`bucketAt`/`cutoffAt`/`weeklyRates`) even
  * after late-arriving data lands in a future week, pinned both by a
  * hand-built scenario and by a randomized seed-walk journal; and the
- * R14 dwell-min policy knob, including its boundary-straddle
+ * dwell-min policy knob, including its boundary-straddle
  * zero-for-two-weeks defense, its plain-opening behavior when
  * disabled, and the week-0 short-circuit that avoids an underflow on
  * `week - 1`.

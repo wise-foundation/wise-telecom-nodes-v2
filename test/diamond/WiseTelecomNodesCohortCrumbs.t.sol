@@ -46,7 +46,7 @@ contract MockUSD is ERC20 {
 
 /**
  * @dev Crumb suite for the cohort recorder — the FROZEN word format
- * the hub consumes in Phase 4. Every assertion is an exact
+ * the mainnet hub consumes. Every assertion is an exact
  * full-word equality (written bit | three 80-bit token-second lanes),
  * so a stray bit anywhere in the word — including the reserved
  * regions bits 240..251 and 253..255 — fails loudly. Covered: exact

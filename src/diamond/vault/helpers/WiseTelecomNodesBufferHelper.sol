@@ -13,8 +13,8 @@ import {WiseTelecomNodesInterestHelper} from "./WiseTelecomNodesInterestHelper.s
  * `bufferInterestRate` on the share supply PLUS the settled
  * `totalCashedInterest` liability users can already claim on
  * demand PLUS the `pendingReferralPayout` referral-commission
- * liability (ruling O6 — one global accumulator, raised and
- * lowered only by the Phase-4/5 payout mechanism, zero and
+ * liability (one global accumulator, raised and
+ * lowered only by the future hub payout mechanism, zero and
  * dormant until that ships); anything above that combined reserve
  * is "overhang" and can be swept to the registered `workerAddress`
  * by any address master has granted in the `isSweeper` allowlist.

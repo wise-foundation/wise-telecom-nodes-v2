@@ -10,7 +10,7 @@ import {ReferralHubDeclarations} from "../../src/hub/pending/ReferralHubDeclarat
 import {CohortWeeks} from "../../src/diamond/shared/pending/CohortWeeks.sol";
 
 /**
- * @dev Gas-bound proof for the Phase-4 referral hub, ported from the
+ * @dev Gas-bound proof for the mainnet referral hub, ported from the
  * cold-measurement discipline of `test/fenwick/ReferralTopDecileGas.t.sol`
  * (its @dev lines 9-40 are the methodology this file replicates): every
  * measured scenario gets its OWN freshly deployed {ReferralHub}

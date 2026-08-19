@@ -47,7 +47,7 @@ contract MockUSD is ERC20 {
 }
 
 /**
- * @dev Phase-2b core suite for the cohort book: week-quantized cohort
+ * @dev Core suite for the cohort book: week-quantized cohort
  * graduation across the year-1 and year-2 boundaries asserted on book
  * and ring state (sandbox integers preserved), newest-first book
  * reduction and its ring1 -> ring2 -> mature spill, `advanceBook`

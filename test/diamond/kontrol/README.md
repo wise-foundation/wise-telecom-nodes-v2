@@ -2,9 +2,8 @@
 
 This suite proves properties of the non-legacy WiseTelecomNodes diamond:
 the interest engine, the queue cursor law and the bridge-receive atomicity
-law. The catalog these proofs belong to (with every known invariant, its
-status and its recommended test vehicle) is
-[`test/diamond/INVARIANTS.md`](../INVARIANTS.md).
+law. Each property is stated in full where it is proved — the tables
+below name every law this suite covers.
 
 The two headline interest guarantees
 (`src/diamond/vault/helpers/WiseTelecomNodesInterestHelper.sol`):

@@ -13,7 +13,7 @@ import {CohortWeeks} from "../../diamond/shared/pending/CohortWeeks.sol";
  * compared a historical cutoff against the referrer's CURRENT bucket;
  * here the week-w bucket is derived from the referrer's own
  * append-only checkpoint log, which is what makes every past week's
- * verdict immutable under late-arriving data (rulings R9/I5).
+ * verdict immutable under late-arriving data.
  *
  * Checkpoint discipline: every score mutation calls
  * `_checkpointReferrer` AFTER applying the diff — the first mutation
@@ -28,7 +28,7 @@ import {CohortWeeks} from "../../diamond/shared/pending/CohortWeeks.sol";
  * score through the pure `_bucketFor`, so score and bucket history
  * cannot desync.
  *
- * Cutoff discipline (R9, ported): `_snapshotCutoffIfNewWeek` runs
+ * Cutoff discipline (ported): `_snapshotCutoffIfNewWeek` runs
  * first-write-wins per week and must execute BEFORE any tree mutation
  * of a new week — {ReferralHubIntake}'s choke point enforces the
  * ordering the sandbox left to its tests. Quiet weeks carry the last
@@ -39,7 +39,7 @@ import {CohortWeeks} from "../../diamond/shared/pending/CohortWeeks.sol";
  * ceil(0/10) is zero, so "nobody" is the truthful verdict rather
  * than one that merely prices nothing by accident.
  *
- * Dwell-min (R14, hub-side policy knob, default ON): ladder inputs
+ * Dwell-min (hub-side policy knob, default ON): ladder inputs
  * for week w are min(opening(w), opening(w-1)) per component, so a
  * deposit straddling a weekly boundary must dwell a full week before
  * it can raise the rate; the decile cutoff deliberately uses the

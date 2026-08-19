@@ -670,6 +670,50 @@ abstract contract WiseTelecomNodesBaseHelper is WiseTelecomNodesDeclarations {
         );
     }
 
+    function _cohortMoveOut(
+        address _user,
+        address _dstVault,
+        uint256 _burnedAmount,
+        uint256 _scaleNumerator,
+        uint256 _scaleDenominator
+    )
+        internal
+    {
+        if (cohortSyncEnabled == false) {
+            return;
+        }
+
+        _runCohortHook(
+            abi.encodeWithSelector(
+                COHORT_MOVE_OUT_SELECTOR,
+                _user,
+                _dstVault,
+                _burnedAmount,
+                _scaleNumerator,
+                _scaleDenominator
+            )
+        );
+    }
+
+    function _cohortMoveIn(
+        address _user,
+        address _srcVault
+    )
+        internal
+    {
+        if (cohortSyncEnabled == false) {
+            return;
+        }
+
+        _runCohortHook(
+            abi.encodeWithSelector(
+                COHORT_MOVE_IN_SELECTOR,
+                _user,
+                _srcVault
+            )
+        );
+    }
+
     function _runCohortHook(
         bytes memory _callData
     )

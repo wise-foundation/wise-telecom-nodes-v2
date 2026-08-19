@@ -77,7 +77,7 @@ contract MockPermit2 is IPermit2 {
 }
 
 /**
- * @dev Phase-2a touchpoint suite for the cohort recorder: the
+ * @dev Touchpoint suite for the cohort recorder: the
  * default-off arming discipline (sections 0), the contribution credit
  * paths through every deposit and compound variant including the
  * all-depositor tracking of unreferred users (section 1), and the

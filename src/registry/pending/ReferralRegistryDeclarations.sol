@@ -5,12 +5,11 @@ pragma solidity =0.8.36;
 import {OwnableMaster} from "../../diamond/shared/OwnableMaster.sol";
 
 /**
- * @dev Storage, events and errors for the Phase-1 per-chain referral
- * registry (docs/referral-commission-implementation-plan.md §4
- * Phase 1, rulings R1/R13/R19) — ONE standalone contract per chain,
+ * @dev Storage, events and errors for the per-chain referral
+ * registry — ONE standalone contract per chain,
  * the single source of referrer truth for every WiseTelecomNodes
  * vault on that chain; the diamonds' slot-64 `referrerOf` mapping
- * stays declared but forever virgin (R19). Never a facet, never
+ * stays declared but forever virgin. Never a facet, never
  * delegatecalled, so this chain owns its layout outright and
  * `check_storage_layout.sh` deliberately does not cover it. Inherits
  * {OwnableMaster} (slots 0-1) as the house two-step ownership base.
@@ -24,20 +23,37 @@ import {OwnableMaster} from "../../diamond/shared/OwnableMaster.sol";
  * vaults racing in one block resolve first-write-wins with the loser
  * silently ignored. Master governs only the allowlist and its own
  * succession; NO admin path touches `referrerOf`, making every
- * assignment immutable against master too (open ruling O8 records
- * that no correction path exists). Reads are permissionless and the
+ * assignment immutable against master too — no correction path
+ * exists, by design. Reads are permissionless and the
  * `referrerOf` auto-getter must remain a plain mapping read forever —
  * the vaults' cohort recorder staticcalls it inside the transfer
- * hook's revert-free budget (plan invariant I6); never add logic,
+ * hook's revert-free budget; never add logic,
  * gating or reverts to the read path. The already-assigned early
- * return in `assignReferrer` is deliberately the R8 sticky-referrer
- * rule: when the Phase-5 bridge-receive carry-set assigns a carried
+ * return in `assignReferrer` is deliberately the sticky-referrer
+ * rule: when a future bridge-receive carry-set assigns a carried
  * referrer, an existing local assignment wins by construction.
- * Phase-3 seam (documented only, no code): same-chain
- * `moveBetweenVaults` flush staging appends new storage and
- * vault-called surface behind this same allowlist, extending this
- * contract in place — the registry is NEVER repointed once a vault's
- * cohort recorder is armed against it.
+ *
+ * Carry staging: same-chain `moveBetweenVaults`
+ * attribution payloads stage here behind the SAME allowlist — slots
+ * 4-5 hold `carryPayload`/`carryStagedAt` keyed
+ * `[srcVault][dstVault][user]`, written by `stageCarry`
+ * (delete-then-write, stamps `block.timestamp`) and drained by
+ * `consumeCarry` (read + delete, deliberately NOT idempotent — a
+ * payload is deliverable at most once). The registry never interprets
+ * payload words (codec lives in the vaults' CohortWeeks library);
+ * staleness is the DESTINATION's check (`stagedAt` must equal its own
+ * `block.timestamp` — stage and consume are synchronous inside one
+ * move transaction, so any orphan from a not-yet-carry-aware
+ * destination is structurally inert and simply overwritten by the
+ * next move on the same key). Both carry functions are pure storage
+ * plus event with NO external calls, extending the `assignReferrer`
+ * posture; the `referrerOf` read path is untouched. Consequence of
+ * reusing the allowlist: `setAllowedVault(vault, false)` now also
+ * soft-disables that vault's carry staging and consuming — the
+ * vaults reach both functions through failure-tolerant guarded CALLs,
+ * so a revoked vault's moves still succeed and only the attribution
+ * degrades (anomaly event vault-side). The registry is NEVER
+ * repointed once a vault's cohort recorder is armed against it.
  */
 abstract contract ReferralRegistryDeclarations is OwnableMaster {
 
@@ -48,6 +64,12 @@ abstract contract ReferralRegistryDeclarations is OwnableMaster {
     // ---- Writer allowlist ----
 
     mapping(address => bool) public allowedVault;
+
+    // ---- Move-carry staging ----
+
+    mapping(address => mapping(address => mapping(address => uint256[]))) internal carryPayload;
+
+    mapping(address => mapping(address => mapping(address => uint256))) internal carryStagedAt;
 
     // ---- Events ----
 
@@ -62,6 +84,20 @@ abstract contract ReferralRegistryDeclarations is OwnableMaster {
         bool allowed
     );
 
+    event CarryStaged(
+        address indexed srcVault,
+        address indexed dstVault,
+        address indexed user,
+        uint256 words
+    );
+
+    event CarryConsumed(
+        address indexed srcVault,
+        address indexed dstVault,
+        address indexed user,
+        uint256 stagedAt
+    );
+
     // ---- Errors ----
 
     error NotAllowedVault();
@@ -71,4 +107,6 @@ abstract contract ReferralRegistryDeclarations is OwnableMaster {
     error SelfReferral();
 
     error InvalidReferrer();
+
+    error CarryPayloadInvalid();
 }

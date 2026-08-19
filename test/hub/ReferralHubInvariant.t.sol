@@ -8,7 +8,7 @@ import {ReferralHub} from "../../src/hub/pending/ReferralHub.sol";
 import {CohortWeeks} from "../../src/diamond/shared/pending/CohortWeeks.sol";
 
 /**
- * @dev Drives the Phase-4 referral hub through bounded random
+ * @dev Drives the mainnet referral hub through bounded random
  * `reportScores` / `deliverCrumbs` / `deliverGap` / `snapshotWeek` /
  * `warpWeeks` actions across a closed universe of 3 allowlisted
  * reporters and 6 referrers, matching the handler-plus-ghost shape of
@@ -39,7 +39,7 @@ import {CohortWeeks} from "../../src/diamond/shared/pending/CohortWeeks.sol";
  * i.e. inside `warpWeeks` right after the warp, for exactly the weeks
  * newly left behind — re-verified every invariant check to prove no
  * later-arriving report or delivery can ever move a closed week's
- * verdict, per R9/I5). I3 is checked by reading `lastReportOf` for
+ * verdict, per I5). I3 is checked by reading `lastReportOf` for
  * each of the 3 reporters directly off the hub rather than mirroring
  * it in a second ghost mapping — the invariant already cross-checks
  * two independently-updated storage locations (`globalReferredScore`
@@ -468,7 +468,7 @@ contract ReferralHubInvariantHandler is Test {
 }
 
 /**
- * @dev Stateful-fuzz invariants for the Phase-4 referral hub
+ * @dev Stateful-fuzz invariants for the mainnet referral hub
  * ({ReferralHub} / {ReferralHubIntake} / {ReferralHubRanking} /
  * {ReferralHubCheckpoints}), driven by {ReferralHubInvariantHandler}.
  * I3 pins the source-report/global-aggregate identity that
@@ -480,7 +480,7 @@ contract ReferralHubInvariantHandler is Test {
  * exactly once, at exactly the rate the ladder implies); I5 pins
  * verdict immutability for every week this run ever watched cross into
  * the past; the final invariant pins the `claimable` / `totalAccrued`
- * accounting identity that will anchor the O6 hub-to-vault payout
+ * accounting identity that will anchor the hub-to-vault payout
  * message once claims exist.
  */
 contract ReferralHubInvariantTest is Test {

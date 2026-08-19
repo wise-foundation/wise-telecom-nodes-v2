@@ -7,11 +7,11 @@ import {IReferralRegistry} from "../../interfaces/pending/IReferralRegistry.sol"
 
 /**
  * @dev Shared referral-assignment core for the two referral deposit
- * facets. Validates the referrer (non-zero, not the caller) with the
- * develop-02 revert priority — a zero or self referrer always
+ * facets. Validates the referrer (non-zero, not the caller) with a
+ * fixed revert priority — a zero or self referrer always
  * reverts, even when an assignment already exists — then forwards
  * `(msg.sender, referrer)` to this chain's standalone
- * {ReferralRegistry} through the slot-74 pointer (ruling R19: the
+ * {ReferralRegistry} through the slot-74 pointer (the
  * registry is the single source of referrer truth; the diamond's
  * slot-64 mapping stays forever virgin). The write-once rule, the
  * silent-ignore of later different referrers and the

@@ -61,8 +61,8 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
 # Facets live in facets/ when routed on the live diamonds and in
-# facets/pending/ until their upgrade has actually been broadcast
-# (see src/diamond/DEPLOYED.md); resolve whichever exists.
+# facets/pending/ until their upgrade has actually been broadcast;
+# resolve whichever exists.
 facet_path() {
     if [ -f "src/diamond/vault/facets/$1.sol" ]; then
         echo "src/diamond/vault/facets/$1.sol:$1"

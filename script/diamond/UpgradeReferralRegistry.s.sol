@@ -21,8 +21,8 @@ import {ReferralRegistry} from "../../src/registry/pending/ReferralRegistry.sol"
 
 import {WiseTelecomNodesDiamondSelectors} from "./WiseTelecomNodesDiamondSelectors.sol";
 
-/// @notice Installs the referral-registry round (Phase 1 of the referral commission plan,
-/// rulings R19/R20) on an already-running, finalized diamond: the cohort recorder manifest
+/// @notice Installs the referral-registry round
+/// on an already-running, finalized diamond: the cohort recorder manifest
 /// PLUS the slot-74 registry pointer. Supersedes {UpgradeCohortRecorder} (which superseded
 /// {UpgradeReferral}): the slot-74 shard recompiles every facet in the manifest and the
 /// referral facets now write the per-chain standalone {ReferralRegistry}, so installing the
@@ -53,7 +53,7 @@ import {WiseTelecomNodesDiamondSelectors} from "./WiseTelecomNodesDiamondSelecto
 ///                        pointer proposal (each pre-execute only).
 ///   `status()`         — read-only sanity print for the runbook (no broadcast).
 ///
-/// Ordering law the phases encode (adversarial review R-3): registry deployed → diamond
+/// Ordering law the steps encode: registry deployed → diamond
 /// allowlisted → selectors live → pointer wired → arm LAST. Every intermediate state is
 /// default-off: recorder touchpoints are gated no-ops until arm(), `...WithReferral`
 /// entrypoints revert {ReferralRegistryNotSet} while the pointer is unset (loud, no silent
@@ -71,9 +71,8 @@ import {WiseTelecomNodesDiamondSelectors} from "./WiseTelecomNodesDiamondSelecto
 ///   VAULT_PRODUCT=usdc forge script script/diamond/UpgradeReferralRegistry.s.sol --sig "arm()" --rpc-url mainnet --broadcast
 /// repeated for usdc/usdt/usdg on each of their chains (mainnet, base, arbitrum, robinhood).
 ///
-/// NOTHING here may be broadcast until the owner gives the explicit go-ahead (repo ruling:
-/// this branch prepares deployment only). After a REAL broadcast is executed and verified:
-/// update src/diamond/DEPLOYED.md (facet rows + addresses + date) and `git mv` the graduated
+/// NOTHING here may be broadcast until the owner gives the explicit go-ahead. After a REAL
+/// broadcast is executed and verified, `git mv` the graduated
 /// files out of EVERY pending/ segment in the same commit — facets/pending/,
 /// declarations/pending/ (the shards this round's facets were compiled with),
 /// interfaces/pending/ and src/registry/pending/.

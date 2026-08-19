@@ -79,8 +79,8 @@ contract MockPermit2 is IPermit2 {
 /**
  * @dev Minimal same-chain peer used to drive `moveBetweenVaults` /
  * `mintFromPeer` from the source diamond's perspective. `decimals()`
- * matches the source diamond's 6 decimals so `_scaleAmountForPeer`
- * passes through 1:1 and the cohort-recorder math in the tests below
+ * matches the source diamond's 6 decimals so `_peerScaleFactors`
+ * scales 1:1 and the cohort-recorder math in the tests below
  * stays in round numbers. `mintFromPeer` is never actually invoked on
  * this contract by the suite (it is only ever the peer being pranked),
  * but is implemented as a no-op to satisfy `IPeerVault`.
@@ -139,7 +139,7 @@ contract MockCCIPRouter {
 }
 
 /**
- * @dev Phase-2b touchpoint suite for the cohort recorder: the
+ * @dev Touchpoint suite for the cohort recorder: the
  * move/bridge/queue surfaces wired on top of the {CohortHookFacet}
  * engine installed as the transfer hook (see
  * `WiseTelecomNodesCohortTouchpoints.t.sol` for the deposit/compound

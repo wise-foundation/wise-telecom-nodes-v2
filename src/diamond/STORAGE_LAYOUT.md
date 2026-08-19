@@ -109,13 +109,13 @@ The former tail shards `VaultBridgeFlowDeclaration` (`bridgedInflow`/`bridgedOut
 
 ### 2026-07 interest-remainder shard
 
-`InterestRemainderDeclaration` is appended last of all shards, after the transient `HookGuardDeclaration`: `interestRemainder` carries the sub-unit fraction of accrued interest that the floored `_calculateInterest` would otherwise discard when `_assignInterest` resets `lastSyncTimeStamp`. Each sync adds the scaled pending (the `_calculateInterest` numerator before the final `/ PRECISION_FACTOR_E18`) to the carried remainder, banks only the whole units into `cashedInterest`, and stores the leftover (always `< PRECISION_FACTOR_E18`, i.e. less than one base unit of interest) back here, so accrual is lossless across an arbitrary number of syncs and a hostile force-sync (a 1-wei transfer or `moveMyInterestTo` targeting the victim every block) can no longer floor a small holder's interest to zero. Never counted in `totalCashedInterest` until it crosses a whole unit and banks, so the INT-7 accumulator identity holds. It takes fresh tail slot 63 and moves no pre-existing slot.
+`InterestRemainderDeclaration` is appended last of all shards, after the transient `HookGuardDeclaration`: `interestRemainder` carries the sub-unit fraction of accrued interest that the floored `_calculateInterest` would otherwise discard when `_assignInterest` resets `lastSyncTimeStamp`. Each sync adds the scaled pending (the `_calculateInterest` numerator before the final `/ PRECISION_FACTOR_E18`) to the carried remainder, banks only the whole units into `cashedInterest`, and stores the leftover (always `< PRECISION_FACTOR_E18`, i.e. less than one base unit of interest) back here, so accrual is lossless across an arbitrary number of syncs and a hostile force-sync (a 1-wei transfer or `moveMyInterestTo` targeting the victim every block) can no longer floor a small holder's interest to zero. Never counted in `totalCashedInterest` until it crosses a whole unit and banks, so the `totalCashedInterest` accumulator identity holds. It takes fresh tail slot 63 and moves no pre-existing slot.
 
-### 2026-07 referral-registry shard — PERMANENTLY DORMANT since 2026-08-14 (ruling R19)
+### 2026-07 referral-registry shard — PERMANENTLY DORMANT since 2026-08-14
 
 `ReferralRegistryDeclaration` (slot 64, `referrerOf`) was designed as the in-diamond
 write-once referrer book, but it never went live (onchain-verified virgin on all 9 diamonds,
-2026-08-13) and ruling R19 moved referrer truth to the per-chain standalone
+2026-08-13); referrer truth moved instead to the per-chain standalone
 `ReferralRegistry` (`src/registry/pending/`) reached through the slot-74 pointer below. The
 mapping is now declared but FOREVER VIRGIN: no shipped code path reads or writes it, the
 fork rehearsals assert a raw `vm.load` of zero even after assignments, and the field was
@@ -128,7 +128,7 @@ layout — removing it would renumber slots 65–73.
 
 `CohortContributionDeclaration` and `CohortBookDeclaration` are appended last of all shards,
 after `ReferralRegistryDeclaration` (slot 64), taking fresh tail slots 65–72 and moving no
-pre-existing slot. They back the Phase-2a/2b cohort recorder of the referral commission plan:
+pre-existing slot. They back the cohort recorder of the referral commission system:
 `cohortSyncEnabled` (slot 65, default `false`) is the instant master switch — every recorder
 touchpoint stub early-returns while it is off, so a live diamond with zeroed tail storage (and
 every intermediate state of the upgrade sequence) behaves byte-for-byte as before until master
@@ -140,39 +140,39 @@ geometry); `cohortLastSettle` (68) of zero means never-touched — the first cre
 current timestamp, no walk from week zero. `cohortRingYear1/2` (69/70) are the 52-slot uint64
 cohort rings (slot = week mod 52, four lanes per storage word, 13 words per referrer per
 ring); `cohortWeekLog` (71) holds the FROZEN crumb words (three 80-bit token-second lanes +
-written bit 252, versioned `CRUMB_VERSION = 1` for the Phase-5 flush envelope);
+written bit 252, versioned `CRUMB_VERSION = 1` for the future cross-chain flush envelope);
 `cohortGapLog` (72) packs dormant fast-forward spans. All fields are `internal`; the routed
 read surface lives on `CohortRecorderFacet` (`cohortRecorderSelectors`, post-launch group).
 The recorder engine itself is compiled once into `CohortHookFacet` and reached exclusively
 through the `transferHookFacet` pointer (slot 45) — the hook swap and every touched facet
 ship together via `UpgradeCohortRecorder`. Every lane write saturates and reports through
 `CohortLaneSaturated` instead of reverting: the engine runs inside the transfer hook, where a
-revert would veto the transfer (plan invariant I6).
+revert would veto the transfer (the recorder's never-block guarantee).
 
 ### 2026-08 referral-payout shard
 
 `ReferralPayoutDeclaration` is appended last of all shards, after `CohortBookDeclaration`
-(slots 67–72), taking fresh tail slot 73 and moving no pre-existing slot. It backs ruling O6
-of the referral commission plan (vault half): `pendingReferralPayout` is the ONE global USD
+(slots 67–72), taking fresh tail slot 73 and moving no pre-existing slot. It backs the
+vault half of the referral payout accounting: `pendingReferralPayout` is the ONE global USD
 liability the hub's priced verdicts have awarded against this vault but referrers have not yet
 claimed — no per-user breakdown, no separate pot (referral money and `sweepOverhang` draw from
 the same vault USD pool). It enters `_calculateNeededBuffer` at both return sites as one more
 additive liability term — the exact `totalCashedInterest` pattern — so `sweepOverhang` /
 `getOverhang` shrink by exactly the pending payout and a sweep can never take pre-funded
 payout cash. Zero means byte-for-byte prior behavior (default-off; `x + 0 = x` needs no arming
-switch). NO writer exists yet: the Phase-4/5 payout intake is the designated writer (raise on
+switch). NO writer exists yet: the future hub payout intake is the designated writer (raise on
 accrual, lower on claim), must emit `PendingReferralPayoutChanged` on every mutation, and is
 bound by the shard's gas discipline — read only on the sweep surface, ONE batched storage
 write per hub delivery message and ONE per claim transaction, never writes inside user paths.
 The field is `internal`; the routed read surface is the pending
 `ReferralPayoutFacet.getPendingReferralPayout()` (`referralPayoutSelectors`, post-launch
-group, ships with the future Phase-4 payout upgrade round).
+group, ships with the future payout upgrade round).
 
 ### 2026-08 registry-pointer shard
 
 `ReferralRegistryPointerDeclaration` is appended last of all shards, after
 `ReferralPayoutDeclaration` (slot 73), taking fresh tail slots 74–76 and moving no
-pre-existing slot. It backs Phase 1 of the referral commission plan (rulings R19/R20):
+pre-existing slot. It backs the referral commission system's registry pointer:
 `referralRegistry` (74) is the address of the chain's standalone `ReferralRegistry` — the
 single source of referrer truth for every vault on the chain — and
 `proposedReferralRegistry` (75) / `referralRegistryChangeQueuedAt` (76) back its 3-day
@@ -187,13 +187,27 @@ set, `ReferralFacetBase._handleReferral` CALLs `assignReferrer` (write-once enfo
 registry-side, `ReferralAssigned` emitted by the registry with the vault identity) and the
 recorder resolves referrers through a guarded assembly staticcall bounded to a 32-byte
 returndata window — a FAILED lookup is distinguished from "no referrer" and each caller
-skips its entire mutation unit (`CohortReferrerLookupFailed` anomaly event), keeping I1
-exact and the hook path revert-free (I6) under ANY registry condition. All three fields are
+skips its entire mutation unit (`CohortReferrerLookupFailed` anomaly event), keeping the
+tracked-equals-book identity exact and the hook path revert-free under ANY registry
+condition. All three fields are
 `internal`; the routed read surface is the `AdminFacet` getter trio
 (`getReferralRegistry` / `getProposedReferralRegistry` /
 `getReferralRegistryChangeQueuedAt`), and the writers are the `AdminFacet` pointer trio —
 six new admin selectors shipping with the registry round's AdminFacet redeploy
 (`UpgradeReferralRegistry`, which supersedes `UpgradeCohortRecorder`).
+
+### 2026-08-18 Same-chain move carry — NO diamond storage added
+
+The same-chain move-carry round deliberately adds ZERO diamond storage: the committed
+snapshot stays byte-identical at 84 entries and slot 77 remains the next free
+tail slot (reserved in practice for a future cross-chain flush-cursor shard). The only additions
+to the declaration chain are two `bytes4` selector CONSTANTS in
+`CohortContributionDeclaration` (`COHORT_MOVE_OUT_SELECTOR` / `COHORT_MOVE_IN_SELECTOR` —
+constants take no slots), addressing the two new pointer-only `CohortHookFacet` entrypoints.
+The carry's persistent state lives in the standalone per-chain `ReferralRegistry` (its own
+slots 4–5, `carryPayload` / `carryStagedAt`), which owns its layout outright and is
+deliberately outside this document and `check_storage_layout.sh` — see the registry's
+declarations threat-model block.
 
 ### Legacy comparison
 

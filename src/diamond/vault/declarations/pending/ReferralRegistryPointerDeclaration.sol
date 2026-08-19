@@ -3,8 +3,7 @@
 pragma solidity =0.8.36;
 
 /**
- * @dev Referral-registry pointer tail shard (Phase 1 of the referral
- * commission plan, rulings R19/R20). `referralRegistry` is the
+ * @dev Referral-registry pointer tail shard. `referralRegistry` is the
  * address of this chain's standalone {ReferralRegistry} — the single
  * source of referrer truth shared by every vault on the chain; the
  * legacy slot-64 mapping in {ReferralRegistryDeclaration} stays
