@@ -6,9 +6,10 @@ import {ReferralHubCheckpoints} from "./ReferralHubCheckpoints.sol";
 import {CohortWeeks} from "../../diamond/shared/pending/CohortWeeks.sol";
 
 /**
- * @dev Rate policy module (forward-compat note 5 of the plan): every
+ * @dev Rate policy module: every
  * dwell-min, cap and table lookup sits behind the single internal
- * `_weeklyRates`, so O1/O2 outcomes and future ladder changes are
+ * `_weeklyRates`, so pending rate decisions and future ladder
+ * changes are
  * hub-only changes with week-versioned history — nothing else in the
  * chain may compute a rate. Rates are expressed in bps of ANNUAL
  * commission on referred principal; pricing divides token-seconds by
@@ -17,14 +18,16 @@ import {CohortWeeks} from "../../diamond/shared/pending/CohortWeeks.sol";
  * `rateTables` is append-only and future-only: `_pushRateTable`
  * requires a strictly future effective week that strictly exceeds the
  * previous entry's, so the table that priced any week whose opening
- * boundary has passed can never change — I5 under table churn holds
+ * boundary has passed can never change — past-verdict immutability
+ * under table churn holds
  * by construction, with no second freezing mechanism. The genesis
- * entry seeds ruling R7 exactly: thresholds 5k/10k/20k/30k/50k/100k/
+ * entry seeds the launch ladder exactly: thresholds 5k/10k/20k/30k/
+ * 50k/100k/
  * 500k/1M USD (6-dec), tiers 1..8% (100..800 bps), Year-1 rate =
  * min(tier(self) + tier(referred), capBps = 1000) over dwell-min
  * ladder inputs, floor 0 implicit. Year-2 and mature rates are 0
- * pending ruling O2 — the decile gate (`qualifiedAt`) is WIRED and
- * multiplies whatever the week's table holds, so landing O2 is one
+ * until decided — the decile gate (`qualifiedAt`) is WIRED and
+ * multiplies whatever the week's table holds, so landing them is one
  * `pushRateTable` call, zero code. Both loops here are fixed-bound
  * (8-rung tier walk) or log-bounded (table binary search).
  */

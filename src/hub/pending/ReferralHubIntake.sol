@@ -7,14 +7,14 @@ import {CohortWeeks} from "../../diamond/shared/pending/CohortWeeks.sol";
 
 /**
  * @dev Intake choke point: the ONLY writers of scores, cursors and
- * claimables in the whole chain. The Phase-5 mailbox and the Phase-4
+ * claimables in the whole chain. The future cross-chain mailbox and
  * mainnet-vault inline delivery are future CALLERS of these same
- * internals — one intake codepath, never a second topology. Per
- * ruling R15 the crumb WORD is the frozen interface: intake takes raw
+ * internals — one intake codepath, never a second topology. The
+ * crumb WORD is the frozen interface: intake takes raw
  * recorder words (validated against the frozen geometry — any bit
  * outside the three 80-bit lanes and the written flag rejects); the
- * flush envelope and its `crumbVersion` are Phase-5 message artifacts
- * that do not exist here. Quantities and increments travel through
+ * flush envelope and its `crumbVersion` are cross-chain message
+ * artifacts that do not exist here. Quantities and increments travel through
  * the internal helpers as single packed lane-words in the crumb
  * geometry, decoded with the {CohortWeeks} accessors at the edges.
  *
@@ -22,25 +22,26 @@ import {CohortWeeks} from "../../diamond/shared/pending/CohortWeeks.sol";
  * diffs the reported values against `lastSourceReport` and applies
  * the signed difference to the global aggregates and the Fenwick
  * tree. Re-reports are idempotent no-ops, recorder clamp decreases
- * arrive as plain lower absolutes, and invariant I3 reduces to the
- * equality `globalReferredScore == Σ lastSourceReport` per referrer.
- * Ordering is load-bearing: cutoff snapshot (pre-mutation, R9) →
- * apply diff → checkpoint referrer (post-mutation closing value).
+ * arrive as plain lower absolutes, and score consistency reduces to
+ * the equality `globalReferredScore == Σ lastSourceReport` per
+ * referrer. Ordering is load-bearing: cutoff snapshot (pre-mutation)
+ * → apply diff → checkpoint referrer (post-mutation closing value).
  *
- * Cursors enforce I4: `paidCursor[source][referrer][week]` stores the
+ * Cursors enforce exactly-once accrual:
+ * `paidCursor[source][referrer][week]` stores the
  * highest token-second quantity ever priced per lane; a delivery pays
  * only `incoming − cursor` when positive and advances the cursor to
  * the max, so replays, duplicates and reordered batches accrue
  * exactly once, and a growing current-week word pays only fresh
- * increments at the week's already-frozen rate (continuous claims,
- * R10). A regressive lane emits the `CrumbLaneRegression` anomaly and
- * pays zero — never a revert. Pricing the current week snapshots the
- * cutoff first, so a pre-first-mutation price cannot use a sticky
- * value that a later same-week mutation would flip (I5).
+ * increments at the week's already-frozen rate (continuous
+ * claims). A regressive lane emits the `CrumbLaneRegression` anomaly
+ * and pays zero — never a revert. Pricing the current week snapshots
+ * the cutoff first, so a pre-first-mutation price cannot use a sticky
+ * value that a later same-week mutation would flip.
  *
  * Pricing floors per lane: `inc × bps / 10_000 / YEAR`, dust
  * retained, so total paid per (source, referrer, week) can never
- * exceed lanes × frozen rate (I7). Gap records decompress span
+ * exceed lanes × frozen rate. Gap records decompress span
  * semantics (Y1 = Y2 = 0, M constant) through the SAME `_priceWeek`
  * path in caller-windowed chunks of at most MAX_SETTLE_BOUNDARIES
  * weeks — resume is just another call, because overlapping windows
@@ -49,7 +50,7 @@ import {CohortWeeks} from "../../diamond/shared/pending/CohortWeeks.sol";
  * per-week token-seconds would overflow the frozen 80-bit lane —
  * rejects as invalid rather than corrupting cursor geometry.
  * `deliverer` is stamped from `msg.sender` into every pricing event;
- * the R11 bot share applies only to Phase-5 cross-chain transport
+ * the bot share applies only to future cross-chain transport
  * (mainnet deliveries are always 100% referrer), so the split
  * arithmetic deliberately does not exist here — it attaches at the
  * accrual site when a non-100% deliverer first becomes reachable.
