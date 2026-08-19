@@ -14,7 +14,7 @@ import {
  * {ReferralSyncProperties.t.sol}; this file covers the concrete
  * scenario traces (wash cycle, deficit-caught-later, to-side sync,
  * immediate exit discredit) and a wide-amount randomized-operation
- * fuzz asserting the monotonicity theorem across arbitrary buckets.
+ * fuzz asserting the monotonicity theorem across arbitrary amounts.
  */
 contract ReferralSyncTest is Test {
 
