@@ -3,8 +3,8 @@
 pragma solidity =0.8.36;
 
 /**
- * @dev Referral-payout liability tail shard (ruling O6 of the referral
- * commission plan, vault half). `pendingReferralPayout` is the ONE
+ * @dev Referral-payout liability tail shard (the vault half of the
+ * referral payout accounting). `pendingReferralPayout` is the ONE
  * global USD liability the hub's priced verdicts have awarded against
  * this vault but referrers have not yet claimed — no per-user
  * breakdown, no separate pot: the money sits in the same vault USD
@@ -16,8 +16,8 @@ pragma solidity =0.8.36;
  * intermediate state of any upgrade sequence — behaves byte-for-byte
  * as before (default-off convention).
  *
- * No mutation site exists in this branch: the Phase-4/5 payout intake
- * (the open remainder of O6 — how the hub's priced verdicts reach the
+ * No mutation site exists yet: the future hub payout intake
+ * (the still-open seam — how the hub's priced verdicts reach the
  * vault) will be its only writer, raising on accrual and lowering on
  * claim. Every future mutation MUST emit
  * `PendingReferralPayoutChanged(uint256 pendingReferralPayout)`,
