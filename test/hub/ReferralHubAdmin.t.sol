@@ -15,11 +15,10 @@ import {NotProposed} from "../../src/diamond/shared/OwnableMaster.sol";
  * {OwnableMaster} two-step wiring, the reporter allowlist (grant,
  * revoke, zero-address guard, `ReporterAllowedSet`), the permissionless
  * `setPayoutAddress` registry (default self, explicit set, reset to
- * zero restoring self), the permissionless `snapshotWeek` keeper poke
- * (first-of-week emits `CutoffSnapshot`, same-week replay is silent),
- * and the `reportScores` zero-referrer guard. Every `onlyMaster`
- * entrypoint is also exercised once on its success path so both the
- * guard and the guarded body are covered, not just the revert arm.
+ * zero restoring self), and the `reportScores` zero-referrer guard.
+ * Every `onlyMaster` entrypoint is also exercised once on its success
+ * path so both the guard and the guarded body are covered, not just
+ * the revert arm.
  */
 contract ReferralHubAdminTest is Test {
 
@@ -33,16 +32,9 @@ contract ReferralHubAdminTest is Test {
         address indexed payout
     );
 
-    event CutoffSnapshot(
-        uint256 indexed week,
-        uint256 qualifyingBucket
-    );
-
     uint256 internal constant BASE_TIME = 3_000 weeks + 1 hours;
 
     uint256 internal constant WEEK = CohortWeeks.WEEK;
-
-    uint256 internal constant NOBODY_QUALIFIES = 2_049;
 
     address internal refA = address(0xB1);
 
@@ -147,11 +139,14 @@ contract ReferralHubAdminTest is Test {
     function test_RevertWhen_masterGatedFunctions_calledByStranger()
         public
     {
-        hub.setDwellMinEnabled(
+        uint256 flipWeek = block.timestamp / WEEK + 1;
+
+        hub.scheduleDwellMin(
+            flipWeek,
             false
         );
 
-        assertFalse(hub.dwellMinEnabled());
+        assertFalse(hub.dwellMinAt(flipWeek));
 
         hub.pushRateTable(
             _futureRateTable()
@@ -180,7 +175,8 @@ contract ReferralHubAdminTest is Test {
             NotMaster.selector
         );
 
-        hub.setDwellMinEnabled(
+        hub.scheduleDwellMin(
+            flipWeek + 1,
             true
         );
 
@@ -330,43 +326,6 @@ contract ReferralHubAdminTest is Test {
         );
 
         assertEq(hub.payoutAddressOf(refA), refA);
-    }
-
-    // ---- permissionless snapshot ----
-
-    function test_snapshotWeek_permissionless_firstCallSnapshotsSecondIsSilent()
-        public
-    {
-        uint256 week = block.timestamp / WEEK;
-
-        vm.expectEmit(
-            true,
-            false,
-            false,
-            true,
-            address(hub)
-        );
-
-        emit CutoffSnapshot(
-            week,
-            NOBODY_QUALIFIES
-        );
-
-        vm.prank(
-            stranger
-        );
-
-        hub.snapshotWeek();
-
-        vm.recordLogs();
-
-        vm.prank(
-            stranger
-        );
-
-        hub.snapshotWeek();
-
-        assertEq(vm.getRecordedLogs().length, 0);
     }
 
     // ---- reportScores validation ----
