@@ -3,11 +3,12 @@
 pragma solidity =0.8.36;
 
 /**
- * @dev Cohort-book tail shard (Phase 2b): the per-referrer commission
+ * @dev Cohort-book tail shard: the per-referrer commission
  * book — "three buckets, two rings" — ported from the proven
  * `test/fenwick/ReferralCommissionDemo.sol` sandbox with production
  * lane packing. The vault is a measuring instrument only: no rates, no
- * ranking, no claimables live here (those are hub business, Phase 4).
+ * ranking, no claimables live here (those are the mainnet hub's
+ * business).
  *
  * `cohortBook` packs bookY1|bookY2|bookM into one word as three 80-bit
  * lanes (geometry shared with the crumb word via {CohortWeeks}), so
@@ -24,7 +25,7 @@ pragma solidity =0.8.36;
  * 104-boundary walk, so its growth is bounded and not attacker
  * inflatable.
  *
- * Saturation policy (hook path must never revert, invariant I6): ring
+ * Saturation policy (the hook path must never revert): ring
  * lanes saturate at uint64 max, crumb and book and gap-mature lanes at
  * the 80-bit mask, reduction subtractions floor at zero — each clip
  * emits {CohortLaneSaturated} with `laneKind` 0 = ringYear1 lane,
@@ -33,7 +34,8 @@ pragma solidity =0.8.36;
  * is capped by `totalDepositCap` (1e15 units order) against a uint64
  * lane of 1.8e19 units; a crumb lane holds cap x WEEK ~ 6e20 against a
  * 2^80 mask of 1.2e24 — every saturation is unreachable under real
- * caps and exists as monitored fail-soft armor only. Invariants I1/I2
+ * caps and exists as monitored fail-soft armor only. The
+ * tracked-equals-book and ring-equals-book-lane identities
  * hold exactly on the non-saturated domain.
  *
  * Appended after {CohortContributionDeclaration} (slots 65-66) so it
