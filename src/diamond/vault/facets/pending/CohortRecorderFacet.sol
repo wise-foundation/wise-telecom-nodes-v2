@@ -10,8 +10,8 @@ import {CohortWeeks} from "../../../shared/pending/CohortWeeks.sol";
  * recorder: two permissionless mutations and the view set the cohort
  * test suites, keepers and offchain monitoring read. The mutations do
  * NOT carry engine code: they bounce through the helper-chain stubs
- * into the one engine deployment at the `transferHookFacet` pointer
- * (ruling R17), so routed path and hook path can never diverge. Both
+ * into the one engine deployment at the `transferHookFacet` pointer,
+ * so routed path and hook path can never diverge. Both
  * are gated no-ops while `cohortSyncEnabled` is false — on a live
  * diamond with virgin tail storage this facet reads zeros and mutates
  * nothing.
@@ -20,7 +20,7 @@ import {CohortWeeks} from "../../../shared/pending/CohortWeeks.sol";
  * clamp is one-way and idempotent — a no-op unless the user's balance
  * is below their tracked contribution). `advanceBook` lets anyone
  * pre-walk a dormant referrer book in bounded chunks so the transfer
- * hook path stays cheap in practice (ruling R5). Views decode the
+ * hook path stays cheap in practice. Views decode the
  * packed lanes via {CohortWeeks}; the referrer score is
  * definitionally the book lane sum, so `getCohortScore` cannot desync
  * from `getCohortBook`. Installed post-launch only, via the
