@@ -6,28 +6,29 @@ import {Test} from "forge-std/Test.sol";
 import {Vm} from "forge-std/Vm.sol";
 
 import {ReferralHub} from "../../src/hub/pending/ReferralHub.sol";
+import {ReferralHubDeclarations} from "../../src/hub/pending/ReferralHubDeclarations.sol";
+import {CohortWeeks} from "../../src/diamond/shared/pending/CohortWeeks.sol";
 import {NotMaster} from "../../src/diamond/shared/OwnableMaster.sol";
 
 /**
  * @dev Unit and fuzz suite for {ReferralHubCheckpoints} on the actual
- * deployed {ReferralHub} (not the fenwick sandbox demo). Driving
- * writes go through `reportScores` — the only source of checkpoint
- * mutations exercised here. The hub is deployed and wired with this
- * test contract as both master and the sole allowed reporter, so no
- * `vm.prank` is needed for the happy paths; only `stranger` calls are
- * pranked for access-control reverts.
+ * deployed {ReferralHub}. Driving writes go through `reportScores` —
+ * the only source of checkpoint mutations exercised here. The hub is
+ * deployed and wired with this test contract as both master and the
+ * sole allowed reporter, so no `vm.prank` is needed for the happy
+ * paths; only `stranger` calls are pranked for access-control reverts.
  *
  * Load-bearing properties under test: the opening-value read rule
  * (the last checkpoint entry with entryWeek STRICTLY before the
  * query week, zero before the first entry); the checkpoint discipline
  * that a week's tail entry updates in place while past entries never
  * change again (`checkpointCount` grows at most once per
- * referrer-week); the cutoff snapshot's pre-mutation, sticky
- * carry-forward semantics; the immutability of every past week's
- * verdict (`qualifiedAt`/`bucketAt`/`cutoffAt`/`weeklyRates`) even
- * after late-arriving data lands in a future week, pinned both by a
- * hand-built scenario and by a randomized seed-walk journal; and the
- * dwell-min policy knob, including its boundary-straddle
+ * referrer-week); the immutability of every past week's rate verdict
+ * (`weeklyRates` triples and `openingScoresAt` pairs) even after
+ * late-arriving data lands in a future week, pinned both by a
+ * hand-built scenario and by a randomized seed-walk journal; the
+ * score-report intake bounds and per-component diff discipline; and
+ * the dwell-min policy knob, including its boundary-straddle
  * zero-for-two-weeks defense, its plain-opening behavior when
  * disabled, and the week-0 short-circuit that avoids an underflow on
  * `week - 1`.
@@ -41,12 +42,8 @@ contract ReferralHubCheckpointsTest is Test {
         uint256 selfScore
     );
 
-    event CutoffSnapshot(
-        uint256 indexed week,
-        uint256 qualifyingBucket
-    );
-
-    event DwellMinSet(
+    event DwellMinScheduled(
+        uint256 indexed effectiveFromWeek,
         bool enabled
     );
 
@@ -56,9 +53,15 @@ contract ReferralHubCheckpointsTest is Test {
 
     uint256 internal constant BASE_TIME = BASE_WEEK * WEEK + 1 hours;
 
-    uint256 internal constant NOBODY = 2_049;
-
     uint256 internal constant MAX_JOURNAL_WEEKS = 24;
+
+    uint256 internal constant MAX_SOURCE_SCORE = 3 * CohortWeeks.LANE_MASK_80;
+
+    struct RateJournal {
+        uint256[3] y1;
+        uint256[3] y2;
+        uint256[3] m;
+    }
 
     address internal refA = address(0xC1);
     address internal refB = address(0xC2);
@@ -66,13 +69,9 @@ contract ReferralHubCheckpointsTest is Test {
 
     ReferralHub internal hub;
 
-    mapping(uint256 => uint256) internal journalCutoff;
-    mapping(uint256 => uint256) internal journalBucketA;
-    mapping(uint256 => uint256) internal journalBucketB;
-    mapping(uint256 => uint256) internal journalBucketC;
-    mapping(uint256 => uint256) internal journalY1A;
-    mapping(uint256 => uint256) internal journalY1B;
-    mapping(uint256 => uint256) internal journalY1C;
+    mapping(uint256 => bytes32) internal journalFoldA;
+    mapping(uint256 => bytes32) internal journalFoldB;
+    mapping(uint256 => bytes32) internal journalFoldC;
 
     function setUp()
         public
@@ -123,7 +122,7 @@ contract ReferralHubCheckpointsTest is Test {
     {
         address referrer = _refs[_state % 3];
 
-        uint256 branch = (_state >> 8) % 3;
+        uint256 branch = (_state >> 8) % 2;
 
         if (branch == 0) {
 
@@ -145,7 +144,7 @@ contract ReferralHubCheckpointsTest is Test {
                 selfScore
             );
 
-        } else if (branch == 1) {
+        } else {
 
             uint256 weeksForward = bound(
                 _state >> 16,
@@ -159,11 +158,43 @@ contract ReferralHubCheckpointsTest is Test {
                     block.timestamp + weeksForward * WEEK
                 );
             }
-
-        } else {
-
-            hub.snapshotWeek();
         }
+    }
+
+    function _verdictFold(
+        address _referrer,
+        uint256 _week
+    )
+        internal
+        view
+        returns (bytes32)
+    {
+        (
+            uint256 y1Bps,
+            uint256 y2Bps,
+            uint256 mBps
+        ) = hub.weeklyRates(
+            _referrer,
+            _week
+        );
+
+        (
+            uint256 referredOpening,
+            uint256 selfOpening
+        ) = hub.openingScoresAt(
+            _referrer,
+            _week
+        );
+
+        return keccak256(
+            abi.encode(
+                y1Bps,
+                y2Bps,
+                mBps,
+                referredOpening,
+                selfOpening
+            )
+        );
     }
 
     function _journalWeek(
@@ -174,14 +205,9 @@ contract ReferralHubCheckpointsTest is Test {
     {
         uint256 week = BASE_WEEK + _w;
 
-        journalCutoff[_w] = hub.cutoffAt(week);
-        journalBucketA[_w] = hub.bucketAt(_refs[0], week);
-        journalBucketB[_w] = hub.bucketAt(_refs[1], week);
-        journalBucketC[_w] = hub.bucketAt(_refs[2], week);
-
-        (journalY1A[_w], , ) = hub.weeklyRates(_refs[0], week);
-        (journalY1B[_w], , ) = hub.weeklyRates(_refs[1], week);
-        (journalY1C[_w], , ) = hub.weeklyRates(_refs[2], week);
+        journalFoldA[_w] = _verdictFold(_refs[0], week);
+        journalFoldB[_w] = _verdictFold(_refs[1], week);
+        journalFoldC[_w] = _verdictFold(_refs[2], week);
     }
 
     function _assertJournalWeek(
@@ -193,18 +219,9 @@ contract ReferralHubCheckpointsTest is Test {
     {
         uint256 week = BASE_WEEK + _w;
 
-        assertEq(hub.cutoffAt(week), journalCutoff[_w]);
-        assertEq(hub.bucketAt(_refs[0], week), journalBucketA[_w]);
-        assertEq(hub.bucketAt(_refs[1], week), journalBucketB[_w]);
-        assertEq(hub.bucketAt(_refs[2], week), journalBucketC[_w]);
-
-        (uint256 ny1A, , ) = hub.weeklyRates(_refs[0], week);
-        (uint256 ny1B, , ) = hub.weeklyRates(_refs[1], week);
-        (uint256 ny1C, , ) = hub.weeklyRates(_refs[2], week);
-
-        assertEq(ny1A, journalY1A[_w]);
-        assertEq(ny1B, journalY1B[_w]);
-        assertEq(ny1C, journalY1C[_w]);
+        assertEq(_verdictFold(_refs[0], week), journalFoldA[_w]);
+        assertEq(_verdictFold(_refs[1], week), journalFoldB[_w]);
+        assertEq(_verdictFold(_refs[2], week), journalFoldC[_w]);
     }
 
     // ---- opening scores & checkpoint history ----
@@ -302,9 +319,6 @@ contract ReferralHubCheckpointsTest is Test {
     function test_openingScoresAt_preHistory_returnsZero()
         public
     {
-        assertEq(hub.cutoffAt(0), NOBODY);
-        assertEq(hub.cutoffAt(BASE_WEEK), NOBODY);
-
         _report(
             refA,
             60_000 * 1e6,
@@ -343,69 +357,17 @@ contract ReferralHubCheckpointsTest is Test {
 
         assertEq(referredSame, 0);
         assertEq(selfSame, 0);
-
-        assertEq(hub.bucketAt(refA, BASE_WEEK), 0);
-        assertFalse(hub.qualifiedAt(BASE_WEEK, refA));
-        assertEq(hub.cutoffAt(BASE_WEEK - 1), NOBODY);
-    }
-
-    // ---- cutoff snapshot & qualifying bucket ----
-
-    function test_snapshotWeek_emitsCutoffSnapshot_forNewWeekOnly()
-        public
-    {
-        vm.expectEmit(
-            true,
-            false,
-            false,
-            true,
-            address(hub)
-        );
-
-        emit CutoffSnapshot(
-            BASE_WEEK,
-            NOBODY
-        );
-
-        hub.snapshotWeek();
-
-        vm.recordLogs();
-
-        hub.snapshotWeek();
-
-        Vm.Log[] memory logs = vm.getRecordedLogs();
-
-        assertEq(logs.length, 0);
-    }
-
-    function test_qualifyingBucket_noActiveReferrers_returnsNobody()
-        public
-        view
-    {
-        assertEq(hub.qualifyingBucket(), NOBODY);
-    }
-
-    function test_qualifyingBucket_singleActiveReferrer_returnsBucketOne()
-        public
-    {
-        _report(
-            refA,
-            60_000 * 1e6,
-            0
-        );
-
-        assertEq(hub.qualifyingBucket(), 1);
     }
 
     // ---- immutability under late data ----
 
-    function test_qualifiedAt_immutableUnderLateData()
+    function test_weeklyRates_immutableUnderLateData()
         public
     {
         _report(
             refA,
-            60_000 * 1e6,
-            0
+            1_000_000 * 1e6,
+            10_000 * 1e6
         );
 
         _report(
@@ -416,12 +378,10 @@ contract ReferralHubCheckpointsTest is Test {
 
         _warpToWeek(1);
 
-        hub.snapshotWeek();
-
         _report(
             refA,
-            80_000 * 1e6,
-            0
+            1_200_000 * 1e6,
+            10_000 * 1e6
         );
 
         _warpToWeek(2);
@@ -434,28 +394,24 @@ contract ReferralHubCheckpointsTest is Test {
 
         _warpToWeek(3);
 
-        hub.snapshotWeek();
-
         uint256[3] memory pastWeeks = [
             BASE_WEEK,
             BASE_WEEK + 1,
             BASE_WEEK + 2
         ];
 
-        bool[3] memory qA;
-        bool[3] memory qB;
-        uint256[3] memory cutoffs;
-        uint256[3] memory bucketsA;
-        uint256[3] memory bucketsB;
+        RateJournal memory journalA;
+        RateJournal memory journalB;
 
         for (uint256 i; i < 3; ++i) {
 
-            qA[i] = hub.qualifiedAt(pastWeeks[i], refA);
-            qB[i] = hub.qualifiedAt(pastWeeks[i], refB);
-            cutoffs[i] = hub.cutoffAt(pastWeeks[i]);
-            bucketsA[i] = hub.bucketAt(refA, pastWeeks[i]);
-            bucketsB[i] = hub.bucketAt(refB, pastWeeks[i]);
+            (journalA.y1[i], journalA.y2[i], journalA.m[i]) = hub.weeklyRates(refA, pastWeeks[i]);
+            (journalB.y1[i], journalB.y2[i], journalB.m[i]) = hub.weeklyRates(refB, pastWeeks[i]);
         }
+
+        assertEq(journalA.y1[2], 1_000);
+        assertEq(journalA.y2[2], 500);
+        assertEq(journalA.m[2], 100);
 
         _warpToWeek(5);
 
@@ -473,11 +429,17 @@ contract ReferralHubCheckpointsTest is Test {
 
         for (uint256 i; i < 3; ++i) {
 
-            assertEq(hub.qualifiedAt(pastWeeks[i], refA), qA[i]);
-            assertEq(hub.qualifiedAt(pastWeeks[i], refB), qB[i]);
-            assertEq(hub.cutoffAt(pastWeeks[i]), cutoffs[i]);
-            assertEq(hub.bucketAt(refA, pastWeeks[i]), bucketsA[i]);
-            assertEq(hub.bucketAt(refB, pastWeeks[i]), bucketsB[i]);
+            (uint256 y1After, uint256 y2After, uint256 mAfter) = hub.weeklyRates(refA, pastWeeks[i]);
+
+            assertEq(y1After, journalA.y1[i]);
+            assertEq(y2After, journalA.y2[i]);
+            assertEq(mAfter, journalA.m[i]);
+
+            (y1After, y2After, mAfter) = hub.weeklyRates(refB, pastWeeks[i]);
+
+            assertEq(y1After, journalB.y1[i]);
+            assertEq(y2After, journalB.y2[i]);
+            assertEq(mAfter, journalB.m[i]);
         }
     }
 
@@ -603,7 +565,8 @@ contract ReferralHubCheckpointsTest is Test {
     function test_ladderInputsAt_dwellMinDisabled_usesPlainOpening()
         public
     {
-        hub.setDwellMinEnabled(
+        hub.scheduleDwellMin(
+            BASE_WEEK + 1,
             false
         );
 
@@ -656,29 +619,34 @@ contract ReferralHubCheckpointsTest is Test {
         assertEq(selfInput, 0);
     }
 
-    function test_setDwellMinEnabled_emitsEvent()
+    function test_scheduleDwellMin_emitsEventAndTakesEffectAtWeek()
         public
     {
         vm.expectEmit(
-            false,
+            true,
             false,
             false,
             true,
             address(hub)
         );
 
-        emit DwellMinSet(
+        emit DwellMinScheduled(
+            BASE_WEEK + 2,
             false
         );
 
-        hub.setDwellMinEnabled(
+        hub.scheduleDwellMin(
+            BASE_WEEK + 2,
             false
         );
 
-        assertFalse(hub.dwellMinEnabled());
+        assertTrue(hub.dwellMinAt(0));
+        assertTrue(hub.dwellMinAt(BASE_WEEK + 1));
+        assertFalse(hub.dwellMinAt(BASE_WEEK + 2));
+        assertFalse(hub.dwellMinAt(BASE_WEEK + 100));
     }
 
-    function test_setDwellMinEnabled_nonMaster_reverts()
+    function test_scheduleDwellMin_nonMaster_reverts()
         public
     {
         vm.prank(
@@ -689,9 +657,70 @@ contract ReferralHubCheckpointsTest is Test {
             NotMaster.selector
         );
 
-        hub.setDwellMinEnabled(
+        hub.scheduleDwellMin(
+            BASE_WEEK + 2,
             false
         );
+    }
+
+    function test_scheduleDwellMin_notFuture_reverts()
+        public
+    {
+        vm.expectRevert(
+            ReferralHubDeclarations.DwellMinNotFuture.selector
+        );
+
+        hub.scheduleDwellMin(
+            BASE_WEEK,
+            false
+        );
+    }
+
+    function test_scheduleDwellMin_notOrdered_reverts()
+        public
+    {
+        hub.scheduleDwellMin(
+            BASE_WEEK + 3,
+            false
+        );
+
+        vm.expectRevert(
+            ReferralHubDeclarations.DwellMinNotOrdered.selector
+        );
+
+        hub.scheduleDwellMin(
+            BASE_WEEK + 2,
+            true
+        );
+    }
+
+    function test_scheduleDwellMin_pastWeeksKeepTheirSetting()
+        public
+    {
+        _report(
+            refA,
+            60_000 * 1e6,
+            15_000 * 1e6
+        );
+
+        _warpToWeek(1);
+
+        (uint256 y1Dwelled, , ) = hub.weeklyRates(refA, BASE_WEEK + 1);
+
+        assertEq(y1Dwelled, 0);
+
+        hub.scheduleDwellMin(
+            BASE_WEEK + 2,
+            false
+        );
+
+        _warpToWeek(3);
+
+        (uint256 y1Replay, , ) = hub.weeklyRates(refA, BASE_WEEK + 1);
+        (uint256 y1Plain, , ) = hub.weeklyRates(refA, BASE_WEEK + 2);
+
+        assertEq(y1Replay, 0);
+        assertEq(y1Plain, 700);
     }
 
     // ---- checkpoint tail discipline ----
@@ -834,5 +863,48 @@ contract ReferralHubCheckpointsTest is Test {
         assertEq(week1, BASE_WEEK + 1);
         assertEq(referred1, 3_000 * 1e6);
         assertEq(self1, 300 * 1e6);
+    }
+
+    // ---- score report intake ----
+
+    function test_reportScores_selfOnlyChange_referredScoreUntouched()
+        public
+    {
+        _report(
+            refA,
+            10_000 * 1e6,
+            2_000 * 1e6
+        );
+
+        _report(
+            refA,
+            10_000 * 1e6,
+            3_500 * 1e6
+        );
+
+        assertEq(hub.globalReferredScore(refA), 10_000 * 1e6);
+        assertEq(hub.globalSelfScore(refA), 3_500 * 1e6);
+    }
+
+    function test_RevertWhen_reportScores_scoreOutOfRange()
+        public
+    {
+        _report(
+            refA,
+            MAX_SOURCE_SCORE,
+            0
+        );
+
+        assertEq(hub.globalReferredScore(refA), MAX_SOURCE_SCORE);
+
+        vm.expectRevert(
+            ReferralHubDeclarations.ScoreReportOutOfRange.selector
+        );
+
+        hub.reportScores(
+            refA,
+            MAX_SOURCE_SCORE + 1,
+            0
+        );
     }
 }
