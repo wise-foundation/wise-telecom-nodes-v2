@@ -25,10 +25,15 @@ import {CohortWeeks} from "../../diamond/shared/pending/CohortWeeks.sol";
  * 50k/100k/
  * 500k/1M USD (6-dec), tiers 1..8% (100..800 bps), Year-1 rate =
  * min(tier(self) + tier(referred), capBps = 1000) over dwell-min
- * ladder inputs, floor 0 implicit. Year-2 and mature rates are 0
- * until decided — the decile gate (`qualifiedAt`) is WIRED and
- * multiplies whatever the week's table holds, so landing them is one
- * `pushRateTable` call, zero code. Both loops here are fixed-bound
+ * ladder inputs, floor 0 implicit. Year-2 rate = 500 bps and mature
+ * rate = 100 bps, paid only in weeks where the referrer's uncapped
+ * year-1 ladder sum reaches a nonzero capBps — the same inputs, the
+ * same cadence and the same immutability as the year-1 rate itself,
+ * with no ranking state anywhere. Changing cap, tail rates or the
+ * ladder is one `pushRateTable` call. A capBps above the table's
+ * maximum tier sum is a valid configuration meaning "year-1 ladder
+ * effectively uncapped, tail rates off": the gate can then never
+ * open for that table, deliberately. Both loops here are fixed-bound
  * (8-rung tier walk) or log-bounded (table binary search).
  */
 abstract contract ReferralHubRates is ReferralHubCheckpoints {
@@ -76,8 +81,8 @@ abstract contract ReferralHubRates is ReferralHubCheckpoints {
             RateTable({
                 effectiveFromWeek: 0,
                 capBps: 1_000,
-                y2RateBps: 0,
-                mRateBps: 0,
+                y2RateBps: 500,
+                mRateBps: 100,
                 tierBps: [
                     uint16(100),
                     200,
@@ -189,12 +194,9 @@ abstract contract ReferralHubRates is ReferralHubCheckpoints {
             y1Bps = table.capBps;
         }
 
-        if (table.y2RateBps > 0 || table.mRateBps > 0) {
-
-            if (qualifiedAt(_week, _referrer)) {
-                y2Bps = table.y2RateBps;
-                mBps = table.mRateBps;
-            }
+        if (table.capBps > 0 && y1Bps == table.capBps) {
+            y2Bps = table.y2RateBps;
+            mBps = table.mRateBps;
         }
     }
 
