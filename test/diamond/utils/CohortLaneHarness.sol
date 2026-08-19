@@ -183,7 +183,7 @@ contract CohortLaneHarness is CohortRecorderBase {
     }
 
     /**
-     * @dev Post-R19 the engine resolves referrers through the
+     * @dev The engine resolves referrers through the
      * slot-74 pointer into a standalone {ReferralRegistry}, so this
      * seeder lazily deploys one (harness as master AND allowlisted
      * writer), wires the pointer directly into its own storage and
