@@ -228,7 +228,9 @@ abstract contract DiamondTestHarness is Test {
      * run after `_wireAllFacets` (the trio needs routing) and before
      * `finalizeSetup()` so the pointer timelock is in its instant
      * pre-initialization window — the same seam the hook install
-     * uses.
+     * uses. Multi-diamond suites use `_wireReferralRegistryShared`
+     * directly so all vaults on the simulated chain consult ONE
+     * registry, the production topology.
      */
     function _wireReferralRegistry(
         WiseTelecomNodesDiamond d
@@ -238,13 +240,25 @@ abstract contract DiamondTestHarness is Test {
     {
         registry = new ReferralRegistry();
 
-        registry.setAllowedVault(
+        _wireReferralRegistryShared(
+            d,
+            registry
+        );
+    }
+
+    function _wireReferralRegistryShared(
+        WiseTelecomNodesDiamond d,
+        ReferralRegistry _registry
+    )
+        internal
+    {
+        _registry.setAllowedVault(
             address(d),
             true
         );
 
         AdminFacet(address(d)).proposeReferralRegistry(
-            address(registry)
+            address(_registry)
         );
 
         AdminFacet(address(d)).executeReferralRegistryChange();
@@ -254,7 +268,7 @@ abstract contract DiamondTestHarness is Test {
      * @dev {Permit2UserFacet}'s constructor reverts if no
      * contract is present at the canonical Permit2 address. Tests
      * that don't need real Permit2 behaviour still trigger the
-     * check because the harness deploys all 7 facets; etch a
+     * check because the harness deploys the full facet set; etch a
      * minimal STOP at the canonical slot so the check passes. Tests
      * needing a real-ish Permit2 (the Permit2 facet test) etch a
      * full mock BEFORE calling `_deployDiamond` — that prior etch
