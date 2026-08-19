@@ -48,21 +48,21 @@ import {WiseTelecomNodesQueueHelper} from "../../src/diamond/vault/helpers/WiseT
  * genesis wiring stays identical to what is live in production.
  * The queueForecast and interestAdmin groups are also post-launch,
  * live on all nine diamonds since early August 2026; the rescue
- * group is live on usdt-base only (see `src/diamond/DEPLOYED.md`).
+ * group is live on usdt-base only.
  * The referralPayout group is post-launch and NOT yet installed
- * anywhere: it ships with the future Phase-4 payout upgrade script
- * (pattern `UpgradeReferralPayout.s.sol`) alongside the O6 writer. `applyTransferHook` and
+ * anywhere: it ships with the future payout upgrade script
+ * alongside the `pendingReferralPayout` writer. `applyTransferHook` and
  * the `applyCohort*` engine entrypoints are deliberately absent from
  * every group: {CohortHookFacet} is reached only through the
  * `transferHookFacet` pointer, never the dispatcher. That pointer-only
- * register grew to six entrypoints with Phase 3's move-carry pair
- * (`applyCohortMoveOut` / `applyCohortMoveIn`, ruling R23) — the
- * counts above are unchanged by Phase 3, which adds no routed
+ * register grew to six entrypoints with the same-chain move-carry pair
+ * (`applyCohortMoveOut` / `applyCohortMoveIn`) — the
+ * counts above are unchanged by it, since it adds no routed
  * selector anywhere.
  *
  * `referralSelectors` includes the routed `getReferrerOf` view (the
- * registry-reading replacement for the retired slot-64 auto-getter,
- * ruling R19): the live diamond keeps its genesis bytecode, so every
+ * registry-reading replacement for the retired slot-64
+ * auto-getter): the live diamond keeps its genesis bytecode, so every
  * post-genesis read surface must be routed to a facet explicitly —
  * same story as the six pointer selectors in the admin group.
  */
