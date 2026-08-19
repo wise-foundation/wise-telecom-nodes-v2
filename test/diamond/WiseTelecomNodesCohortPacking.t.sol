@@ -16,11 +16,14 @@ import {CohortWeeks} from "../../src/diamond/shared/pending/CohortWeeks.sol";
  * `saturatingSub`, each proven to conserve the algebraic sum or
  * difference across `result` and `clipped`), and a pinned-constant
  * regression test so any accidental edit to the frozen crumb-word
- * geometry — consumed byte for byte by the mainnet hub from Phase 4
- * onward — fails loudly. No diamond harness is needed: every target
+ * geometry — consumed byte for byte by the mainnet hub
+ * — fails loudly. No diamond harness is needed: every target
  * function is `pure`, so this suite calls the library directly and
  * relies on Solidity inlining internal library members into the
- * caller.
+ * caller. The move-carry codec (envelope, amounts word, packed
+ * slot pairs — same-chain move attribution payload) is covered by the
+ * same round-trip/disjointness/pinned-constant treatment in its own
+ * section below.
  */
 contract WiseTelecomNodesCohortPackingTest is Test {
 
@@ -406,6 +409,287 @@ contract WiseTelecomNodesCohortPackingTest is Test {
         assertEq(
             CohortWeeks.GAP_MATURE_SHIFT,
             64
+        );
+    }
+
+    // ---- Carry codec ----
+
+    function testFuzz_packCarryEnvelope_roundTripIdentity(
+        address _referrer,
+        uint256 _pairCount
+    )
+        external
+        pure
+    {
+        uint256 pairCount = bound(
+            _pairCount,
+            0,
+            CohortWeeks.MAX_CARRY_PAIRS
+        );
+
+        uint256 word = CohortWeeks.packCarryEnvelope(
+            _referrer,
+            pairCount
+        );
+
+        assertEq(
+            CohortWeeks.carryEnvelopeReferrer(word),
+            _referrer
+        );
+
+        assertEq(
+            CohortWeeks.carryEnvelopeVersion(word),
+            CohortWeeks.CARRY_VERSION
+        );
+
+        assertEq(
+            CohortWeeks.carryEnvelopePairCount(word),
+            pairCount
+        );
+
+        assertEq(
+            word >> 176,
+            0
+        );
+    }
+
+    function testFuzz_packCarryAmounts_roundTripIdentity(
+        uint256 _trackedDelta,
+        uint256 _mature
+    )
+        external
+        pure
+    {
+        uint256 trackedDelta = bound(
+            _trackedDelta,
+            0,
+            CohortWeeks.CARRY_HALF_MASK
+        );
+
+        uint256 mature = bound(
+            _mature,
+            0,
+            CohortWeeks.CARRY_HALF_MASK
+        );
+
+        uint256 word = CohortWeeks.packCarryAmounts(
+            trackedDelta,
+            mature
+        );
+
+        assertEq(
+            CohortWeeks.carryTrackedDelta(word),
+            trackedDelta
+        );
+
+        assertEq(
+            CohortWeeks.carryMature(word),
+            mature
+        );
+    }
+
+    function testFuzz_packCarryPair_roundTripIdentityAndDisjoint(
+        uint256 _amount,
+        uint256 _slot,
+        uint256 _ring
+    )
+        external
+        pure
+    {
+        uint256 amount = bound(
+            _amount,
+            0,
+            CohortWeeks.RING_LANE_MAX
+        );
+
+        uint256 slot = bound(
+            _slot,
+            0,
+            CohortWeeks.RING_SLOTS - 1
+        );
+
+        uint256 ring = bound(
+            _ring,
+            CohortWeeks.CARRY_RING_YEAR1,
+            CohortWeeks.CARRY_RING_YEAR2
+        );
+
+        uint256 pair = CohortWeeks.packCarryPair(
+            amount,
+            slot,
+            ring
+        );
+
+        assertEq(
+            CohortWeeks.carryPairAmount(pair),
+            amount
+        );
+
+        assertEq(
+            CohortWeeks.carryPairSlot(pair),
+            slot
+        );
+
+        assertEq(
+            CohortWeeks.carryPairRing(pair),
+            ring
+        );
+
+        assertEq(
+            pair >> 80,
+            0
+        );
+
+        uint256 shiftedSlot = slot << CohortWeeks.CARRY_PAIR_SLOT_SHIFT;
+
+        uint256 shiftedRing = ring << CohortWeeks.CARRY_PAIR_RING_SHIFT;
+
+        assertEq(
+            pair,
+            amount | shiftedSlot | shiftedRing
+        );
+
+        assertEq(
+            amount & shiftedSlot,
+            0
+        );
+
+        assertEq(
+            amount & shiftedRing,
+            0
+        );
+
+        assertEq(
+            shiftedSlot & shiftedRing,
+            0
+        );
+    }
+
+    function testFuzz_packCarryPairsWord_roundTripIdentity(
+        uint256 _amountLo,
+        uint256 _slotLo,
+        uint256 _amountHi,
+        uint256 _slotHi
+    )
+        external
+        pure
+    {
+        uint256 pairLo = CohortWeeks.packCarryPair(
+            bound(
+                _amountLo,
+                0,
+                CohortWeeks.RING_LANE_MAX
+            ),
+            bound(
+                _slotLo,
+                0,
+                CohortWeeks.RING_SLOTS - 1
+            ),
+            CohortWeeks.CARRY_RING_YEAR1
+        );
+
+        uint256 pairHi = CohortWeeks.packCarryPair(
+            bound(
+                _amountHi,
+                0,
+                CohortWeeks.RING_LANE_MAX
+            ),
+            bound(
+                _slotHi,
+                0,
+                CohortWeeks.RING_SLOTS - 1
+            ),
+            CohortWeeks.CARRY_RING_YEAR2
+        );
+
+        uint256 word = CohortWeeks.packCarryPairsWord(
+            pairLo,
+            pairHi
+        );
+
+        assertEq(
+            CohortWeeks.carryPairLo(word),
+            pairLo
+        );
+
+        assertEq(
+            CohortWeeks.carryPairHi(word),
+            pairHi
+        );
+    }
+
+    function test_carryConstants_pinned()
+        external
+        pure
+    {
+        assertEq(
+            CohortWeeks.CARRY_VERSION,
+            1
+        );
+
+        assertEq(
+            CohortWeeks.MAX_CARRY_PAIRS,
+            104
+        );
+
+        assertEq(
+            CohortWeeks.MAX_CARRY_PAIRS,
+            2 * CohortWeeks.RING_SLOTS
+        );
+
+        assertEq(
+            CohortWeeks.MAX_CARRY_WORDS,
+            54
+        );
+
+        assertEq(
+            CohortWeeks.MAX_CARRY_WORDS,
+            2 + CohortWeeks.RING_SLOTS
+        );
+
+        assertEq(
+            CohortWeeks.CARRY_RING_YEAR1,
+            0
+        );
+
+        assertEq(
+            CohortWeeks.CARRY_RING_YEAR2,
+            1
+        );
+
+        assertEq(
+            CohortWeeks.CARRY_VERSION_SHIFT,
+            160
+        );
+
+        assertEq(
+            CohortWeeks.CARRY_PAIR_COUNT_SHIFT,
+            168
+        );
+
+        assertEq(
+            CohortWeeks.CARRY_BYTE_MASK,
+            0xff
+        );
+
+        assertEq(
+            CohortWeeks.CARRY_HALF_SHIFT,
+            128
+        );
+
+        assertEq(
+            CohortWeeks.CARRY_HALF_MASK,
+            (1 << 128) - 1
+        );
+
+        assertEq(
+            CohortWeeks.CARRY_PAIR_SLOT_SHIFT,
+            64
+        );
+
+        assertEq(
+            CohortWeeks.CARRY_PAIR_RING_SHIFT,
+            72
         );
     }
 }
