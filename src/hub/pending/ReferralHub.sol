@@ -9,19 +9,19 @@ import {OwnableMaster} from "../../diamond/shared/OwnableMaster.sol";
 /**
  * @dev The mainnet hub (scoreboard + paymaster) of the
  * referral commission system — ONE standalone deployed contract
- * closing the chain Declarations → Ranking → Checkpoints → Rates →
+ * closing the chain Declarations → Checkpoints → Rates →
  * Intake. It ships the structural groundwork: everything the frozen
- * recorder interface exercises (score aggregation, ranking, weekly
- * verdict history, crumb/gap pricing into claimable balances) is
+ * recorder interface exercises (score aggregation, weekly
+ * checkpoint history, crumb/gap pricing into claimable balances) is
  * live and fully tested; everything still undecided is a
- * documented seam, not code.
+ * documented seam, not code. Year-1 pays the tier ladder capped at
+ * 10%; year-2 (500 bps) and mature (100 bps) rates pay only in weeks
+ * where the referrer's uncapped ladder sum reaches the cap — all
+ * three knobs week-versioned behind `pushRateTable`.
  *
  * Completion register (the open seams):
- * - Sybil countermeasure: attaches inside `_weeklyRates` /
- *   MIN_ACTIVE_SCORE — policy-module change only.
- * - Year-2/mature rates: the genesis table holds 0; landing them is
- *   one `pushRateTable` call. The decile gate is wired and tested
- *   now.
+ * - Sybil countermeasure: attaches inside `_weeklyRates` —
+ *   policy-module change only.
  * - Payout asset/funding: NO `claim()` exists — `claimable` is
  *   accrual-only accounting. A value-less claim would zero balances
  *   against nothing; the entrypoint ships with the funding decision.
@@ -42,14 +42,15 @@ import {OwnableMaster} from "../../diamond/shared/OwnableMaster.sol";
  *   flows — zero new hub surface.
  *
  * Threat model: master (two-step {OwnableMaster}) governs the
- * reporter allowlist, future rate tables (future-week-only, so past
- * pricing is immutable even against master) and the dwell-min knob;
- * it can NEVER touch scores, cursors, checkpoints or claimables
+ * reporter allowlist, future rate tables and the future-week-only
+ * dwell-min schedule — every rate lever is week-versioned and
+ * future-only, so the pricing of any week whose opening boundary has
+ * passed is a pure function of frozen data and can never change,
+ * even for master. Master can NEVER
+ * touch scores, cursors, checkpoints or claimables
  * directly. Reporters are trusted for their OWN source's data only —
  * cursors and per-source score diffs contain a malicious reporter's
- * blast radius to its own source key. `snapshotWeek` is the
- * permissionless keeper poke freezing a quiet week's cutoff exactly
- * as the first organic mutation would.
+ * blast radius to its own source key.
  */
 contract ReferralHub is ReferralHubIntake {
 
@@ -66,7 +67,7 @@ contract ReferralHub is ReferralHubIntake {
             msg.sender
         )
     {
-        dwellMinEnabled = true;
+        _seedGenesisDwellMin();
 
         _seedGenesisRateTable();
     }
@@ -143,12 +144,6 @@ contract ReferralHub is ReferralHubIntake {
         );
     }
 
-    function snapshotWeek()
-        external
-    {
-        _snapshotCutoffIfNewWeek();
-    }
-
     function pushRateTable(
         RateTable calldata _table
     )
@@ -180,15 +175,15 @@ contract ReferralHub is ReferralHubIntake {
         );
     }
 
-    function setDwellMinEnabled(
+    function scheduleDwellMin(
+        uint256 _effectiveFromWeek,
         bool _enabled
     )
         external
         onlyMaster
     {
-        dwellMinEnabled = _enabled;
-
-        emit DwellMinSet(
+        _scheduleDwellMin(
+            _effectiveFromWeek,
             _enabled
         );
     }
