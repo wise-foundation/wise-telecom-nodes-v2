@@ -34,10 +34,16 @@ jobs:
       - name: Install tools dependencies
         run: npm ci --prefix tools
 
+      # Pinned to the toolchain the repo is developed against: the gas-budget
+      # suites measure with gasleft() and their ceilings are calibrated to
+      # 1.7.1's metering — forge 1.8+ meters call-frame warmth differently and
+      # trips six ceilings. Re-baseline every gas cell when bumping this pin.
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: v1.7.1
 
-      # forge 1.7.1 (the current stable) predates solc 0.8.36 and cannot
+      # forge 1.7.1 predates solc 0.8.36 and cannot
       # auto-resolve it on a clean machine; see the script header.
       - name: Install solc 0.8.36
         run: bash script/install_solc_0836.sh
