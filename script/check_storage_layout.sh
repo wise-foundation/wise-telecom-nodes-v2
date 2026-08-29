@@ -17,9 +17,11 @@ DIAMOND="src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond"
 SNAPSHOT="test/diamond/storage_snapshot/vault_diamond_layout.json"
 FACETS=(
     AdminFacet
+    AutoCompoundFacet
     BridgeFacet
     BurnWiseFacet
     CashedInterestFacet
+    CohortBridgeHookFacet
     CohortHookFacet
     CohortRecorderFacet
     GraceAccumHookFacet
@@ -35,7 +37,6 @@ FACETS=(
     QueueJoinLeaveFacet
     QueueViewFacet
     ReferralFacet
-    ReferralPayoutFacet
     SweepFacet
     UserFacet
 )
@@ -100,6 +101,7 @@ fi
 PINNED_FACETS=(
     InterestAdminFacet
     QueueForecastFacet
+    ReferralPayoutFacet
     RescueFacet
 )
 
