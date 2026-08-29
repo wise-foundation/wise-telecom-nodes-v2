@@ -92,8 +92,8 @@ contract MockPermit2 is IPermit2 {
  * vault identity, the vault emits nothing), parity with the
  * non-referral paths, transfers never touching referrer state
  * (pinned under the production {GraceFreezeHookFacet}), and the
- * diamond slot-64 mapping staying forever virgin (raw `vm.load`).
- * The slot-74 pointer's full life is covered: instant pre-finalize
+ * diamond slot-67 mapping staying forever virgin (raw `vm.load`).
+ * The slot-77 pointer's full life is covered: instant pre-finalize
  * install (setUp), post-finalize 3-day timelocked
  * propose/execute/cancel through the {AdminFacet} trio and its
  * routed getters, the shape probe rejecting codeless and
@@ -1313,7 +1313,10 @@ contract WiseTelecomNodesReferralFacetTest is DiamondTestHarness {
             referral
         );
 
-        ReferralRegistry liveRegistry = new ReferralRegistry();
+        ReferralRegistry liveRegistry = new ReferralRegistry(
+            address(this),
+            0
+        );
 
         liveRegistry.setAllowedVault(
             address(live),
@@ -1392,7 +1395,10 @@ contract WiseTelecomNodesReferralFacetTest is DiamondTestHarness {
     function test_registryPointer_lifecycleGettersAndCancel()
         public
     {
-        ReferralRegistry next = new ReferralRegistry();
+        ReferralRegistry next = new ReferralRegistry(
+            address(this),
+            0
+        );
 
         AdminFacet(address(diamond)).proposeReferralRegistry(
             address(next)
@@ -1595,7 +1601,7 @@ contract WiseTelecomNodesReferralFacetTest is DiamondTestHarness {
         );
     }
 
-    function test_slot64_staysVirgin_afterAssignment()
+    function test_slot67_staysVirgin_afterAssignment()
         public
     {
         _depositWithReferralAs(
@@ -1616,7 +1622,7 @@ contract WiseTelecomNodesReferralFacetTest is DiamondTestHarness {
                 keccak256(
                     abi.encode(
                         user1,
-                        uint256(64)
+                        uint256(67)
                     )
                 )
             ),

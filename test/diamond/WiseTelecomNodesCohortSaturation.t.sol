@@ -7,6 +7,7 @@ import {Test} from "forge-std/Test.sol";
 import {CohortWeeks} from "../../src/diamond/shared/pending/CohortWeeks.sol";
 
 import {CohortLaneHarness} from "./utils/CohortLaneHarness.sol";
+import {ReferralRegistry} from "../../src/registry/pending/ReferralRegistry.sol";
 
 /**
  * @dev Saturation-guard suite for the cohort recorder engine
@@ -20,7 +21,7 @@ import {CohortLaneHarness} from "./utils/CohortLaneHarness.sol";
  * the crumb-word's written bit / reserved bit ranges. Ring-array slot
  * arithmetic (base + index / 4 for the packed uint64[52]) is pinned
  * against `forge inspect CohortRecorderFacet storage-layout`:
- * cohortRingYear1 is slot 69, cohortRingYear2 is slot 70 — verified,
+ * cohortRingYear1 is slot 72, cohortRingYear2 is slot 73 — verified,
  * not assumed.
  */
 contract WiseTelecomNodesCohortSaturationTest is Test {
@@ -62,6 +63,20 @@ contract WiseTelecomNodesCohortSaturationTest is Test {
         );
 
         harness = new CohortLaneHarness();
+
+        ReferralRegistry registry = new ReferralRegistry(
+            address(this),
+            0
+        );
+
+        registry.setAllowedVault(
+            address(harness),
+            true
+        );
+
+        harness.harnessSetRegistry(
+            address(registry)
+        );
     }
 
     // ---- ring lane saturation (kind 0) ----
@@ -212,7 +227,7 @@ contract WiseTelecomNodesCohortSaturationTest is Test {
 
         uint256 base = uint256(
             keccak256(
-                abi.encode(referrer, uint256(69))
+                abi.encode(referrer, uint256(72))
             )
         );
 

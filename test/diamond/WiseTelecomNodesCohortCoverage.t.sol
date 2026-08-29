@@ -13,6 +13,7 @@ import {CohortRecorderFacet} from "../../src/diamond/vault/facets/pending/Cohort
 import {WiseTelecomNodesDiamondErrors} from "../../src/diamond/vault/WiseTelecomNodesDiamondErrors.sol";
 import {CohortWeeks} from "../../src/diamond/shared/pending/CohortWeeks.sol";
 import {CohortLaneHarness} from "./utils/CohortLaneHarness.sol";
+import {ReferralRegistry} from "../../src/registry/pending/ReferralRegistry.sol";
 
 import {WiseTelecomNodesDiamondSelectors} from "../../script/diamond/WiseTelecomNodesDiamondSelectors.sol";
 
@@ -222,6 +223,20 @@ contract WiseTelecomNodesCohortCoverageTest is DiamondTestHarness {
         public
     {
         CohortLaneHarness harness = new CohortLaneHarness();
+
+        ReferralRegistry laneRegistry = new ReferralRegistry(
+            address(this),
+            0
+        );
+
+        laneRegistry.setAllowedVault(
+            address(harness),
+            true
+        );
+
+        harness.harnessSetRegistry(
+            address(laneRegistry)
+        );
 
         harness.harnessSetReferrer(
             user1,

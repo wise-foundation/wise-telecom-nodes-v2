@@ -48,10 +48,10 @@ contract MockUSD is ERC20 {
 
 /**
  * @dev Dormant-accumulator suite: proves the `pendingReferralPayout`
- * tail shard (slot 73) enters `_calculateNeededBuffer` as one more
+ * tail shard (slot 76) enters `_calculateNeededBuffer` as one more
  * additive liability term — the exact `totalCashedInterest` pattern —
  * while remaining fully dormant (no writer exists yet, so
- * `vm.store` on slot 73 stands in for the not-yet-existing hub
+ * `vm.store` on slot 76 stands in for the not-yet-existing hub
  * payout intake). The slot-pin test couples every `vm.store` here to
  * the routed getter, so a future renumbering fails loudly in one
  * place. The dormancy test walks the real user flows (deposit, accrue,
@@ -78,7 +78,7 @@ contract WiseTelecomNodesReferralPayoutBufferTest is Test {
     uint256 constant SECONDS_IN_TWO_WEEKS = 14 days;
     uint256 constant PRECISION_RATE = 10_000;
     uint256 constant PRECISION_FACTOR_E18 = 1e18;
-    uint256 constant PENDING_REFERRAL_PAYOUT_SLOT = 73;
+    uint256 constant PENDING_REFERRAL_PAYOUT_SLOT = 76;
     uint256 constant SWEEP_GAS_CEILING = 90_000;
 
     function setUp()
@@ -272,9 +272,9 @@ contract WiseTelecomNodesReferralPayoutBufferTest is Test {
         );
     }
 
-    // ---- 1. slot pin: slot 73 backs the routed getter ----
+    // ---- 1. slot pin: slot 76 backs the routed getter ----
 
-    function test_storageSlot73_backsPendingReferralPayout()
+    function test_storageSlot76_backsPendingReferralPayout()
         public
     {
         uint256 value = 777_777 * 1e6;
@@ -553,7 +553,7 @@ contract WiseTelecomNodesReferralPayoutBufferTest is Test {
         );
     }
 
-    // ---- 10. dormancy: no user flow ever writes slot 73 ----
+    // ---- 10. dormancy: no user flow ever writes slot 76 ----
 
     function test_pendingReferralPayout_dormantThroughUserFlows()
         public
