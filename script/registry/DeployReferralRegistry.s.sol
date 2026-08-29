@@ -15,7 +15,7 @@ import {ReferralRegistry} from "../../src/registry/pending/ReferralRegistry.sol"
 ///
 /// Phases (chain via --rpc-url; VAULT_PRODUCT is NOT used — all products are scanned):
 ///   `deploy()` — refuses to run if the chain's registry config already points at deployed
-///                code (one registry per chain, ever). Broadcasts `new ReferralRegistry()`
+///                code (one registry per chain, ever). Broadcasts `new ReferralRegistry(master, rank)`
 ///                (master = broadcast key), then `setAllowedVault(diamond, true)` for every
 ///                product whose `config/vault.<product>.<network>.json` exists on this
 ///                chain, and records the address in `config/registry.<network>.json`.
@@ -60,7 +60,14 @@ contract DeployReferralRegistry is VaultConfig {
             privKey
         );
 
-        ReferralRegistry registry = new ReferralRegistry();
+        ReferralRegistry registry = new ReferralRegistry(
+            vm.addr(
+                privKey
+            ),
+            _localChainRank(
+                network
+            )
+        );
 
         _allowKnownVaults(
             registry,
@@ -197,5 +204,41 @@ contract DeployReferralRegistry is VaultConfig {
             "usdt",
             "usdg"
         ];
+    }
+
+    /// @dev The fixed per-chain tie-break rank of the cross-chain
+    /// referrer sync: Ethereum mainnet wins same-second ties, then the
+    /// remaining chains in a deterministic lane-centrality order. Every
+    /// chain's registry must be deployed with its own rank and the set
+    /// must stay collision-free forever — a new chain takes the next
+    /// unused number.
+    function _localChainRank(
+        string memory _network
+    )
+        internal
+        pure
+        returns (uint256)
+    {
+        bytes32 tag = keccak256(
+            bytes(_network)
+        );
+
+        if (tag == keccak256("mainnet")) {
+            return 0;
+        }
+
+        if (tag == keccak256("base")) {
+            return 1;
+        }
+
+        if (tag == keccak256("arbitrum")) {
+            return 2;
+        }
+
+        if (tag == keccak256("robinhood")) {
+            return 3;
+        }
+
+        revert("DeployReferralRegistry: unknown network rank");
     }
 }
