@@ -119,7 +119,10 @@ contract WiseTelecomNodesCohortCarryEngineTest is Test {
 
         harnessB = new CohortCarryHarness();
 
-        registry = new ReferralRegistry();
+        registry = new ReferralRegistry(
+            address(this),
+            0
+        );
 
         registry.setAllowedVault(
             address(harnessA),
