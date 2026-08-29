@@ -37,6 +37,7 @@ import {SweeperDeclaration} from "./SweeperDeclaration.sol";
 import {DepositAccumPrevDeclaration} from "./DepositAccumPrevDeclaration.sol";
 import {HookGuardDeclaration} from "./HookGuardDeclaration.sol";
 import {InterestRemainderDeclaration} from "./InterestRemainderDeclaration.sol";
+import {AutoCompoundDeclaration} from "./AutoCompoundDeclaration.sol";
 import {ReferralRegistryDeclaration} from "./pending/ReferralRegistryDeclaration.sol";
 import {CohortContributionDeclaration} from "./pending/CohortContributionDeclaration.sol";
 import {CohortBookDeclaration} from "./pending/CohortBookDeclaration.sol";
@@ -82,6 +83,7 @@ abstract contract WiseTelecomNodesDeclarations is
     DepositAccumPrevDeclaration,
     HookGuardDeclaration,
     InterestRemainderDeclaration,
+    AutoCompoundDeclaration,
     ReferralRegistryDeclaration,
     CohortContributionDeclaration,
     CohortBookDeclaration,

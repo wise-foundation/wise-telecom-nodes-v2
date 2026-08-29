@@ -6,7 +6,7 @@ pragma solidity =0.8.36;
  * @dev Referral-registry pointer tail shard. `referralRegistry` is the
  * address of this chain's standalone {ReferralRegistry} — the single
  * source of referrer truth shared by every vault on the chain; the
- * legacy slot-64 mapping in {ReferralRegistryDeclaration} stays
+ * legacy slot-67 mapping in {ReferralRegistryDeclaration} stays
  * declared but forever virgin. While the pointer is `ZERO_ADDRESS` —
  * the virgin default — the referral feature is off in both
  * directions: every `...WithReferral` deposit entrypoint reverts
@@ -35,8 +35,8 @@ pragma solidity =0.8.36;
  * `internal` rather than `public`: the live genesis dispatcher
  * cannot route auto-getters, so the external read surface is the
  * routed {AdminFacet} getter trio. Appended after
- * {ReferralPayoutDeclaration} (slot 73) so it takes fresh tail slots
- * 74-76 and moves no pre-existing slot.
+ * {ReferralPayoutDeclaration} (slot 76) so it takes fresh tail slots
+ * 77-79 and moves no pre-existing slot.
  */
 abstract contract ReferralRegistryPointerDeclaration {
 

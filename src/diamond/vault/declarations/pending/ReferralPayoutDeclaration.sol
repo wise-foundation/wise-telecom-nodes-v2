@@ -32,8 +32,8 @@ pragma solidity =0.8.36;
  * Declared `internal` rather than `public`: the live genesis
  * dispatcher cannot route auto-getters, so the single external
  * surface is `ReferralPayoutFacet.getPendingReferralPayout()`.
- * Appended after {CohortBookDeclaration} (slots 67-72) so it takes
- * fresh tail slot 73 and moves no pre-existing slot.
+ * Appended after {CohortBookDeclaration} (slots 70-75) so it takes
+ * fresh tail slot 76 and moves no pre-existing slot.
  */
 abstract contract ReferralPayoutDeclaration {
 
