@@ -17,14 +17,15 @@ import {ReferralFacet} from "../../src/diamond/vault/facets/pending/ReferralFace
 import {Permit2ReferralFacet} from "../../src/diamond/vault/facets/pending/Permit2ReferralFacet.sol";
 import {CohortRecorderFacet} from "../../src/diamond/vault/facets/pending/CohortRecorderFacet.sol";
 import {CohortHookFacet} from "../../src/diamond/vault/facets/pending/CohortHookFacet.sol";
+import {CohortBridgeHookFacet} from "../../src/diamond/vault/facets/pending/CohortBridgeHookFacet.sol";
 import {ReferralRegistry} from "../../src/registry/pending/ReferralRegistry.sol";
 
 import {WiseTelecomNodesDiamondSelectors} from "./WiseTelecomNodesDiamondSelectors.sol";
 
 /// @notice Installs the referral-registry round
 /// on an already-running, finalized diamond: the cohort recorder manifest
-/// PLUS the slot-74 registry pointer. Supersedes {UpgradeCohortRecorder} (which superseded
-/// {UpgradeReferral}): the slot-74 shard recompiles every facet in the manifest and the
+/// PLUS the slot-77 registry pointer. Supersedes {UpgradeCohortRecorder} (which superseded
+/// {UpgradeReferral}): the slot-77 shard recompiles every facet in the manifest and the
 /// referral facets now write the per-chain standalone {ReferralRegistry}, so installing the
 /// older script's builds would route stale bytecode. The LIVE diamond entry contracts are
 /// never redeployed and never migrated — this round only deploys NEW facet contracts and
@@ -37,7 +38,7 @@ import {WiseTelecomNodesDiamondSelectors} from "./WiseTelecomNodesDiamondSelecto
 /// TWO chained 3-day clocks per vault — the pointer trio selectors are NEW (not
 /// genesis-routed), so `proposeReferralRegistry` only exists on the diamond after the
 /// selector round executes:
-///   `propose()`        — deploys the 11 manifest facets, proposes all 10 selector batches
+///   `propose()`        — deploys the 12 manifest facets, proposes all 11 selector batches
 ///                        AND the transfer-hook swap to {CohortHookFacet}. Clock 1 starts.
 ///   `execute()`        — after 3 days: flips every batch, hook last. Idempotent
 ///                        (queuedAt-guarded), re-runnable after partial mining.
@@ -48,7 +49,8 @@ import {WiseTelecomNodesDiamondSelectors} from "./WiseTelecomNodesDiamondSelecto
 ///   `arm()`            — the separate go-live step: pre-asserts pointer wired AND this
 ///                        diamond allowlisted on the registry, then
 ///                        `setCohortSyncEnabled(true)` (which itself requires the pointer
-///                        onchain) and `bridgeGasLimit = 1M`.
+///                        onchain) and `bridgeGasLimit = 4M` (headroom for the atomic
+///                        cross-chain carry apply on `ccipReceive`).
 ///   `abort()`          — cancels every pending selector batch, the hook proposal and the
 ///                        pointer proposal (each pre-execute only).
 ///   `status()`         — read-only sanity print for the runbook (no broadcast).
@@ -122,6 +124,7 @@ contract UpgradeReferralRegistry is VaultConfig {
         address permit2ReferralFacet = address(new Permit2ReferralFacet());
         address cohortRecorderFacet = address(new CohortRecorderFacet());
         address cohortHookFacet = address(new CohortHookFacet());
+        address cohortBridgeHookFacet = address(new CohortBridgeHookFacet());
 
         _proposeGroup(
             diamond,
@@ -183,6 +186,12 @@ contract UpgradeReferralRegistry is VaultConfig {
             cohortRecorderFacet
         );
 
+        _proposeGroup(
+            diamond,
+            WiseTelecomNodesDiamondSelectors.cohortBridgeHookSelectors(),
+            cohortBridgeHookFacet
+        );
+
         AdminFacet(diamond).proposeTransferHookFacet(
             cohortHookFacet
         );
@@ -202,6 +211,7 @@ contract UpgradeReferralRegistry is VaultConfig {
         console2.log("  Permit2ReferralFacet", permit2ReferralFacet);
         console2.log("  CohortRecorderFacet ", cohortRecorderFacet);
         console2.log("  CohortHookFacet     ", cohortHookFacet);
+        console2.log("  CohortBridgeHookFacet", cohortBridgeHookFacet);
         console2.log("earliest execute()", block.timestamp + 3 days);
     }
 
@@ -270,6 +280,11 @@ contract UpgradeReferralRegistry is VaultConfig {
         _executeGroup(
             diamond,
             WiseTelecomNodesDiamondSelectors.cohortRecorderSelectors()
+        );
+
+        _executeGroup(
+            diamond,
+            WiseTelecomNodesDiamondSelectors.cohortBridgeHookSelectors()
         );
 
         if (WiseTelecomNodesDiamond(payable(diamond)).transferHookChangeQueuedAt() > 0) {
@@ -402,7 +417,7 @@ contract UpgradeReferralRegistry is VaultConfig {
         );
 
         BridgeFacet(diamond).setBridgeGasLimit(
-            1_000_000
+            4_000_000
         );
 
         vm.stopBroadcast();
@@ -475,6 +490,11 @@ contract UpgradeReferralRegistry is VaultConfig {
         _cancelGroup(
             diamond,
             WiseTelecomNodesDiamondSelectors.cohortRecorderSelectors()
+        );
+
+        _cancelGroup(
+            diamond,
+            WiseTelecomNodesDiamondSelectors.cohortBridgeHookSelectors()
         );
 
         if (WiseTelecomNodesDiamond(payable(diamond)).transferHookChangeQueuedAt() > 0) {
