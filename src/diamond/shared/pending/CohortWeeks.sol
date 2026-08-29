@@ -5,8 +5,8 @@ pragma solidity =0.8.36;
 /**
  * @dev CohortWeeks — the single source of truth for every week-epoch
  * and lane-packing constant of the referral cohort recorder, shared by
- * the recorder facets today and by the mainnet hub and cross-chain
- * flush messages in later phases. One epoch definition everywhere
+ * the recorder facets today and by the planned mainnet hub and its
+ * cross-chain flush messages. One epoch definition everywhere
  * (`week = timestamp / WEEK`, year = 52 weeks): a mismatch between
  * recorder and hub arithmetic would be a silent fund bug, so no other
  * contract may restate these numbers.
@@ -45,6 +45,38 @@ pragma solidity =0.8.36;
  * destination recipient equals the source owner (a different
  * recipient is an ownership change — the credit is destroyed, not
  * carried).
+ *
+ * Bridge carry codec (cross-chain ONLY): the aggregate payload that
+ * rides the bridge wire's `referralData` field is exactly four packed
+ * words = `BRIDGE_CARRY_BYTES`. word0 `referrer(160) | version(8)`
+ * with bits 168+ zero; word1 `trackedDelta(uint128) |
+ * assignedAt(uint64 at bit 128) | originRank(uint8 at bit 192)` with
+ * bits 200+ zero; word2 `year1Aggregate(uint128 low) |
+ * year2Aggregate(uint128 high)`; word3 `matureAggregate(uint128 low)`
+ * with the high half zero. The assignedAt/rank pair is the ORIGIN
+ * sync key of the user's referrer assignment and travels unchanged
+ * through relays — the destination registry's earliest-wins merge
+ * depends on never re-stamping it. `bridgeCarryValid` rejects a
+ * payload wholesale unless every structural rule holds: exact length,
+ * version match, reserved bits zero, an unreferred envelope
+ * (referrer zero) carrying zero book lanes, a referred envelope whose
+ * trackedDelta equals the lane sum exactly, a nonzero trackedDelta
+ * or lane sum (a payload carrying only the sync key is rejected),
+ * and trackedDelta bounded by the amount the same message
+ * mints — the conservation ceiling that prices any forged book credit
+ * at one-to-one in burned shares. Per-component floor scaling at the
+ * source keeps the lane sum at or below the scaled burn, so every
+ * honestly built payload passes the ceiling. Landing rule (the
+ * destination applies after settling the effective referrer): the
+ * year-1 aggregate lands in ring-1 slot `(arrivalWeek + 1) % 52` —
+ * the cohort that graduates at the very next weekly boundary — the
+ * year-2 aggregate in the same index on ring 2 (the cohort that
+ * matures next), and the mature aggregate on the week-less mature
+ * lane, all via the saturating helpers with the full pre-clip
+ * aggregates added to the book word. Every hop therefore leaves at
+ * most one week to the next graduation on each carried lane, so
+ * relocation only ever accelerates the year-1 to year-2 to mature
+ * walk and a round trip can never refresh a cohort's age.
  */
 library CohortWeeks {
 
@@ -95,6 +127,20 @@ library CohortWeeks {
     uint256 internal constant CARRY_PAIR_SLOT_SHIFT = 64;
 
     uint256 internal constant CARRY_PAIR_RING_SHIFT = 72;
+
+    uint256 internal constant BRIDGE_CARRY_VERSION = 1;
+
+    uint256 internal constant BRIDGE_CARRY_WORDS = 4;
+
+    uint256 internal constant BRIDGE_CARRY_BYTES = 128;
+
+    uint256 internal constant BRIDGE_CARRY_ASSIGNED_AT_SHIFT = 128;
+
+    uint256 internal constant BRIDGE_CARRY_RANK_SHIFT = 192;
+
+    uint256 internal constant BRIDGE_CARRY_ENVELOPE_RESERVED_SHIFT = 168;
+
+    uint256 internal constant BRIDGE_CARRY_TRACKED_RESERVED_SHIFT = 200;
 
     function packCarryEnvelope(
         address _referrer,
@@ -247,6 +293,157 @@ library CohortWeeks {
         returns (uint256)
     {
         return _word >> CARRY_HALF_SHIFT;
+    }
+
+    function packBridgeCarryEnvelope(
+        address _referrer
+    )
+        internal
+        pure
+        returns (uint256)
+    {
+        return uint256(uint160(_referrer))
+            | (BRIDGE_CARRY_VERSION << CARRY_VERSION_SHIFT);
+    }
+
+    function packBridgeCarryTracked(
+        uint256 _trackedDelta,
+        uint256 _assignedAt,
+        uint256 _rank
+    )
+        internal
+        pure
+        returns (uint256)
+    {
+        return _trackedDelta
+            | (_assignedAt << BRIDGE_CARRY_ASSIGNED_AT_SHIFT)
+            | (_rank << BRIDGE_CARRY_RANK_SHIFT);
+    }
+
+    function bridgeCarryAssignedAt(
+        uint256 _word
+    )
+        internal
+        pure
+        returns (uint256)
+    {
+        return (_word >> BRIDGE_CARRY_ASSIGNED_AT_SHIFT) & RING_LANE_MAX;
+    }
+
+    function bridgeCarryRank(
+        uint256 _word
+    )
+        internal
+        pure
+        returns (uint256)
+    {
+        return (_word >> BRIDGE_CARRY_RANK_SHIFT) & CARRY_BYTE_MASK;
+    }
+
+    function packBridgeCarry(
+        uint256 _word0,
+        uint256 _word1,
+        uint256 _word2,
+        uint256 _word3
+    )
+        internal
+        pure
+        returns (bytes memory)
+    {
+        return abi.encodePacked(
+            _word0,
+            _word1,
+            _word2,
+            _word3
+        );
+    }
+
+    function unpackBridgeCarry(
+        bytes memory _data
+    )
+        internal
+        pure
+        returns (
+            uint256 word0,
+            uint256 word1,
+            uint256 word2,
+            uint256 word3
+        )
+    {
+        assembly {
+            word0 := mload(add(_data, 0x20))
+            word1 := mload(add(_data, 0x40))
+            word2 := mload(add(_data, 0x60))
+            word3 := mload(add(_data, 0x80))
+        }
+    }
+
+    function bridgeCarryValid(
+        bytes memory _data,
+        uint256 _mintAmount
+    )
+        internal
+        pure
+        returns (bool)
+    {
+        if (_data.length != BRIDGE_CARRY_BYTES) {
+            return false;
+        }
+
+        (
+            uint256 word0,
+            uint256 word1,
+            uint256 word2,
+            uint256 word3
+        ) = unpackBridgeCarry(
+            _data
+        );
+
+        if (carryEnvelopeVersion(word0) != BRIDGE_CARRY_VERSION) {
+            return false;
+        }
+
+        if (word0 >> BRIDGE_CARRY_ENVELOPE_RESERVED_SHIFT != 0) {
+            return false;
+        }
+
+        if (word1 >> BRIDGE_CARRY_TRACKED_RESERVED_SHIFT != 0) {
+            return false;
+        }
+
+        if (word3 >> CARRY_HALF_SHIFT != 0) {
+            return false;
+        }
+
+        uint256 trackedDelta = carryTrackedDelta(
+            word1
+        );
+
+        uint256 laneSum = carryPairLo(word2)
+            + carryPairHi(word2)
+            + carryPairLo(word3);
+
+        if (carryEnvelopeReferrer(word0) == address(0)) {
+
+            if (laneSum != 0) {
+                return false;
+            }
+        } else {
+
+            if (trackedDelta != laneSum) {
+                return false;
+            }
+        }
+
+        if (trackedDelta == 0 && laneSum == 0) {
+            return false;
+        }
+
+        if (trackedDelta > _mintAmount) {
+            return false;
+        }
+
+        return true;
     }
 
     function laneY1(
