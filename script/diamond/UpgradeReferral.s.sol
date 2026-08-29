@@ -12,7 +12,7 @@ import {WiseTelecomNodesDiamondSelectors} from "./WiseTelecomNodesDiamondSelecto
 
 /// @notice SUPERSEDED twice over — do not broadcast: first by {UpgradeCohortRecorder}, now by
 /// {UpgradeReferralRegistry} (the referral facets write the per-chain
-/// standalone {ReferralRegistry}; this script's slot-64 flow no longer exists in the facets).
+/// standalone {ReferralRegistry}; this script's slot-67 flow no longer exists in the facets).
 /// Kept for the historical record; its fork rehearsal was retired with the registry rework.
 ///
 /// Installs the referral feature on an already-running, finalized diamond. Two phases,
