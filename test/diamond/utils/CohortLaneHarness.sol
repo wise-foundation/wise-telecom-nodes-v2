@@ -13,8 +13,8 @@ import {ReferralRegistry} from "../../../src/registry/pending/ReferralRegistry.s
  * no diamond and no DELEGATECALL. Because {FacetBase}'s constructor
  * wires the full {WiseTelecomNodesDeclarations} chain with placeholder
  * init params, this harness's own storage layout IS the diamond
- * layout, so the packed cohort book (slot 67), ring arrays
- * (slots 69-70), crumb words (slot 71) and gap log (slot 72) live at
+ * layout, so the packed cohort book (slot 70), ring arrays
+ * (slots 72-73), crumb words (slot 74) and gap log (slot 75) live at
  * the exact slots a facet would see under DELEGATECALL from the live
  * diamond. Every `exposed*` function forwards verbatim into the
  * inherited engine internal under test — nothing here alters engine
@@ -182,13 +182,24 @@ contract CohortLaneHarness is CohortRecorderBase {
         trackedContribution[_user] = _amount;
     }
 
+    function harnessSetRegistry(
+        address _registry
+    )
+        external
+    {
+        referralRegistry = _registry;
+    }
+
     /**
-     * @dev The engine resolves referrers through the
-     * slot-74 pointer into a standalone {ReferralRegistry}, so this
-     * seeder lazily deploys one (harness as master AND allowlisted
-     * writer), wires the pointer directly into its own storage and
-     * forwards the assignment — the engine under test then reads it
-     * through the exact guarded-staticcall path production uses.
+     * @dev The engine resolves referrers through the registry pointer
+     * into a standalone {ReferralRegistry} wired via
+     * {harnessSetRegistry} — embedding the registry creation code in
+     * a lazy deploy here would push the harness past the EIP-170
+     * runtime limit, so tests deploy and allowlist the registry
+     * themselves. The forward runs with the harness as the
+     * allowlisted writer, so the engine under test reads the
+     * assignment through the exact guarded-staticcall path
+     * production uses.
      */
     function harnessSetReferrer(
         address _user,
@@ -196,18 +207,6 @@ contract CohortLaneHarness is CohortRecorderBase {
     )
         external
     {
-        if (referralRegistry == ZERO_ADDRESS) {
-
-            ReferralRegistry registry = new ReferralRegistry();
-
-            registry.setAllowedVault(
-                address(this),
-                true
-            );
-
-            referralRegistry = address(registry);
-        }
-
         ReferralRegistry(referralRegistry).assignReferrer(
             _user,
             _referrer

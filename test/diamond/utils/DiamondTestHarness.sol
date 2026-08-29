@@ -224,7 +224,7 @@ abstract contract DiamondTestHarness is Test {
     /**
      * @dev Deploys a fresh {ReferralRegistry} (the test contract
      * becomes its master), allowlists the diamond as a writer and
-     * wires the slot-74 pointer through the {AdminFacet} trio. Must
+     * wires the slot-77 pointer through the {AdminFacet} trio. Must
      * run after `_wireAllFacets` (the trio needs routing) and before
      * `finalizeSetup()` so the pointer timelock is in its instant
      * pre-initialization window — the same seam the hook install
@@ -238,7 +238,10 @@ abstract contract DiamondTestHarness is Test {
         internal
         returns (ReferralRegistry registry)
     {
-        registry = new ReferralRegistry();
+        registry = new ReferralRegistry(
+            address(this),
+            0
+        );
 
         _wireReferralRegistryShared(
             d,

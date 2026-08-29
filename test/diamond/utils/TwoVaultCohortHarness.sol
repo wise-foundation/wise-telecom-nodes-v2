@@ -10,6 +10,7 @@ import {UserFacet} from "../../../src/diamond/vault/facets/UserFacet.sol";
 import {MoveFacet} from "../../../src/diamond/vault/facets/MoveFacet.sol";
 import {ReferralFacet} from "../../../src/diamond/vault/facets/pending/ReferralFacet.sol";
 import {CohortHookFacet} from "../../../src/diamond/vault/facets/pending/CohortHookFacet.sol";
+import {CohortBridgeHookFacet} from "../../../src/diamond/vault/facets/pending/CohortBridgeHookFacet.sol";
 import {CohortRecorderFacet} from "../../../src/diamond/vault/facets/pending/CohortRecorderFacet.sol";
 import {ReferralRegistry} from "../../../src/registry/pending/ReferralRegistry.sol";
 
@@ -46,10 +47,11 @@ contract TwoVaultMockUSD is ERC20 {
 }
 
 /**
- * @dev Two-real-diamond scaffolding for the same-chain
- * move-carry suites: two fully wired vaults (all facets + queue +
- * referral + cohort recorder + {CohortHookFacet} as transfer hook)
- * sharing ONE {ReferralRegistry} — the production per-chain
+ * @dev Two-real-diamond scaffolding for the two-vault cohort suites
+ * (same-chain move-carry, referrer-flip and bridge-carry): two fully
+ * wired vaults (all facets + queue + referral + cohort recorder +
+ * routed {CohortBridgeHookFacet} + {CohortHookFacet} as transfer
+ * hook) sharing ONE {ReferralRegistry} — the production per-chain
  * topology — and peer-registered in both directions through
  * the real 3-day `PEER_VAULT_CHANGE_DELAY` (a single shared warp).
  * The test contract is master of both diamonds and of the registry.
@@ -99,7 +101,10 @@ abstract contract TwoVaultCohortHarness is DiamondTestHarness {
 
         usdB = new TwoVaultMockUSD();
 
-        registry = new ReferralRegistry();
+        registry = new ReferralRegistry(
+            address(this),
+            0
+        );
 
         vaultA = _deployCohortVault(
             address(usdA)
@@ -140,6 +145,12 @@ abstract contract TwoVaultCohortHarness is DiamondTestHarness {
             d,
             address(new CohortRecorderFacet()),
             WiseTelecomNodesDiamondSelectors.cohortRecorderSelectors()
+        );
+
+        _wireOne(
+            d,
+            address(new CohortBridgeHookFacet()),
+            WiseTelecomNodesDiamondSelectors.cohortBridgeHookSelectors()
         );
 
         AdminFacet(address(d)).proposeTransferHookFacet(
