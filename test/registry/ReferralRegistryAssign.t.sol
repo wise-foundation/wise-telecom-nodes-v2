@@ -53,7 +53,10 @@ contract ReferralRegistryAssignTest is Test {
             BASE_TIME
         );
 
-        registry = new ReferralRegistry();
+        registry = new ReferralRegistry(
+            address(this),
+            0
+        );
 
         registry.setAllowedVault(
             vaultA,

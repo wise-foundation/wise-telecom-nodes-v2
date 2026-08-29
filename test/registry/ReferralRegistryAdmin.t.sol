@@ -50,7 +50,10 @@ contract ReferralRegistryAdminTest is Test {
             BASE_TIME
         );
 
-        registry = new ReferralRegistry();
+        registry = new ReferralRegistry(
+            address(this),
+            0
+        );
     }
 
     // ---- OwnableMaster wiring ----
