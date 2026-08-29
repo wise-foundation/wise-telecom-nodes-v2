@@ -13,10 +13,10 @@ import {IReferralRegistry} from "../../interfaces/pending/IReferralRegistry.sol"
  * {ReferralRegistry}), then the flow is identical to
  * the non-referral path.
  * Also carries the routed referrer view surface `getReferrerOf` (the
- * post-genesis routed-getter naming, and a name the inherited slot-64
+ * post-genesis routed-getter naming, and a name the inherited slot-67
  * mapping identifier cannot shadow): an explicit getter reading
- * THROUGH the slot-74 pointer into the registry — never the
- * diamond's forever-virgin slot-64 mapping. With the pointer unset
+ * THROUGH the slot-77 pointer into the registry — never the
+ * diamond's forever-virgin slot-67 mapping. With the pointer unset
  * it returns zero (byte-for-byte the virgin-slot read of the
  * pre-registry design); with a pointer set it uses a plain interface
  * staticcall that MAY revert against a hostile or detached registry
