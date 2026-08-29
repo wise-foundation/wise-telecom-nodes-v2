@@ -20,7 +20,7 @@ import {CohortHookFacet} from "../../src/diamond/vault/facets/pending/CohortHook
 
 import {WiseTelecomNodesDiamondSelectors} from "./WiseTelecomNodesDiamondSelectors.sol";
 
-/// @notice SUPERSEDED by {UpgradeReferralRegistry} — do not broadcast. The slot-74
+/// @notice SUPERSEDED by {UpgradeReferralRegistry} — do not broadcast. The slot-77
 /// registry-pointer shard recompiles every facet in this manifest and the referral facets now
 /// write the per-chain standalone {ReferralRegistry}, so installing this
 /// script's builds would route stale bytecode. Kept for the historical record; its full
@@ -48,7 +48,7 @@ import {WiseTelecomNodesDiamondSelectors} from "./WiseTelecomNodesDiamondSelecto
 ///
 /// Every intermediate state is safe: all recorder touchpoints are gated no-ops until arm(),
 /// so old-hook/new-facet mixtures behave exactly like today's live system; the only ungated
-/// change at execute() is the referral-group install, which is write-once slot-64 state
+/// change at execute() is the referral-group install, which is write-once slot-67 state
 /// rehearsed by {ReferralUpgradeFork}. Rollback: pre-execute abort(); post-arm
 /// `setCohortSyncEnabled(false)` is instant, and the hook can be re-proposed back to
 /// {GraceFreezeHookFacet} (DISARM FIRST — an armed diamond delegatecalls cohort selectors on
