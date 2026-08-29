@@ -7,14 +7,18 @@ import {CohortWeeks} from "../../../shared/pending/CohortWeeks.sol";
 
 /**
  * @dev CohortRecorderFacet — the routed public surface of the cohort
- * recorder: two permissionless mutations and the view set the cohort
- * test suites, keepers and offchain monitoring read. The mutations do
- * NOT carry engine code: they bounce through the helper-chain stubs
- * into the one engine deployment at the `transferHookFacet` pointer,
- * so routed path and hook path can never diverge. Both
+ * recorder: two permissionless mutations, the registry-only flip
+ * entrance, and the view set the cohort test suites, keepers and
+ * offchain monitoring read. The mutations do NOT carry engine code:
+ * they bounce through the helper-chain stubs into an engine slice
+ * ({CohortHookFacet} via the `transferHookFacet` pointer for
+ * `syncReferee`/`advanceBook`, the dispatcher-routed
+ * {CohortBridgeHookFacet} for `receiveReferrerFlip`), so routed path
+ * and hook path can never diverge. The two permissionless mutations
  * are gated no-ops while `cohortSyncEnabled` is false — on a live
  * diamond with virgin tail storage this facet reads zeros and mutates
- * nothing.
+ * nothing; the flip entrance instead reverts while disarmed, see
+ * below.
  *
  * `syncReferee` is the permissionless clamp poke (grief-safe: the
  * clamp is one-way and idempotent — a no-op unless the user's balance
@@ -26,6 +30,17 @@ import {CohortWeeks} from "../../../shared/pending/CohortWeeks.sol";
  * from `getCohortBook`. Installed post-launch only, via the
  * `cohortRecorderSelectors()` group in the upgrade script — never by
  * the frozen genesis deploys.
+ *
+ * `receiveReferrerFlip` is the registry's one entrance for the
+ * cross-chain referrer-flip migration: only the slot-77 registry may
+ * call it, and it deliberately REVERTS while the recorder is disarmed
+ * — the registry's poke machinery treats a revert as "defer and
+ * retry", restoring the pending-flip marker, so a flip ordered before
+ * arming is never silently dropped. The migration relocates the
+ * user's local book credit from the old to the new referrer at
+ * identical ring coordinates in one transaction, clamping against the
+ * OLD referrer first so a lazy deficit is destroyed sale-like and can
+ * never launder into new-referrer credit.
  */
 contract CohortRecorderFacet is FacetBase {
 
@@ -38,6 +53,32 @@ contract CohortRecorderFacet is FacetBase {
     {
         _cohortSync(
             _user
+        );
+    }
+
+    function receiveReferrerFlip(
+        address _user,
+        address _oldReferrer,
+        address _newReferrer
+    )
+        external
+        onlyDelegateCall
+        nonReentrant
+    {
+        require(
+            msg.sender == referralRegistry,
+            NotReferralRegistry()
+        );
+
+        require(
+            cohortSyncEnabled,
+            CohortSyncDisabled()
+        );
+
+        _cohortFlip(
+            _user,
+            _oldReferrer,
+            _newReferrer
         );
     }
 
