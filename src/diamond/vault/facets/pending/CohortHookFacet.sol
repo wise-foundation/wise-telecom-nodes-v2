@@ -5,8 +5,11 @@ pragma solidity =0.8.36;
 import {CohortRecorderBase} from "./CohortRecorderBase.sol";
 
 /**
- * @dev CohortHookFacet — the single deployment of the cohort recorder
- * engine. Installed as the `transferHookFacet` it
+ * @dev CohortHookFacet — the transfer-hook slice of the cohort
+ * recorder engine (its cross-chain bridge-carry and referrer-flip
+ * closure lives in the dispatcher-routed {CohortBridgeHookFacet};
+ * both compile from {CohortRecorderBase} and share its storage
+ * layout). Installed as the `transferHookFacet` it
  * replaces {GraceFreezeHookFacet} while preserving its behavior
  * exactly: the grace-freeze check runs FIRST and may revert per
  * policy (`graceFreezeEnabled` gating, vault-escrow pass-through
@@ -21,9 +24,11 @@ import {CohortRecorderBase} from "./CohortRecorderBase.sol";
  * `_cohortAdvance` / `_cohortMoveOut` / `_cohortMoveIn` in
  * {WiseTelecomNodesBaseHelper}), which reach this
  * facet through the same slot-45 pointer under the transient
- * `hookExecuting` bracket — so every recorder mutation, hook-driven
- * or stub-driven, executes this one compiled engine against diamond
- * storage. The stubs gate on `cohortSyncEnabled`; `applyTransferHook`
+ * `hookExecuting` bracket — so every hook-path and same-chain stub
+ * mutation executes this one compiled slice against diamond storage,
+ * while the bridge-carry and flip mutations execute the routed
+ * {CohortBridgeHookFacet} slice of the same source under the same
+ * bracket. The stubs gate on `cohortSyncEnabled`; `applyTransferHook`
  * gates internally because `_runTransferHook` calls it whenever the
  * hook is installed. Direct facet calls are rejected by
  * `onlyDelegateCall`, non-bracketed delegatecalls by the
@@ -36,8 +41,9 @@ import {CohortRecorderBase} from "./CohortRecorderBase.sol";
  *
  * All six entrypoints are `payable`: the stubs delegatecall this
  * facet from inside `bridgeToVault` / `bridgeToVaultWithReferral`,
- * the diamond's only payable functions, and a delegatecall inherits
- * the ambient `msg.value` — a non-payable target would revert on the
+ * the diamond's only payable user-facing functions, and a
+ * delegatecall inherits the ambient `msg.value` — a non-payable
+ * target would revert on the
  * compiler's callvalue guard and DoS bridging out on every lane with
  * a nonzero CCIP fee. No ETH ever moves: under DELEGATECALL the value
  * stays with the diamond.
