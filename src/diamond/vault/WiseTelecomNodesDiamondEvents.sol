@@ -406,6 +406,61 @@ abstract contract WiseTelecomNodesDiamondEvents {
         uint256 stagedAt
     );
 
+    event CohortReferrerFlipApplied(
+        address indexed user,
+        address indexed oldReferrer,
+        address indexed newReferrer,
+        uint256 year1,
+        uint256 year2,
+        uint256 mature,
+        uint256 pairCount
+    );
+
+    event CohortBridgeCarrySent(
+        address indexed user,
+        uint64 indexed dstChainSelector,
+        address indexed referrer,
+        uint256 trackedDelta,
+        uint256 year1,
+        uint256 year2,
+        uint256 mature
+    );
+
+    event CohortBridgeCarryApplied(
+        address indexed user,
+        uint64 indexed srcChainSelector,
+        address indexed effectiveReferrer,
+        address carriedReferrer,
+        uint256 trackedDelta,
+        uint256 year1,
+        uint256 year2,
+        uint256 mature
+    );
+
+    event CohortBridgeCarryDiscarded(
+        address indexed user,
+        uint64 indexed srcChainSelector
+    );
+
+    event CohortBridgeCarryBookDropped(
+        address indexed user,
+        uint64 indexed srcChainSelector,
+        address carriedReferrer,
+        uint256 year1,
+        uint256 year2,
+        uint256 mature
+    );
+
+    event CohortBridgeCarrySkipped(
+        address indexed user,
+        uint64 indexed dstChainSelector
+    );
+
+    event CohortBridgeHookFailed(
+        address indexed user,
+        uint64 indexed srcChainSelector
+    );
+
     // ---- Queue surface ----
 
     event JoinQue(
@@ -494,5 +549,28 @@ abstract contract WiseTelecomNodesDiamondEvents {
 
     event NegativeIncentivesNotAllowedSet(
         bool negativeIncentivesNotAllowed
+    );
+
+    // ---- Auto-compound ----
+
+    event CompoundInterestOnBehalf(
+        address indexed user,
+        address indexed bot,
+        uint256 netAmount,
+        uint256 feeAmount
+    );
+
+    event AutoCompoundBotSet(
+        address indexed bot,
+        bool allowed
+    );
+
+    event AutoCompoundAllowedSet(
+        address indexed user,
+        bool allowed
+    );
+
+    event AutoCompoundFeeBpsSet(
+        uint256 autoCompoundFeeBps
     );
 }

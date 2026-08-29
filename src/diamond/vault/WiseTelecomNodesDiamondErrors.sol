@@ -126,6 +126,12 @@ abstract contract WiseTelecomNodesDiamondErrors {
 
     error ReferralRegistryTimelockNotElapsed();
 
+    error NotReferralRegistry();
+
+    error CohortSyncDisabled();
+
+    error ReferralDataReserved();
+
     // ---- Cohort recorder ----
 
     error CohortHookNotInstalled();
@@ -163,4 +169,12 @@ abstract contract WiseTelecomNodesDiamondErrors {
     error SameIncentive();
 
     error ProtectedToken();
+
+    // ---- Auto-compound ----
+
+    error NotAutoCompoundBot();
+
+    error AutoCompoundNotAllowed();
+
+    error AutoCompoundFeeTooHigh();
 }

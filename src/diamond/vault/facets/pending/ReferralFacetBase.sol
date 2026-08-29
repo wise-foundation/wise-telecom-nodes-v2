@@ -11,9 +11,9 @@ import {IReferralRegistry} from "../../interfaces/pending/IReferralRegistry.sol"
  * fixed revert priority — a zero or self referrer always
  * reverts, even when an assignment already exists — then forwards
  * `(msg.sender, referrer)` to this chain's standalone
- * {ReferralRegistry} through the slot-74 pointer (the
+ * {ReferralRegistry} through the slot-77 pointer (the
  * registry is the single source of referrer truth; the diamond's
- * slot-64 mapping stays forever virgin). The write-once rule, the
+ * slot-67 mapping stays forever virgin). The write-once rule, the
  * silent-ignore of later different referrers and the
  * {ReferralAssigned} first-set event all live registry-side,
  * atomically with the write; the vault emits nothing because the

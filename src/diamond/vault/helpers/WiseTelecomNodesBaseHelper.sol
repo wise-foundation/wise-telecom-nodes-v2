@@ -714,6 +714,169 @@ abstract contract WiseTelecomNodesBaseHelper is WiseTelecomNodesDeclarations {
         );
     }
 
+    function _cohortFlip(
+        address _user,
+        address _oldReferrer,
+        address _newReferrer
+    )
+        internal
+    {
+        require(
+            selectorToFacet[COHORT_FLIP_SELECTOR] != ZERO_ADDRESS,
+            CohortSyncDisabled()
+        );
+
+        _runRoutedCohortHook(
+            COHORT_FLIP_SELECTOR,
+            abi.encodeWithSelector(
+                COHORT_FLIP_SELECTOR,
+                _user,
+                _oldReferrer,
+                _newReferrer
+            )
+        );
+    }
+
+    function _cohortBridgeOut(
+        address _user,
+        uint64 _dstChainSelector,
+        uint256 _burnedAmount,
+        uint256 _scaleNumerator,
+        uint256 _scaleDenominator
+    )
+        internal
+        returns (bytes memory)
+    {
+        if (cohortSyncEnabled == false) {
+            return "";
+        }
+
+        (
+            bool ran,
+            bytes memory returnData
+        ) = _runRoutedCohortHook(
+            COHORT_BRIDGE_OUT_SELECTOR,
+            abi.encodeWithSelector(
+                COHORT_BRIDGE_OUT_SELECTOR,
+                _user,
+                _dstChainSelector,
+                _burnedAmount,
+                _scaleNumerator,
+                _scaleDenominator
+            )
+        );
+
+        if (ran == false) {
+
+            _cohortSync(
+                _user
+            );
+
+            return "";
+        }
+
+        return abi.decode(
+            returnData,
+            (bytes)
+        );
+    }
+
+    function _cohortBridgeIn(
+        address _user,
+        uint64 _srcChainSelector,
+        uint256 _mintedAmount,
+        bytes memory _payload
+    )
+        internal
+        returns (bool)
+    {
+        if (cohortSyncEnabled == false) {
+            return false;
+        }
+
+        address facet = selectorToFacet[COHORT_BRIDGE_IN_SELECTOR];
+
+        if (facet == ZERO_ADDRESS) {
+            return false;
+        }
+
+        hookExecuting = true;
+
+        (
+            bool success,
+            bytes memory returnData
+        ) = facet.delegatecall(
+            abi.encodeWithSelector(
+                COHORT_BRIDGE_IN_SELECTOR,
+                _user,
+                _srcChainSelector,
+                _mintedAmount,
+                _payload
+            )
+        );
+
+        hookExecuting = false;
+
+        if (success == false || returnData.length != 32) {
+
+            emit CohortBridgeHookFailed(
+                _user,
+                _srcChainSelector
+            );
+
+            return false;
+        }
+
+        return abi.decode(
+            returnData,
+            (bool)
+        );
+    }
+
+    function _runRoutedCohortHook(
+        bytes4 _selector,
+        bytes memory _callData
+    )
+        internal
+        returns (
+            bool,
+            bytes memory
+        )
+    {
+        address facet = selectorToFacet[_selector];
+
+        bytes memory empty;
+
+        if (facet == ZERO_ADDRESS) {
+            return (
+                false,
+                empty
+            );
+        }
+
+        hookExecuting = true;
+
+        (
+            bool success,
+            bytes memory returnData
+        ) = facet.delegatecall(
+            _callData
+        );
+
+        hookExecuting = false;
+
+        if (success == false) {
+            assembly {
+                revert(add(returnData, 0x20), mload(returnData))
+            }
+        }
+
+        return (
+            true,
+            returnData
+        );
+    }
+
     function _runCohortHook(
         bytes memory _callData
     )
