@@ -38,8 +38,8 @@ pragma solidity =0.8.36;
  * tracked-equals-book and ring-equals-book-lane identities
  * hold exactly on the non-saturated domain.
  *
- * Appended after {CohortContributionDeclaration} (slots 65-66) so it
- * takes fresh tail slots 67-72 and moves no pre-existing slot; all
+ * Appended after {CohortContributionDeclaration} (slots 68-69) so it
+ * takes fresh tail slots 70-75 and moves no pre-existing slot; all
  * fields are `internal` (auto-getters would be unreachable through the
  * live genesis dispatcher anyway — the routed view surface lives on
  * {CohortRecorderFacet}).
