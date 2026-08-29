@@ -6,6 +6,7 @@ import {Test} from "forge-std/Test.sol";
 
 import {CohortLaneHarness} from "../utils/CohortLaneHarness.sol";
 import {CohortWeeks} from "../../../src/diamond/shared/pending/CohortWeeks.sol";
+import {ReferralRegistry} from "../../../src/registry/pending/ReferralRegistry.sol";
 
 /**
  * @dev REFB property family — the dual-engine extension of the fenwick
@@ -14,8 +15,8 @@ import {CohortWeeks} from "../../../src/diamond/shared/pending/CohortWeeks.sol";
  * the production PACKED book mirror: uint64 ring lanes, the three-lane
  * book word, and the saturating arithmetic of {CohortWeeks}. Each
  * `testFuzz_*` is written to run under both engines: fuzzed by
- * `forge test` today, symbolically provable by `kontrol prove` at the
- * plan's post-2a review checkpoint (concrete actors and week-aligned
+ * `forge test` today, symbolically provable by `kontrol prove`
+ * (concrete actors and week-aligned
  * concrete timestamps per the methodology in this directory's README;
  * amounts and lane values are the symbolic inputs, bounded below every
  * saturation threshold except where saturation itself is the
@@ -52,6 +53,20 @@ contract CohortPropertiesTest is Test {
         );
 
         harness = new CohortLaneHarness();
+
+        ReferralRegistry registry = new ReferralRegistry(
+            address(this),
+            0
+        );
+
+        registry.setAllowedVault(
+            address(harness),
+            true
+        );
+
+        harness.harnessSetRegistry(
+            address(registry)
+        );
 
         harness.harnessSetReferrer(
             user,

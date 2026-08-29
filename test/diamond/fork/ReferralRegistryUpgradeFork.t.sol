@@ -326,11 +326,11 @@ interface IUsdToken {
  * full recorder-plus-registry lifecycle.
  * The LIVE diamond entry contract is never
  * redeployed: the round deploys NEW facets, routes selectors through
- * the real 3-day timelock, and wires the slot-74 pointer — the first
+ * the real 3-day timelock, and wires the slot-77 pointer — the first
  * rehearsal ever to deploy a standalone companion contract
  * ({ReferralRegistry}) on a live fork. Proves, per chain:
  *   1. the live dispatcher does NOT know the cohort, referral OR
- *      pointer surfaces, and the user's slot-64 mapping entry is
+ *      pointer surfaces, and the user's slot-67 mapping entry is
  *      raw-zero on the real bytecode;
  *   2. the standalone registry deploys on-fork and allowlists the
  *      diamond (mirroring {DeployReferralRegistry});
@@ -347,7 +347,7 @@ interface IUsdToken {
  *   5. after executePointer + arm, the full recorder lifecycle holds
  *      against the real USD token with the registry as sole truth:
  *      referred credit, write-once referrer (asserted on the
- *      REGISTRY's storage while slot 64 stays raw-zero), lazy clamp,
+ *      REGISTRY's storage while slot 67 stays raw-zero), lazy clamp,
  *      clamp-before-credit re-deposit, queue-join discredit, 52-week
  *      graduation, grace-freeze preservation, a real
  *      Permit2-signature referral deposit, and the capped
@@ -560,7 +560,7 @@ abstract contract ReferralRegistryUpgradeForkBase is Test {
         );
     }
 
-    function _slot64Entry(
+    function _slot67Entry(
         address _user
     )
         internal
@@ -572,7 +572,7 @@ abstract contract ReferralRegistryUpgradeForkBase is Test {
             keccak256(
                 abi.encode(
                     _user,
-                    uint256(64)
+                    uint256(67)
                 )
             )
         );
@@ -678,14 +678,17 @@ abstract contract ReferralRegistryUpgradeForkBase is Test {
         );
 
         assertEq(
-            _slot64Entry(user),
+            _slot67Entry(user),
             bytes32(0),
-            "slot-64 entry not virgin on live bytecode"
+            "slot-67 entry not virgin on live bytecode"
         );
 
         address hookBefore = v.transferHookFacet();
 
-        registry = new ReferralRegistry();
+        registry = new ReferralRegistry(
+            address(this),
+            0
+        );
 
         registry.setAllowedVault(
             address(v),
@@ -975,9 +978,9 @@ abstract contract ReferralRegistryUpgradeForkBase is Test {
         );
 
         assertEq(
-            _slot64Entry(user),
+            _slot67Entry(user),
             bytes32(0),
-            "slot 64 must stay virgin forever"
+            "slot 67 must stay virgin forever"
         );
 
         assertEq(
@@ -1164,10 +1167,6 @@ abstract contract ReferralRegistryUpgradeForkBase is Test {
             one
         );
 
-        uint256 trackedAtWarp = v.getTrackedContribution(
-            user
-        );
-
         uint256 depositWeek = block.timestamp / CohortWeeks.WEEK;
 
         vm.warp(
@@ -1183,7 +1182,6 @@ abstract contract ReferralRegistryUpgradeForkBase is Test {
             ,
             uint256 year2After,
             ,
-
         ) = v.getCohortBook(refA);
 
         assertGt(
@@ -1490,7 +1488,10 @@ abstract contract ReferralRegistryCrossVaultForkBase is Test {
     function test_crossVault_registryWriteOnceMoveCarryAndQueue_endToEnd()
         public
     {
-        registry = new ReferralRegistry();
+        registry = new ReferralRegistry(
+            address(this),
+            0
+        );
 
         registry.setAllowedVault(
             address(va),
