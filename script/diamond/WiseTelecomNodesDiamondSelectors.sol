@@ -14,6 +14,7 @@ import {Permit2UserFacet} from "../../src/diamond/vault/facets/Permit2UserFacet.
 import {ReferralFacet} from "../../src/diamond/vault/facets/pending/ReferralFacet.sol";
 import {Permit2ReferralFacet} from "../../src/diamond/vault/facets/pending/Permit2ReferralFacet.sol";
 import {CohortRecorderFacet} from "../../src/diamond/vault/facets/pending/CohortRecorderFacet.sol";
+import {CohortBridgeHookFacet} from "../../src/diamond/vault/facets/pending/CohortBridgeHookFacet.sol";
 import {ReferralPayoutFacet} from "../../src/diamond/vault/facets/pending/ReferralPayoutFacet.sol";
 import {MulticallFacet} from "../../src/diamond/vault/facets/MulticallFacet.sol";
 import {QueueAdminFacet} from "../../src/diamond/vault/facets/QueueAdminFacet.sol";
@@ -22,8 +23,37 @@ import {QueueFulfillFacet} from "../../src/diamond/vault/facets/QueueFulfillFace
 import {QueueForecastFacet} from "../../src/diamond/vault/facets/QueueForecastFacet.sol";
 import {InterestAdminFacet} from "../../src/diamond/vault/facets/InterestAdminFacet.sol";
 import {RescueFacet} from "../../src/diamond/vault/facets/RescueFacet.sol";
+import {AutoCompoundFacet} from "../../src/diamond/vault/facets/AutoCompoundFacet.sol";
 import {WiseTelecomNodesQueueUIHelper} from "../../src/diamond/vault/helpers/WiseTelecomNodesQueueUIHelper.sol";
 import {WiseTelecomNodesQueueHelper} from "../../src/diamond/vault/helpers/WiseTelecomNodesQueueHelper.sol";
+
+/**
+ * @dev Getter mirror of the auto-compound tail shard: Solidity
+ * exposes no `.selector` for public state variables, so the routed
+ * getter selectors come from here. Signature parity is asserted by
+ * the facet tests and the live-fork getter reads.
+ */
+interface IAutoCompoundGetters {
+
+    function isAutoCompoundBot(
+        address _bot
+    )
+        external
+        view
+        returns (bool);
+
+    function autoCompoundAllowed(
+        address _user
+    )
+        external
+        view
+        returns (bool);
+
+    function autoCompoundFeeBps()
+        external
+        view
+        returns (uint256);
+}
 
 /**
  * @dev Single source of truth for WiseTelecomNodes facet selectors.
@@ -32,14 +62,17 @@ import {WiseTelecomNodesQueueHelper} from "../../src/diamond/vault/helpers/WiseT
  *
  * Counts: admin=34, proxy=3, user=8, sweep=2, cashedInterest=1,
  * burnWise=3, move=7, bridge=14, permit2=3, referral=4,
- * permit2Referral=3, cohortRecorder=10, multicall=1, queueAdmin=2,
+ * permit2Referral=3, cohortRecorder=11, cohortBridgeHook=3,
+ * multicall=1, queueAdmin=2,
  * queueJoinLeave=5, queueFulfill=4, queueView=10, queueForecast=1,
- * interestAdmin=1, rescue=1, referralPayout=1 — total 118, of which
+ * interestAdmin=1, rescue=1, autoCompound=7 (4 functions + the 3
+ * shard getters, which the frozen live dispatchers cannot serve),
+ * referralPayout=1 — total 129, of which
  * 90 are wired at genesis (the genesis-era admin group had 27;
  * `setCohortSyncEnabled` ships with the cohort upgrade's AdminFacet
  * redeploy, and the referral-registry pointer six —
  * propose/execute/cancel plus the three routed getters backing the
- * slot-74 shard's `internal` fields — ship with the registry
+ * slot-77 shard's `internal` fields — ship with the registry
  * round's AdminFacet redeploy). The referral groups (referral=4,
  * permit2Referral=3) and the cohortRecorder group are post-launch:
  * installed exclusively by the registry upgrade script (which
@@ -51,17 +84,24 @@ import {WiseTelecomNodesQueueHelper} from "../../src/diamond/vault/helpers/WiseT
  * group is live on usdt-base only.
  * The referralPayout group is post-launch and NOT yet installed
  * anywhere: it ships with the future payout upgrade script
- * alongside the `pendingReferralPayout` writer. `applyTransferHook` and
- * the `applyCohort*` engine entrypoints are deliberately absent from
- * every group: {CohortHookFacet} is reached only through the
+ * alongside the `pendingReferralPayout` writer. `applyTransferHook`
+ * and the slot-45 `applyCohort*` entrypoints are deliberately absent
+ * from every group: {CohortHookFacet} is reached only through the
  * `transferHookFacet` pointer, never the dispatcher. That pointer-only
  * register grew to six entrypoints with the same-chain move-carry pair
- * (`applyCohortMoveOut` / `applyCohortMoveIn`) — the
- * counts above are unchanged by it, since it adds no routed
- * selector anywhere.
+ * (`applyCohortMoveOut` / `applyCohortMoveIn`). The cross-chain
+ * engine slice ({CohortBridgeHookFacet}: `applyCohortFlip` and the
+ * bridge-carry pair) is DISPATCHER-routed instead — the engine
+ * outgrew one EIP-170 deployment, and routing the second slice
+ * through `selectorToFacet` reuses the selector timelock rather than
+ * adding a second pointer slot — but its three selectors still revert
+ * on any direct external call (the transient `hookExecuting` bracket
+ * only closes around the vault's own internal dispatch), so the
+ * externally-REACHABLE surface grew only by `receiveReferrerFlip`
+ * (registry-only caller), which took the cohortRecorder group to 11.
  *
  * `referralSelectors` includes the routed `getReferrerOf` view (the
- * registry-reading replacement for the retired slot-64
+ * registry-reading replacement for the retired slot-67
  * auto-getter): the live diamond keeps its genesis bytecode, so every
  * post-genesis read surface must be routed to a facet explicitly —
  * same story as the six pointer selectors in the admin group.
@@ -115,7 +155,7 @@ library WiseTelecomNodesDiamondSelectors {
         pure
         returns (bytes4[] memory sels)
     {
-        sels = new bytes4[](10);
+        sels = new bytes4[](11);
         sels[0] = CohortRecorderFacet.syncReferee.selector;
         sels[1] = CohortRecorderFacet.advanceBook.selector;
         sels[2] = CohortRecorderFacet.getTrackedContribution.selector;
@@ -126,6 +166,18 @@ library WiseTelecomNodesDiamondSelectors {
         sels[7] = CohortRecorderFacet.getCohortGapLogLength.selector;
         sels[8] = CohortRecorderFacet.getCohortGapLogEntry.selector;
         sels[9] = CohortRecorderFacet.getCohortSyncEnabled.selector;
+        sels[10] = CohortRecorderFacet.receiveReferrerFlip.selector;
+    }
+
+    function cohortBridgeHookSelectors()
+        internal
+        pure
+        returns (bytes4[] memory sels)
+    {
+        sels = new bytes4[](3);
+        sels[0] = CohortBridgeHookFacet.applyCohortFlip.selector;
+        sels[1] = CohortBridgeHookFacet.applyCohortBridgeOut.selector;
+        sels[2] = CohortBridgeHookFacet.applyCohortBridgeIn.selector;
     }
 
     function proxySelectors()
@@ -208,6 +260,21 @@ library WiseTelecomNodesDiamondSelectors {
     {
         sels = new bytes4[](1);
         sels[0] = RescueFacet.rescueToken.selector;
+    }
+
+    function autoCompoundSelectors()
+        internal
+        pure
+        returns (bytes4[] memory sels)
+    {
+        sels = new bytes4[](7);
+        sels[0] = AutoCompoundFacet.compoundInterestOnBehalf.selector;
+        sels[1] = AutoCompoundFacet.setAutoCompoundAllowed.selector;
+        sels[2] = AutoCompoundFacet.setAutoCompoundBot.selector;
+        sels[3] = AutoCompoundFacet.setAutoCompoundFeeBps.selector;
+        sels[4] = IAutoCompoundGetters.isAutoCompoundBot.selector;
+        sels[5] = IAutoCompoundGetters.autoCompoundAllowed.selector;
+        sels[6] = IAutoCompoundGetters.autoCompoundFeeBps.selector;
     }
 
     function burnWiseSelectors()
