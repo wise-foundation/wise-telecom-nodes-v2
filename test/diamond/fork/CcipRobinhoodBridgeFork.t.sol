@@ -38,13 +38,14 @@ import {
  * fee quoter never sees an artificially stale gas price. A missing
  * router-level lane reverts loudly instead of skipping.
  *
- * The robinhood -> mainnet on-ramp was upgraded to OnRamp 2.0.0 in
- * August 2026, which the off-ramp scrape shim (built for the 1.6.0
- * event encoding) cannot read — under the default engine the two
- * end-to-end tests therefore skip loudly, and the full E2E runs with
- * `WTN_CCIP_ROUTE_ENGINE=router` until the shim learns the 2.0.0
- * encoding (at the cost of not exercising the real per-message gas
- * limit on this lane).
+ * The robinhood -> mainnet lane was upgraded to OnRamp/OffRamp
+ * 2.0.0 (the CCV era) in August 2026; the off-ramp scrape shim
+ * speaks that generation (packed `MessageV1` wire decode + mocked
+ * CCV attestation), so the end-to-end tests run under the DEFAULT
+ * engine and exercise the real off-ramp and per-message gas limit.
+ * The version gate stays as a guard: a future ramp generation the
+ * shim does not speak yet skips loudly here, and the E2E runs with
+ * `WTN_CCIP_ROUTE_ENGINE=router` until the shim learns it.
  */
 contract CcipRobinhoodBridgeFork is CcipForkHarness {
 
