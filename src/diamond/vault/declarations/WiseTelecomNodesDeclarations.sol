@@ -43,6 +43,8 @@ import {CohortContributionDeclaration} from "./pending/CohortContributionDeclara
 import {CohortBookDeclaration} from "./pending/CohortBookDeclaration.sol";
 import {ReferralPayoutDeclaration} from "./pending/ReferralPayoutDeclaration.sol";
 import {ReferralRegistryPointerDeclaration} from "./pending/ReferralRegistryPointerDeclaration.sol";
+import {PayoutHubPointerDeclaration} from "./pending/PayoutHubPointerDeclaration.sol";
+import {CohortFlushDeclaration} from "./pending/CohortFlushDeclaration.sol";
 
 /**
  * @title WiseTelecomNodesDeclarations
@@ -88,7 +90,9 @@ abstract contract WiseTelecomNodesDeclarations is
     CohortContributionDeclaration,
     CohortBookDeclaration,
     ReferralPayoutDeclaration,
-    ReferralRegistryPointerDeclaration
+    ReferralRegistryPointerDeclaration,
+    PayoutHubPointerDeclaration,
+    CohortFlushDeclaration
 {
 
     constructor(
