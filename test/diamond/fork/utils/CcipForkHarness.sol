@@ -14,6 +14,13 @@ import {
     IUsdDecimals
 } from "./CcipForkInterfaces.sol";
 
+import {
+    CcipV2Shapes,
+    ICcipCrossChainVerifierV2,
+    ICcipOffRampV2,
+    ICcipOnRampV2Events
+} from "./CcipV2Shapes.sol";
+
 import {WiseTelecomNodesDiamondErrors} from "../../../../src/diamond/vault/WiseTelecomNodesDiamondErrors.sol";
 
 interface ICcipOffRampExec {
@@ -71,6 +78,16 @@ interface ICcipOffRampDiscovery {
  *    calls `executeSingleMessage`, so the message flows through the
  *    real off-ramp, the real router `routeMessage`, and the real
  *    per-message gas limit — the faithful pre-broadcast budget signal.
+ *    The shim speaks BOTH live ramp generations: OnRamp/OffRamp 1.6.0
+ *    (abi-encoded ramp message, commit-root verification implicitly
+ *    bypassed by the prank) and OnRamp/OffRamp 2.0.0, the CCV era
+ *    (length-prefix-packed `MessageV1` wire bytes decoded by the
+ *    ported codec below, delivery self-call pranked, and the CCV
+ *    attestation quorum satisfied with mocked verifiers — the exact
+ *    2.0 analogue of the 1.6 bypass; everything downstream of
+ *    verification stays real: the ERC-165 receiver probe, the real
+ *    router `routeMessage`, and the wire message's own
+ *    `ccipReceiveGasLimit`).
  *  - RouterShim: rebuilds the `Any2EVMMessage` from the bridge return
  *    values and pranks the router directly, independent of any on-ramp
  *    event ABI; the only engine able to craft hostile messages (wrong
@@ -133,6 +150,14 @@ abstract contract CcipForkHarness is Test {
         uint64 indexed sequenceNumber,
         Internal.EVM2AnyRampMessage message
     );
+
+    bytes32 internal constant ON_RAMP_V16_TAG = keccak256("OnRamp 1.6.0");
+
+    bytes32 internal constant ON_RAMP_V20_TAG = keccak256("OnRamp 2.0.0");
+
+    bytes32 internal constant OFF_RAMP_V16_TAG = keccak256("OffRamp 1.6.0");
+
+    bytes32 internal constant OFF_RAMP_V20_TAG = keccak256("OffRamp 2.0.0");
 
     ChainCtx internal src;
     ChainCtx internal dst;
@@ -550,17 +575,23 @@ abstract contract CcipForkHarness is Test {
     {
         _onSrc();
 
-        string memory rampVersion = ICcipTypeAndVersion(_onRamp).typeAndVersion();
+        bytes32 tag = keccak256(
+            bytes(
+                ICcipTypeAndVersion(_onRamp).typeAndVersion()
+            )
+        );
 
-        return keccak256(bytes(rampVersion)) == keccak256("OnRamp 1.6.0");
+        return tag == ON_RAMP_V16_TAG || tag == ON_RAMP_V20_TAG;
     }
 
     /**
-     * @dev The scrape shim decodes the `CCIPMessageSent` event of
-     * OnRamp 1.6.0 — a lane whose on-ramp has been upgraded past that
-     * emits a different encoding and the scrape would fail with an
-     * unhelpful "log not found", so the version is probed first and
-     * the failure names the live version and the RouterShim fallback.
+     * @dev The scrape shim decodes the `CCIPMessageSent` event of the
+     * source lane's live on-ramp generation — the abi-encoded ramp
+     * message of OnRamp 1.6.0 or the packed `MessageV1` wire bytes of
+     * OnRamp 2.0.0. A lane running any other version would fail the
+     * scrape with an unhelpful "log not found", so the version is
+     * probed first and the failure names the live version and the
+     * RouterShim fallback.
      */
     function _routeViaOffRamp(
         SentMessage memory _sent
@@ -571,10 +602,23 @@ abstract contract CcipForkHarness is Test {
 
         string memory rampVersion = ICcipTypeAndVersion(_sent.srcOnRamp).typeAndVersion();
 
+        bytes32 tag = keccak256(
+            bytes(rampVersion)
+        );
+
+        if (tag == ON_RAMP_V20_TAG) {
+
+            _routeViaOffRampV2(
+                _sent
+            );
+
+            return;
+        }
+
         require(
-            keccak256(bytes(rampVersion)) == keccak256("OnRamp 1.6.0"),
+            tag == ON_RAMP_V16_TAG,
             string.concat(
-                "off-ramp scrape shim understands OnRamp 1.6.0 only; this lane runs '",
+                "off-ramp scrape shim understands OnRamp 1.6.0 and 2.0.0 only; this lane runs '",
                 rampVersion,
                 "' - rerun with WTN_CCIP_ROUTE_ENGINE=router until the shim learns it"
             )
@@ -644,6 +688,308 @@ abstract contract CcipForkHarness is Test {
         revert("CCIPMessageSent log not found");
     }
 
+    /**
+     * @dev CCIP 2.0 (CCV era) delivery. The wire message is scraped
+     * off the source fork by its indexed messageId topic, decoded by
+     * the ported wire codec, and handed to the real off-ramp's
+     * self-call-only `executeSingleMessage` under a prank. The CCV
+     * attestation quorum is satisfied by asking the off-ramp itself
+     * which verifiers this message requires (`getCCVsForMessage` on
+     * the scraped bytes) and mocking exactly those — the 2.0 analogue
+     * of the 1.6 shim's implicit commit-root bypass. `gasLimitOverride`
+     * stays 0 so the receiver call runs under the wire message's own
+     * `ccipReceiveGasLimit`, through the real router `routeMessage`.
+     */
+    function _routeViaOffRampV2(
+        SentMessage memory _sent
+    )
+        internal
+    {
+        bytes memory encodedMessage = _scrapeV2EncodedMessage(
+            _sent.messageId
+        );
+
+        CcipV2Shapes.MessageV1 memory message = this.decodeCcipV2Message(
+            encodedMessage
+        );
+
+        _onDst();
+
+        address offRamp = _findOffRamp(
+            _sent.srcChainSelector,
+            _sent.srcOnRamp
+        );
+
+        require(
+            offRamp != address(0),
+            "off-ramp not found for lane"
+        );
+
+        (
+            address[] memory ccvs,
+            bytes[] memory verifierResults
+        ) = _mockCcvQuorum(
+            offRamp,
+            encodedMessage
+        );
+
+        vm.prank(
+            offRamp
+        );
+
+        ICcipOffRampV2(offRamp).executeSingleMessage(
+            message,
+            _sent.messageId,
+            ccvs,
+            verifierResults,
+            0
+        );
+    }
+
+    function _scrapeV2EncodedMessage(
+        bytes32 _messageId
+    )
+        internal
+        returns (bytes memory)
+    {
+        Vm.Log[] memory entries = vm.getRecordedLogs();
+
+        for (uint256 i; i < entries.length; ++i) {
+
+            if (entries[i].topics[0] != ICcipOnRampV2Events.CCIPMessageSent.selector) {
+                continue;
+            }
+
+            if (entries[i].topics.length < 4 || entries[i].topics[3] != _messageId) {
+                continue;
+            }
+
+            (
+                ,
+                ,
+                bytes memory encodedMessage,
+                ,
+            ) = abi.decode(
+                entries[i].data,
+                (address, uint256, bytes, CcipV2Shapes.Receipt[], bytes[])
+            );
+
+            return encodedMessage;
+        }
+
+        revert("CCIPMessageSent log not found");
+    }
+
+    function _mockCcvQuorum(
+        address _offRamp,
+        bytes memory _encodedMessage
+    )
+        internal
+        returns (
+            address[] memory ccvs,
+            bytes[] memory verifierResults
+        )
+    {
+        (
+            address[] memory requiredCCVs,
+            address[] memory optionalCCVs,
+            uint8 threshold
+        ) = ICcipOffRampV2(_offRamp).getCCVsForMessage(
+            _encodedMessage
+        );
+
+        ccvs = new address[](requiredCCVs.length + threshold);
+
+        verifierResults = new bytes[](ccvs.length);
+
+        for (uint256 i; i < requiredCCVs.length; ++i) {
+            ccvs[i] = requiredCCVs[i];
+        }
+
+        for (uint256 i; i < threshold; ++i) {
+            ccvs[requiredCCVs.length + i] = optionalCCVs[i];
+        }
+
+        for (uint256 i; i < ccvs.length; ++i) {
+
+            vm.mockCall(
+                ccvs[i],
+                abi.encodeWithSelector(
+                    ICcipCrossChainVerifierV2.getInboundImplementation.selector
+                ),
+                abi.encode(
+                    ccvs[i]
+                )
+            );
+
+            vm.mockCall(
+                ccvs[i],
+                abi.encodeWithSelector(
+                    ICcipCrossChainVerifierV2.verifyMessage.selector
+                ),
+                ""
+            );
+        }
+    }
+
+    /**
+     * @dev Ported from the MIT-licensed `MessageV1Codec._decodeMessageV1`
+     * of the verified OffRamp 2.0.0 mainnet deployment, restricted to
+     * the data-only shape every vault-lane message has — a message
+     * carrying a CCT token transfer is loudly rejected instead of
+     * decoded. External so the packed wire bytes can be walked with
+     * calldata slices; call as `this.decodeCcipV2Message(...)`.
+     */
+    function decodeCcipV2Message(
+        bytes calldata _encoded
+    )
+        external
+        pure
+        returns (CcipV2Shapes.MessageV1 memory message)
+    {
+        require(
+            _encoded.length >= 69,
+            "v2 wire message too short"
+        );
+
+        require(
+            uint8(_encoded[0]) == 1,
+            "v2 wire message version unsupported"
+        );
+
+        message.sourceChainSelector = uint64(bytes8(_encoded[1:9]));
+
+        message.destChainSelector = uint64(bytes8(_encoded[9:17]));
+
+        message.messageNumber = uint64(bytes8(_encoded[17:25]));
+
+        message.executionGasLimit = uint32(bytes4(_encoded[25:29]));
+
+        message.ccipReceiveGasLimit = uint32(bytes4(_encoded[29:33]));
+
+        message.finality = bytes4(_encoded[33:37]);
+
+        message.ccvAndExecutorHash = bytes32(_encoded[37:69]);
+
+        uint256 offset = 69;
+
+        (message.onRampAddress, offset) = _readWireBytes8(
+            _encoded,
+            offset
+        );
+
+        (message.offRampAddress, offset) = _readWireBytes8(
+            _encoded,
+            offset
+        );
+
+        (message.sender, offset) = _readWireBytes8(
+            _encoded,
+            offset
+        );
+
+        (message.receiver, offset) = _readWireBytes8(
+            _encoded,
+            offset
+        );
+
+        (message.destBlob, offset) = _readWireBytes16(
+            _encoded,
+            offset
+        );
+
+        require(
+            offset + 2 <= _encoded.length,
+            "v2 wire message truncated"
+        );
+
+        require(
+            uint16(bytes2(_encoded[offset:offset + 2])) == 0,
+            "scrape shim is data-only; token transfers unsupported"
+        );
+
+        offset += 2;
+
+        message.tokenTransfer = new CcipV2Shapes.TokenTransferV1[](0);
+
+        (message.data, offset) = _readWireBytes16(
+            _encoded,
+            offset
+        );
+
+        require(
+            offset == _encoded.length,
+            "v2 wire message has trailing bytes"
+        );
+    }
+
+    function _readWireBytes8(
+        bytes calldata _encoded,
+        uint256 _offset
+    )
+        internal
+        pure
+        returns (
+            bytes memory out,
+            uint256 next
+        )
+    {
+        require(
+            _offset < _encoded.length,
+            "v2 wire message truncated"
+        );
+
+        uint256 len = uint8(_encoded[_offset]);
+
+        next = _offset + 1 + len;
+
+        require(
+            next <= _encoded.length,
+            "v2 wire message truncated"
+        );
+
+        out = _encoded[_offset + 1:next];
+    }
+
+    function _readWireBytes16(
+        bytes calldata _encoded,
+        uint256 _offset
+    )
+        internal
+        pure
+        returns (
+            bytes memory out,
+            uint256 next
+        )
+    {
+        require(
+            _offset + 2 <= _encoded.length,
+            "v2 wire message truncated"
+        );
+
+        uint256 len = uint16(bytes2(_encoded[_offset:_offset + 2]));
+
+        next = _offset + 2 + len;
+
+        require(
+            next <= _encoded.length,
+            "v2 wire message truncated"
+        );
+
+        out = _encoded[_offset + 2:next];
+    }
+
+    /**
+     * @dev Off-ramp discovery is version-aware: the two live off-ramp
+     * generations return DIFFERENT `getSourceChainConfig` tuple shapes
+     * under the SAME selector, and a returndata shape mismatch inside
+     * a try/catch is an uncaught decode revert — so each candidate's
+     * `typeAndVersion` is probed first and only the matching shape is
+     * ever decoded. A router can list both generations for one source
+     * lane during a migration; the match on the CONFIGURED on-ramp
+     * address picks the one actually paired with the source ramp that
+     * emitted the scraped message.
+     */
     function _findOffRamp(
         uint64 _srcChainSelector,
         address _srcOnRamp
@@ -664,25 +1010,84 @@ abstract contract CcipForkHarness is Test {
 
             address candidate = offRamps[i - 1].offRamp;
 
-            try ICcipOffRampDiscovery(candidate).getSourceChainConfig(
+            if (
+                _offRampServesOnRamp(
+                    candidate,
+                    _srcChainSelector,
+                    _srcOnRamp
+                )
+            ) {
+                return candidate;
+            }
+        }
+
+        return address(0);
+    }
+
+    function _offRampServesOnRamp(
+        address _candidate,
+        uint64 _srcChainSelector,
+        address _srcOnRamp
+    )
+        internal
+        view
+        returns (bool)
+    {
+        bytes32 tag;
+
+        try ICcipTypeAndVersion(_candidate).typeAndVersion() returns (
+            string memory version
+        ) {
+            tag = keccak256(
+                bytes(version)
+            );
+        } catch {
+            return false;
+        }
+
+        if (tag == OFF_RAMP_V16_TAG) {
+
+            try ICcipOffRampDiscovery(_candidate).getSourceChainConfig(
                 _srcChainSelector
             ) returns (
                 ICcipOffRampDiscovery.SourceChainConfig memory cfg
             ) {
-                if (cfg.isEnabled && cfg.onRamp.length == 32) {
-
-                    address configuredOnRamp = _decodeAddress(
-                        cfg.onRamp
-                    );
-
-                    if (configuredOnRamp == _srcOnRamp) {
-                        return candidate;
-                    }
-                }
-            } catch {}
+                return cfg.isEnabled
+                    && cfg.onRamp.length == 32
+                    && _decodeAddress(cfg.onRamp) == _srcOnRamp;
+            } catch {
+                return false;
+            }
         }
 
-        return address(0);
+        if (tag == OFF_RAMP_V20_TAG) {
+
+            try ICcipOffRampV2(_candidate).getSourceChainConfig(
+                _srcChainSelector
+            ) returns (
+                ICcipOffRampV2.SourceChainConfig memory cfg
+            ) {
+                if (cfg.isEnabled == false) {
+                    return false;
+                }
+
+                for (uint256 i; i < cfg.onRamps.length; ++i) {
+
+                    if (
+                        cfg.onRamps[i].length == 32
+                            && _decodeAddress(cfg.onRamps[i]) == _srcOnRamp
+                    ) {
+                        return true;
+                    }
+                }
+
+                return false;
+            } catch {
+                return false;
+            }
+        }
+
+        return false;
     }
 
     function _gasLimitOf(
