@@ -283,6 +283,123 @@ abstract contract VaultConfig is CCIPConfig {
         registry = vm.parseJsonAddress(json, ".registry");
     }
 
+    function _hubPath(
+        string memory _network
+    )
+        internal
+        pure
+        returns (string memory)
+    {
+        return string.concat(
+            "config/hub.",
+            _network,
+            ".json"
+        );
+    }
+
+    function _hubConfigExists(
+        string memory _network
+    )
+        internal
+        returns (bool)
+    {
+        return vm.exists(
+            _hubPath(
+                _network
+            )
+        );
+    }
+
+    function _saveHub(
+        string memory _network,
+        address _hub
+    )
+        internal
+    {
+        string memory obj = "hub";
+
+        string memory out = vm.serializeAddress(
+            obj,
+            "hub",
+            _hub
+        );
+
+        vm.writeJson(
+            out,
+            _hubPath(
+                _network
+            )
+        );
+    }
+
+    function _loadHub(
+        string memory _network
+    )
+        internal
+        view
+        returns (address hub)
+    {
+        string memory json = vm.readFile(
+            _hubPath(
+                _network
+            )
+        );
+
+        hub = vm.parseJsonAddress(json, ".hub");
+    }
+
+    function _ccipPath(
+        string memory _network
+    )
+        internal
+        pure
+        returns (string memory)
+    {
+        return string.concat(
+            "config/ccip.",
+            _network,
+            ".json"
+        );
+    }
+
+    function _loadCcipRouter(
+        string memory _network
+    )
+        internal
+        view
+        returns (address router)
+    {
+        router = vm.parseJsonAddress(
+            vm.readFile(
+                _ccipPath(
+                    _network
+                )
+            ),
+            ".router"
+        );
+    }
+
+    function _loadCcipChainSelector(
+        string memory _network
+    )
+        internal
+        view
+        returns (uint64)
+    {
+        return uint64(
+            vm.parseUint(
+                vm.parseJsonString(
+                    vm.readFile(
+                        _ccipPath(
+                            _network
+                        )
+                    ),
+                    ".chainSelector"
+                )
+            )
+        );
+    }
+
     function _vaultConfigPath(
         string memory _product,
         string memory _network
@@ -316,6 +433,24 @@ abstract contract VaultConfig is CCIPConfig {
         );
 
         diamond = vm.parseJsonAddress(json, ".diamond");
+    }
+
+    function _loadVaultUsd(
+        string memory _product,
+        string memory _network
+    )
+        internal
+        view
+        returns (address usd)
+    {
+        string memory json = vm.readFile(
+            _vaultConfigPath(
+                _product,
+                _network
+            )
+        );
+
+        usd = vm.parseJsonAddress(json, ".usd");
     }
 
     function _signoffPath(
