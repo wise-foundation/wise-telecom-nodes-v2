@@ -30,8 +30,9 @@ import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
  * storage write plus event and makes NO external call — the vaults'
  * reentrancy reasoning relies on this staying true.
  *
- * Cross-chain min-merge: `_mergeReferrerPair` is the one place an
- * existing assignment can ever change. It is fed by two entrances —
+ * Cross-chain min-merge: `_mergeReferrerPair` is one of exactly two
+ * places an existing assignment can ever change — the other is the
+ * pre-latch dual-consent correction lane. It is fed by two entrances —
  * `mergeReferrer` (an allowlisted vault relaying the pair carried on
  * a bridge message) and `ccipReceive` (a peer registry's sync
  * message) — and applies the strictly-decreasing key rule: adopt when
@@ -48,6 +49,27 @@ import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
  * registry's stored origin pair for one user to any set of enabled
  * peer lanes, refunding excess fee at the end. Out-of-order execution
  * is explicitly allowed — merge order cannot matter.
+ *
+ * Correction lane: `proposeCorrectReferrer` (master) opens a 3-day
+ * window in which `cancelCorrectReferrer` (the user unilaterally, or
+ * master) kills the proposal; `executeCorrectReferrer` (master, after
+ * the window) then rewrites `referrerOf` and marks pending flips
+ * exactly like a sync flip does — the book relocation itself stays
+ * with the permissionless `pokeMigration`, so the correction rides
+ * the one existing migration path. A matured proposal has no expiry:
+ * it stays executable until executed, cancelled or latched, and the
+ * user's cancel stays available up to the moment of execution — an
+ * unbounded veto, not a 3-day one. Execute re-checks the vault
+ * laundering guard (an address allowlisted during the window cannot
+ * become a referrer) and that the target still differs from the
+ * current referrer, so a proposal overtaken by a sync flip to the
+ * same target dies with `NothingToCorrect`. The sync key is
+ * deliberately left untouched — the full model lives in the
+ * declarations contract's documentation block. `latchCorrections`
+ * (master) permanently disables propose and execute — cancel stays
+ * open for cleanup — and has no reverse operation; it is fired the
+ * moment payouts arm, making the book immutable against master from
+ * that point on.
  *
  * `setAllowedVault` is the master kill-switch for NEW assignments
  * from one vault; it is deliberately instant (no timelock) and
@@ -402,6 +424,132 @@ contract ReferralRegistry is ReferralRegistryDeclarations, IAny2EVMMessageReceiv
         }
     }
 
+    function setPayoutAddress(
+        address _payout
+    )
+        external
+    {
+        uint256 stamp = _packSyncKey(
+            block.timestamp,
+            LOCAL_CHAIN_RANK
+        );
+
+        payoutAddress[msg.sender] = _payout;
+
+        payoutStamp[msg.sender] = stamp;
+
+        emit PayoutAddressSet(
+            msg.sender,
+            _payout,
+            stamp
+        );
+    }
+
+    function pushPayoutAddress(
+        address _owner
+    )
+        external
+        payable
+    {
+        uint256 stamp = payoutStamp[_owner];
+
+        require(
+            stamp != 0,
+            NothingToPush()
+        );
+
+        address hub = payoutHub;
+
+        require(
+            hub != ZERO_ADDRESS,
+            PayoutHubNotSet()
+        );
+
+        address router = ccipRouter;
+
+        require(
+            router != ZERO_ADDRESS,
+            RouterNotSet()
+        );
+
+        uint64 destChainSelector = payoutHubChainSelector;
+
+        address payout = payoutAddress[_owner];
+
+        Client.EVM2AnyMessage memory message = _buildPayoutPushMessage(
+            hub,
+            _owner,
+            payout,
+            stamp
+        );
+
+        uint256 fee = IRouterClient(router).getFee(
+            destChainSelector,
+            message
+        );
+
+        require(
+            msg.value >= fee,
+            InsufficientPushFee()
+        );
+
+        bytes32 messageId = IRouterClient(router).ccipSend{value: fee}(
+            destChainSelector,
+            message
+        );
+
+        _refundExcessPushFee(
+            fee
+        );
+
+        emit PayoutPushed(
+            _owner,
+            destChainSelector,
+            payout,
+            stamp,
+            messageId
+        );
+    }
+
+    function quotePushPayoutFee(
+        address _owner
+    )
+        external
+        view
+        returns (uint256)
+    {
+        require(
+            payoutHub != ZERO_ADDRESS,
+            PayoutHubNotSet()
+        );
+
+        return IRouterClient(ccipRouter).getFee(
+            payoutHubChainSelector,
+            _buildPayoutPushMessage(
+                payoutHub,
+                _owner,
+                payoutAddress[_owner],
+                payoutStamp[_owner]
+            )
+        );
+    }
+
+    function getPayoutDesignation(
+        address _owner
+    )
+        external
+        view
+        returns (
+            address payout,
+            uint256 stamp
+        )
+    {
+        return (
+            payoutAddress[_owner],
+            payoutStamp[_owner]
+        );
+    }
+
     function pokeMigration(
         address _user
     )
@@ -457,6 +605,159 @@ contract ReferralRegistry is ReferralRegistryDeclarations, IAny2EVMMessageReceiv
                 );
             }
         }
+    }
+
+    function proposeCorrectReferrer(
+        address _user,
+        address _newReferrer
+    )
+        external
+        onlyMaster
+    {
+        require(
+            correctionsLatched == false,
+            CorrectionsDisabled()
+        );
+
+        require(
+            _newReferrer != ZERO_ADDRESS,
+            ZeroAddress()
+        );
+
+        require(
+            _newReferrer != _user,
+            SelfReferral()
+        );
+
+        require(
+            _newReferrer != address(this),
+            InvalidReferrer()
+        );
+
+        require(
+            allowedVault[_newReferrer] == false,
+            InvalidReferrer()
+        );
+
+        address current = referrerOf[_user];
+
+        require(
+            current != ZERO_ADDRESS,
+            NothingToCorrect()
+        );
+
+        require(
+            _newReferrer != current,
+            NothingToCorrect()
+        );
+
+        proposedCorrection[_user] = _newReferrer;
+
+        correctionQueuedAt[_user] = block.timestamp;
+
+        emit ReferralCorrectionProposed(
+            _user,
+            current,
+            _newReferrer,
+            block.timestamp
+        );
+    }
+
+    function cancelCorrectReferrer(
+        address _user
+    )
+        external
+    {
+        require(
+            msg.sender == _user || msg.sender == master,
+            NotCorrectionParty()
+        );
+
+        require(
+            correctionQueuedAt[_user] > 0,
+            NoCorrectionProposed()
+        );
+
+        address cancelled = proposedCorrection[_user];
+
+        delete proposedCorrection[_user];
+
+        delete correctionQueuedAt[_user];
+
+        emit ReferralCorrectionCancelled(
+            _user,
+            cancelled,
+            msg.sender
+        );
+    }
+
+    function executeCorrectReferrer(
+        address _user
+    )
+        external
+        onlyMaster
+    {
+        require(
+            correctionsLatched == false,
+            CorrectionsDisabled()
+        );
+
+        uint256 queuedAt = correctionQueuedAt[_user];
+
+        require(
+            queuedAt > 0,
+            NoCorrectionProposed()
+        );
+
+        require(
+            block.timestamp >= queuedAt + REFERRER_CORRECTION_DELAY,
+            CorrectionTimelockNotElapsed()
+        );
+
+        address newReferrer = proposedCorrection[_user];
+
+        require(
+            allowedVault[newReferrer] == false,
+            InvalidReferrer()
+        );
+
+        address oldReferrer = referrerOf[_user];
+
+        require(
+            newReferrer != oldReferrer,
+            NothingToCorrect()
+        );
+
+        delete proposedCorrection[_user];
+
+        delete correctionQueuedAt[_user];
+
+        referrerOf[_user] = newReferrer;
+
+        _markPendingFlips(
+            _user,
+            oldReferrer
+        );
+
+        emit ReferralCorrectionExecuted(
+            _user,
+            oldReferrer,
+            newReferrer
+        );
+    }
+
+    function latchCorrections()
+        external
+        onlyMaster
+    {
+        require(
+            correctionsLatched == false,
+            CorrectionsAlreadyLatched()
+        );
+
+        correctionsLatched = true;
+
+        emit CorrectionsLatched();
     }
 
     function setCcipRouter(
@@ -619,6 +920,84 @@ contract ReferralRegistry is ReferralRegistryDeclarations, IAny2EVMMessageReceiv
         syncInitialized = true;
 
         emit SyncSetupFinalized();
+    }
+
+    function proposePayoutHub(
+        address _hub,
+        uint64 _chainSelector
+    )
+        external
+        onlyMaster
+    {
+        proposedPayoutHub = _hub;
+
+        proposedPayoutHubChainSelector = _chainSelector;
+
+        payoutHubChangeQueuedAt = block.timestamp;
+
+        emit PayoutHubProposed(
+            _hub,
+            _chainSelector,
+            block.timestamp
+        );
+    }
+
+    function executePayoutHubChange()
+        external
+        onlyMaster
+    {
+        require(
+            payoutHubChangeQueuedAt > 0,
+            NoPayoutHubProposed()
+        );
+
+        if (syncInitialized) {
+            require(
+                block.timestamp >= payoutHubChangeQueuedAt + PAYOUT_HUB_CHANGE_DELAY,
+                PayoutHubTimelockNotElapsed()
+            );
+        }
+
+        address hub = proposedPayoutHub;
+
+        uint64 chainSelector = proposedPayoutHubChainSelector;
+
+        require(
+            (hub == ZERO_ADDRESS) == (chainSelector == 0),
+            InvalidPayoutHub()
+        );
+
+        payoutHub = hub;
+
+        payoutHubChainSelector = chainSelector;
+
+        proposedPayoutHub = ZERO_ADDRESS;
+
+        proposedPayoutHubChainSelector = 0;
+
+        payoutHubChangeQueuedAt = 0;
+
+        emit PayoutHubSet(
+            hub,
+            chainSelector
+        );
+    }
+
+    function cancelPayoutHubChange()
+        external
+        onlyMaster
+    {
+        address hub = proposedPayoutHub;
+
+        proposedPayoutHub = ZERO_ADDRESS;
+
+        proposedPayoutHubChainSelector = 0;
+
+        payoutHubChangeQueuedAt = 0;
+
+        emit PayoutHubProposalCancelled(
+            hub
+        );
     }
 
     function setAllowedVault(
@@ -939,6 +1318,63 @@ contract ReferralRegistry is ReferralRegistryDeclarations, IAny2EVMMessageReceiv
         require(
             ok,
             SyncRefundFailed()
+        );
+    }
+
+    function _buildPayoutPushMessage(
+        address _hub,
+        address _owner,
+        address _payout,
+        uint256 _stamp
+    )
+        internal
+        view
+        returns (Client.EVM2AnyMessage memory)
+    {
+        uint64 gasLimit = syncGasLimit == 0
+            ? SYNC_GAS_LIMIT
+            : syncGasLimit;
+
+        return Client.EVM2AnyMessage({
+            receiver: abi.encode(
+                _hub
+            ),
+            data: abi.encode(
+                PAYOUT_PUSH_VERSION,
+                _owner,
+                _payout,
+                _stamp >> KEY_RANK_SHIFT,
+                _stamp & KEY_RANK_MASK
+            ),
+            tokenAmounts: new Client.EVMTokenAmount[](0),
+            feeToken: ZERO_ADDRESS,
+            extraArgs: Client._argsToBytes(
+                Client.GenericExtraArgsV2({
+                    gasLimit: gasLimit,
+                    allowOutOfOrderExecution: true
+                })
+            )
+        });
+    }
+
+    function _refundExcessPushFee(
+        uint256 _spentFee
+    )
+        internal
+    {
+        if (msg.value <= _spentFee) {
+            return;
+        }
+
+        (
+            bool ok,
+        ) = msg.sender.call{
+            value: msg.value - _spentFee
+        }("");
+
+        require(
+            ok,
+            PushRefundFailed()
         );
     }
 
