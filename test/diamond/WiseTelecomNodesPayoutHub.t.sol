@@ -189,6 +189,7 @@ contract WiseTelecomNodesPayoutHubTest is DiamondTestHarness {
 
     function test_payoutHubPointer_wiredInstantlyPreFinalize()
         public
+        view
     {
         assertEq(
             _admin().getPayoutHub(),

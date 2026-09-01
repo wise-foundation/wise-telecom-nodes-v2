@@ -18,37 +18,37 @@ import {WiseTelecomNodesDiamondSelectors} from "./WiseTelecomNodesDiamondSelecto
 /// fields), the AdminFacet redeploy carrying the flush-hub pointer six, and the
 /// settle-aware CohortHookFacet re-proposed as the transfer hook (its new
 /// `applyCohortSettle` engine entrypoint is what lets a flush freshen a book to the second
-/// through the slot-45 pointer — the flush facet compiles no engine code of its own). The
-/// LIVE diamond entry contracts are never redeployed and never migrated — this round only
+/// through the slot-45 pointer; the flush facet compiles no engine code of its own). The
+/// LIVE diamond entry contracts are never redeployed and never migrated: this round only
 /// deploys NEW facet contracts and routes selectors and the hook through the diamond's
 /// existing 3-day timelocks, plus one pointer write per vault.
 ///
-/// This round runs on ALL vaults of the mesh — every vault flushes its cohort book to the
+/// This round runs on ALL vaults of the mesh: every vault flushes its cohort book to the
 /// ONE mainnet hub. It assumes the registry/carry rounds' groups are already routed on the
 /// target vault (the flush facet reads the cohort state those rounds arm); running it
 /// earlier is safe but pointless, since everything stays default-off. Prerequisite (once,
 /// on the hub chain): {DeployReferralHub} has recorded the hub in
-/// `config/hub.mainnet.json` — `propose()` fail-fasts if not.
+/// `config/hub.mainnet.json`; `propose()` fail-fasts if not.
 ///
-/// TWO chained 3-day clocks per vault — the flush-hub pointer trio selectors are NEW (not
+/// TWO chained 3-day clocks per vault; the flush-hub pointer trio selectors are NEW (not
 /// genesis-routed), so `proposeFlushHub` only exists on the diamond after the selector
 /// round executes; the transfer-hook proposal runs inside clock 1 alongside the selector
 /// batches, so the settle-aware engine is installed before any flush can arm:
-///   `propose()`         — deploys the 3 facets, proposes both selector batches and the
+///   `propose()`         : deploys the 3 facets, proposes both selector batches and the
 ///                         hook. Clock 1 starts.
-///   `execute()`         — after 3 days: flips both batches and the hook. Idempotent
+///   `execute()`         : after 3 days: flips both batches and the hook. Idempotent
 ///                         (queuedAt-guarded), re-runnable after partial mining.
-///   `proposeFlushHub()` — same day as execute(): starts clock 2 through the
+///   `proposeFlushHub()` : same day as execute(): starts clock 2 through the
 ///                         freshly-routed {AdminFacet} trio. On the hub chain it proposes
-///                         (hub, 0) — local direct-call delivery; on every other chain
-///                         (hub, mainnet chain selector) — CCIP envelope delivery.
-///   `executeFlushHub()` — after 3 more days: executes the pointer change and post-asserts
+///                         (hub, 0) for local direct-call delivery; on every other chain
+///                         (hub, mainnet chain selector) for CCIP envelope delivery.
+///   `executeFlushHub()` : after 3 more days: executes the pointer change and post-asserts
 ///                         pointer == config. Then run {DeployReferralHub}.wireFlush()
 ///                         once on the hub chain so the hub accepts this vault's
 ///                         envelopes (spokes) or reporter calls (hub-chain vaults).
-///   `abort()`           — cancels every pending batch, the hook proposal and the pointer
+///   `abort()`           : cancels every pending batch, the hook proposal and the pointer
 ///                         proposal (each pre-execute only).
-///   `status()`          — read-only sanity print for the runbook (no broadcast).
+///   `status()`          : read-only sanity print for the runbook (no broadcast).
 ///
 /// Ordering law the steps encode: hub recorded → selectors + settle-aware hook live →
 /// flush pointer wired → hub-side wireFlush() LAST. Every intermediate state is
@@ -69,7 +69,7 @@ import {WiseTelecomNodesDiamondSelectors} from "./WiseTelecomNodesDiamondSelecto
 ///
 /// NOTHING here may be broadcast until the owner gives the explicit go-ahead. After a REAL
 /// broadcast is executed and verified, `git mv` the graduated files out of EVERY pending/
-/// segment in the same commit — facets/pending/ (CohortFlushFacet, and CohortHookFacet if
+/// segment in the same commit: facets/pending/ (CohortFlushFacet, and CohortHookFacet if
 /// this round ships it first), declarations/pending/ (CohortFlushDeclaration) and the
 /// registry/hub pending trees their rounds cover.
 contract UpgradeCohortFlush is VaultConfig {

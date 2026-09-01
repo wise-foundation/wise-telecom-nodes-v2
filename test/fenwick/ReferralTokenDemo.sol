@@ -15,7 +15,7 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
  * pre-transfer hook, then `super`. The hook mirrors
  * WiseTelecomNodesInterestHelper._runTransferHook byte for byte in
  * shape: `transferHookFacet` is DELEGATECALLed with the selector of
- * `applyTransferHook(address,address)` — the interface carries ONLY
+ * `applyTransferHook(address,address)`; the interface carries ONLY
  * the two addresses, never the amount, which is the structural reason
  * per-transfer score accounting is impossible on the live diamonds.
  * `address(0)` (the default) means no hook and a bare transfer; a
@@ -25,7 +25,7 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
  *
  * Hook facets must inherit this contract purely for storage-layout
  * alignment under DELEGATECALL and must declare NO storage of their
- * own — the diamond-facet discipline in miniature.
+ * own: the diamond-facet discipline in miniature.
  *
  * Deliberate divergences from production, all process not mechanics:
  * `setTransferHook` swaps instantly where the live diamond gates the

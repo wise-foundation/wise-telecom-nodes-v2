@@ -54,7 +54,7 @@ contract MockUSD is ERC20 {
 /**
  * @dev Registry stand-in that passes the slot-77 pointer's execute
  * shape probe (`referrerOf` answering 32 bytes) and the seed's latch
- * read, but deliberately lacks `effectiveReferrerOf` — the recorder's
+ * read, but deliberately lacks `effectiveReferrerOf`: the recorder's
  * guarded lookup staticcall fails against it, degrading the clamp
  * exactly like an unreachable registry would.
  */
@@ -81,34 +81,35 @@ contract MockLookupBrokenRegistry {
 
 /**
  * @dev Retroactive-seed suite for {CohortRecorderFacet}'s master-only
- * `seedCohortContribution` — the one sanctioned way to credit
+ * `seedCohortContribution`, the one sanctioned way to credit
  * balances that existed before the recorder was armed. Pins: the
  * deposit-equivalence law both at the seeding instant AND across
  * time (after graduation walks, books, scores and the seed week's
  * crumb word stay byte-identical to a control referrer whose referee
  * deposited the same amount post-arm, while pre-seed weeks hold zero
- * crumb time), the headroom bound (`min(amount, balance − tracked)`,
+ * crumb time), the headroom bound (`min(amount, balance - tracked)`,
  * `type(uint256).max` = full headroom, repeat seeding drains the
- * headroom exactly once, fuzz-pinned tracked ≤ balance), the
+ * headroom exactly once, fuzz-pinned tracked <= balance), the
  * unreferred tracked-only arm (self-ladder backfill, no book
  * anywhere), the transfer-received-headroom doctrine (any untracked
- * balance is seedable — which headroom deserves it is master
+ * balance is seedable; which headroom deserves it is master
  * policy), the flip interplay (a seed during a pending flip credits
  * the book that HOLDS the cover and migrates with the poke; a seed
  * after an executed-and-poked registry correction follows the
- * corrected referrer), the I1 three-way equality after seeding, and
- * every guard arm: master gate, disarmed recorder, the
+ * corrected referrer), the I1 three-way equality (sum of referee
+ * tracked contributions == bookY1 + bookY2 + bookM == score) after
+ * seeding, and every guard arm: master gate, disarmed recorder, the
  * armed-but-hookless state (zeroed slot-45 pointer reverts
  * {CohortHookNotInstalled} instead of emitting a phantom seed), the
  * registry's one-way correction latch, a broken registry pointer
  * reverting loudly, nothing-to-seed on a fully tracked user and on a
  * zero amount, the standing-deficit case (master `burnSupply` leaves
- * tracked above held — the clamp eats the whole headroom and the
+ * tracked above held; the clamp eats the whole headroom and the
  * seed reverts instead of crediting on top of an unclamped deficit)
  * and its degraded-clamp sibling (a lookup-broken registry leaves
  * the deficit standing and the seed still lands in {NothingToSeed}).
  * Pre-arm balances are staged with plain deposits while
- * `cohortSyncEnabled` is still false — exactly the live-world shape
+ * `cohortSyncEnabled` is still false, exactly the live-world shape
  * the seed exists for.
  */
 contract WiseTelecomNodesCohortSeedTest is DiamondTestHarness {

@@ -26,11 +26,11 @@ import {TwoVaultCohortHarness, TwoVaultMockUSD} from "../utils/TwoVaultCohortHar
  * step-level netting property: a referred mover's move changes the
  * GLOBAL book sum (scoreA + scoreB) by exactly the mover's
  * pre-existing lazy deficits on BOTH vaults (the source's pre-burn
- * sync and the destination's pre-mint sync each clamp sale-like) —
+ * sync and the destination's pre-mint sync each clamp sale-like);
  * the moved amount itself relocates without loss; an unreferred move
  * never touches any book. A violation increments the sticky
  * `ghostMoveViolations` counter instead of reverting, because the
- * invariant runner tolerates handler-call reverts — the XC6
+ * invariant runner tolerates handler-call reverts; the XC6
  * invariant then requires the counter to stay zero. Ghost accounting:
  * `ghostCreditedTotal` accumulates every referred credit ever
  * granted, bounding the global book from above; per-vault ghost crumb
@@ -744,12 +744,12 @@ contract CohortCrossVaultHandler is Test {
  * book together between vaults; XC2 is the chain-global conservation
  * statement (the two books together always equal the referees'
  * combined tracked contribution and never exceed the total credit
- * ever granted — moves relocate, clamps only destroy, nothing
+ * ever granted: moves relocate, clamps only destroy, nothing
  * inflates); XC3 pins the ring-to-lane identity on both vaults (a
  * replant that touched a ring without its book, or vice versa, breaks
  * it); XC4 re-verifies every finalized crumb word on BOTH vaults
  * against the handler's ghost snapshots (a replant may only ever
- * touch open weeks — closed token-second history is immutable); XC5
+ * touch open weeks; closed token-second history is immutable); XC5
  * pins registry write-once under two vaults writing concurrently.
  * The per-move netting equality itself is asserted step-level inside
  * the handler's move actions, where the pre-existing deficit is

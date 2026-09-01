@@ -20,38 +20,38 @@ import {CohortHookFacet} from "../../src/diamond/vault/facets/pending/CohortHook
 
 import {WiseTelecomNodesDiamondSelectors} from "./WiseTelecomNodesDiamondSelectors.sol";
 
-/// @notice SUPERSEDED by {UpgradeReferralRegistry} — do not broadcast. The slot-77
+/// @notice SUPERSEDED by {UpgradeReferralRegistry}: do not broadcast. The slot-77
 /// registry-pointer shard recompiles every facet in this manifest and the referral facets now
 /// write the per-chain standalone {ReferralRegistry}, so installing this
 /// script's builds would route stale bytecode. Kept for the historical record; its full
 /// per-chain fork rehearsal passed before it was superseded.
 ///
 /// Installs the cohort recorder of the referral commission system on an
-/// already-running, finalized diamond, and — because the recorder changes the compiled
-/// bytecode of every balance-moving facet through the shared helper chain — redeploys the
+/// already-running, finalized diamond, and (because the recorder changes the compiled
+/// bytecode of every balance-moving facet through the shared helper chain) redeploys the
 /// full facet-change manifest in the same timelock round. Supersedes {UpgradeReferral}: the
 /// never-installed referral groups ride this manifest (their facets recompile here anyway).
 ///
 /// One round, three phases:
-///   `propose()`  — deploys the 11 manifest facets, proposes all 10 selector batches AND the
+///   `propose()`  : deploys the 11 manifest facets, proposes all 10 selector batches AND the
 ///                  transfer-hook swap to {CohortHookFacet}; both 3-day clocks start together.
-///   `execute()`  — after the timelocks: flips every batch, hook last. Address-free (the
-///                  diamond reads its own proposal storage) and idempotent — each batch is
+///   `execute()`  : after the timelocks: flips every batch, hook last. Address-free (the
+///                  diamond reads its own proposal storage) and idempotent: each batch is
 ///                  guarded by its queuedAt stamp, so a partially-mined execute can be re-run.
-///   `arm()`      — the separate go-live step: `setCohortSyncEnabled(true)` (probes the
+///   `arm()`      : the separate go-live step: `setCohortSyncEnabled(true)` (probes the
 ///                  installed hook and reverts if it is not cohort-aware) and raises
 ///                  `bridgeGasLimit` to 1M so a dormant-book clamp inside `ccipReceive`
 ///                  always fits (keeper `advanceBook` cadence keeps the case
 ///                  rare, CCIP manual re-execution is the backstop).
-///   `abort()`    — cancels every pending batch and the hook proposal (pre-execute only).
-///   `status()`   — read-only sanity print for the runbook (no broadcast).
+///   `abort()`    : cancels every pending batch and the hook proposal (pre-execute only).
+///   `status()`   : read-only sanity print for the runbook (no broadcast).
 ///
 /// Every intermediate state is safe: all recorder touchpoints are gated no-ops until arm(),
 /// so old-hook/new-facet mixtures behave exactly like today's live system; the only ungated
 /// change at execute() is the referral-group install, which is write-once slot-67 state
 /// rehearsed by {ReferralUpgradeFork}. Rollback: pre-execute abort(); post-arm
 /// `setCohortSyncEnabled(false)` is instant, and the hook can be re-proposed back to
-/// {GraceFreezeHookFacet} (DISARM FIRST — an armed diamond delegatecalls cohort selectors on
+/// {GraceFreezeHookFacet} (DISARM FIRST: an armed diamond delegatecalls cohort selectors on
 /// whatever hook is installed).
 ///
 /// Per-vault invocation (9 live vaults; product via VAULT_PRODUCT env, chain via --rpc-url):

@@ -5,7 +5,7 @@ pragma solidity =0.8.36;
 import {CohortRecorderBase} from "./CohortRecorderBase.sol";
 
 /**
- * @dev CohortHookFacet — the transfer-hook slice of the cohort
+ * @dev CohortHookFacet: the transfer-hook slice of the cohort
  * recorder engine (its cross-chain bridge-carry and referrer-flip
  * closure lives in the dispatcher-routed {CohortBridgeHookFacet};
  * both compile from {CohortRecorderBase} and share its storage
@@ -19,12 +19,12 @@ import {CohortRecorderBase} from "./CohortRecorderBase.sol";
  * behaviorally identical to the grace-freeze hook, which is what
  * makes the hook swap safe to execute before arming.
  *
- * The five `applyCohort*` entrypoints are the targets of the
+ * The six `applyCohort*` entrypoints are the targets of the
  * helper-chain stubs (`_cohortSync` / `_cohortCredit` /
- * `_cohortAdvance` / `_cohortMoveOut` / `_cohortMoveIn` in
- * {WiseTelecomNodesBaseHelper}), which reach this
- * facet through the same slot-45 pointer under the transient
- * `hookExecuting` bracket — so every hook-path and same-chain stub
+ * `_cohortAdvance` / `_cohortMoveOut` / `_cohortMoveIn` /
+ * `_cohortSettle` in {WiseTelecomNodesBaseHelper}), which reach
+ * this facet through the same slot-45 pointer under the transient
+ * `hookExecuting` bracket, so every hook-path and same-chain stub
  * mutation executes this one compiled slice against diamond storage,
  * while the bridge-carry and flip mutations execute the routed
  * {CohortBridgeHookFacet} slice of the same source under the same
@@ -34,15 +34,15 @@ import {CohortRecorderBase} from "./CohortRecorderBase.sol";
  * `onlyDelegateCall`, non-bracketed delegatecalls by the
  * `hookExecuting` guard. The same-chain move pair
  * (`applyCohortMoveOut` / `applyCohortMoveIn`) runs only on the
- * `moveBetweenVaults` / `mintFromPeer` path — never inside the
- * transfer hook — and its registry CALLs are failure-tolerant, so
+ * `moveBetweenVaults` / `mintFromPeer` path (never inside the
+ * transfer hook), and its registry CALLs are failure-tolerant, so
  * the move-path budget tolerates them while the hook path stays
  * external-call-free except the guarded referrer staticcall.
  *
- * All six entrypoints are `payable`: the stubs delegatecall this
+ * All seven entrypoints are `payable`: the stubs delegatecall this
  * facet from inside `bridgeToVault` / `bridgeToVaultWithReferral`,
  * the diamond's only payable user-facing functions, and a
- * delegatecall inherits the ambient `msg.value` — a non-payable
+ * delegatecall inherits the ambient `msg.value`; a non-payable
  * target would revert on the
  * compiler's callvalue guard and DoS bridging out on every lane with
  * a nonzero CCIP fee. No ETH ever moves: under DELEGATECALL the value

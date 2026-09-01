@@ -3,7 +3,7 @@
 pragma solidity =0.8.36;
 
 /**
- * @dev CohortWeeks — the single source of truth for every week-epoch
+ * @dev CohortWeeks: the single source of truth for every week-epoch
  * and lane-packing constant of the referral cohort recorder, shared by
  * the recorder facets today and by the planned mainnet hub and its
  * cross-chain flush messages. One epoch definition everywhere
@@ -21,8 +21,10 @@ pragma solidity =0.8.36;
  * per storage word (52 slots = 13 words per ring per referrer).
  *
  * The saturating helpers return the clipped remainder alongside the
- * result so callers can emit the anomaly event on any clip; they never
- * revert, because they run inside the transfer hook where a revert
+ * result so callers can emit the anomaly event on any clip; they
+ * never revert because callers pass lane-bounded values (the
+ * checked raw uint256 sum cannot overflow below 2^129), which
+ * matters because they run inside the transfer hook where a revert
  * would veto the transfer itself. All members are `internal`, inlined
  * at compile time, and therefore safe under DELEGATECALL from any
  * facet.
@@ -43,7 +45,7 @@ pragma solidity =0.8.36;
  * encoding: it carries the three aggregate lanes instead, landing
  * them at the oldest live position, and applies at all only when the
  * destination recipient equals the source owner (a different
- * recipient is an ownership change — the credit is destroyed, not
+ * recipient is an ownership change; the credit is destroyed, not
  * carried).
  *
  * Bridge carry codec (cross-chain ONLY): the aggregate payload that
@@ -55,7 +57,7 @@ pragma solidity =0.8.36;
  * year2Aggregate(uint128 high)`; word3 `matureAggregate(uint128 low)`
  * with the high half zero. The assignedAt/rank pair is the ORIGIN
  * sync key of the user's referrer assignment and travels unchanged
- * through relays — the destination registry's earliest-wins merge
+ * through relays; the destination registry's earliest-wins merge
  * depends on never re-stamping it. `bridgeCarryValid` rejects a
  * payload wholesale unless every structural rule holds: exact length,
  * version match, reserved bits zero, an unreferred envelope
@@ -63,13 +65,13 @@ pragma solidity =0.8.36;
  * trackedDelta equals the lane sum exactly, a nonzero trackedDelta
  * or lane sum (a payload carrying only the sync key is rejected),
  * and trackedDelta bounded by the amount the same message
- * mints — the conservation ceiling that prices any forged book credit
+ * mints, the conservation ceiling that prices any forged book credit
  * at one-to-one in burned shares. Per-component floor scaling at the
  * source keeps the lane sum at or below the scaled burn, so every
  * honestly built payload passes the ceiling. Landing rule (the
  * destination applies after settling the effective referrer): the
- * year-1 aggregate lands in ring-1 slot `(arrivalWeek + 1) % 52` —
- * the cohort that graduates at the very next weekly boundary — the
+ * year-1 aggregate lands in ring-1 slot `(arrivalWeek + 1) % 52`
+ * (the cohort that graduates at the very next weekly boundary), the
  * year-2 aggregate in the same index on ring 2 (the cohort that
  * matures next), and the mature aggregate on the week-less mature
  * lane, all via the saturating helpers with the full pre-clip
@@ -87,14 +89,14 @@ pragma solidity =0.8.36;
  * `msg.sender` stamped by the flush facet (the courier the hub's
  * bot share pays), and the stamp is the source chain's
  * `block.timestamp` at build time (the hub's per-referrer score
- * staleness gate — envelopes may be stored and applied lazily in
+ * staleness gate: envelopes may be stored and applied lazily in
  * any order, so absolute score reports need a freshness order that
  * message transport cannot provide). Each entry is, in order: the
  * entry word `referrer(160) | crumbCount(8 at 160) | gapCount(8 at
  * 168) | flags(8 at 176)` with bits 184+ zero and flag bit 0 =
  * designation word present; the scores word `selfScore(112) |
  * referredScore(112 at 112)` with bits 224+ zero (absolute
- * per-source scores — the hub diffs internally, so re-sends are
+ * per-source scores; the hub diffs internally, so re-sends are
  * idempotent); the optional designation word `payout(160) |
  * setAt(64 at 160) | chainRank(8 at 224)` with bits 232+ zero
  * (read from the chain registry at build time, applied latest-wins
@@ -102,8 +104,8 @@ pragma solidity =0.8.36;
  * stored crumb word including the written bit); and `gapCount` raw
  * gap-record words, each pre-sliced by the builder to span at most
  * MAX_SETTLE_BOUNDARIES weeks so every record fully applies in one
- * pass. Caps: 1 to MAX_FLUSH_ENTRIES entries, and total work —
- * crumb words plus gap-record spanned weeks — at most
+ * pass. Caps: 1 to MAX_FLUSH_ENTRIES entries, and total work
+ * (crumb words plus gap-record spanned weeks) at most
  * MAX_FLUSH_WORK per envelope, enforced by the builder and
  * re-validated wholesale by the hub mailbox. `FLUSH_VERSION` and
  * `CRUMB_VERSION` both travel in the header; the hub accepts

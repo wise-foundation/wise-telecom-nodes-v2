@@ -12,7 +12,7 @@ import {NotMaster} from "../../src/diamond/shared/OwnableMaster.sol";
 
 /**
  * @dev Unit and fuzz suite for {ReferralHubCheckpoints} on the actual
- * deployed {ReferralHub}. Driving writes go through `reportScores` —
+ * deployed {ReferralHub}. Driving writes go through `reportScores`,
  * the only source of checkpoint mutations exercised here. The hub is
  * deployed and wired with this test contract as both master and the
  * sole allowed reporter, so no `vm.prank` is needed for the happy
@@ -64,7 +64,9 @@ contract ReferralHubCheckpointsTest is Test {
     }
 
     address internal refA = address(0xC1);
+
     address internal refB = address(0xC2);
+
     address internal stranger = address(0xBEEF);
 
     address internal usdToken = address(0xF01);
@@ -72,7 +74,9 @@ contract ReferralHubCheckpointsTest is Test {
     ReferralHub internal hub;
 
     mapping(uint256 => bytes32) internal journalFoldA;
+
     mapping(uint256 => bytes32) internal journalFoldB;
+
     mapping(uint256 => bytes32) internal journalFoldC;
 
     function setUp()
@@ -409,8 +413,23 @@ contract ReferralHubCheckpointsTest is Test {
 
         for (uint256 i; i < 3; ++i) {
 
-            (journalA.y1[i], journalA.y2[i], journalA.m[i]) = hub.weeklyRates(refA, pastWeeks[i]);
-            (journalB.y1[i], journalB.y2[i], journalB.m[i]) = hub.weeklyRates(refB, pastWeeks[i]);
+            (
+                journalA.y1[i],
+                journalA.y2[i],
+                journalA.m[i]
+            ) = hub.weeklyRates(
+                refA,
+                pastWeeks[i]
+            );
+
+            (
+                journalB.y1[i],
+                journalB.y2[i],
+                journalB.m[i]
+            ) = hub.weeklyRates(
+                refB,
+                pastWeeks[i]
+            );
         }
 
         assertEq(journalA.y1[2], 1_000);
@@ -433,13 +452,27 @@ contract ReferralHubCheckpointsTest is Test {
 
         for (uint256 i; i < 3; ++i) {
 
-            (uint256 y1After, uint256 y2After, uint256 mAfter) = hub.weeklyRates(refA, pastWeeks[i]);
+            (
+                uint256 y1After,
+                uint256 y2After,
+                uint256 mAfter
+            ) = hub.weeklyRates(
+                refA,
+                pastWeeks[i]
+            );
 
             assertEq(y1After, journalA.y1[i]);
             assertEq(y2After, journalA.y2[i]);
             assertEq(mAfter, journalA.m[i]);
 
-            (y1After, y2After, mAfter) = hub.weeklyRates(refB, pastWeeks[i]);
+            (
+                y1After,
+                y2After,
+                mAfter
+            ) = hub.weeklyRates(
+                refB,
+                pastWeeks[i]
+            );
 
             assertEq(y1After, journalB.y1[i]);
             assertEq(y2After, journalB.y2[i]);
@@ -557,9 +590,29 @@ contract ReferralHubCheckpointsTest is Test {
         assertEq(referredAtW2, 60_000 * 1e6);
         assertEq(selfAtW2, 15_000 * 1e6);
 
-        (uint256 y1AtW, , ) = hub.weeklyRates(refA, BASE_WEEK);
-        (uint256 y1AtW1, , ) = hub.weeklyRates(refA, BASE_WEEK + 1);
-        (uint256 y1AtW2, , ) = hub.weeklyRates(refA, BASE_WEEK + 2);
+        (
+            uint256 y1AtW,
+            ,
+        ) = hub.weeklyRates(
+            refA,
+            BASE_WEEK
+        );
+
+        (
+            uint256 y1AtW1,
+            ,
+        ) = hub.weeklyRates(
+            refA,
+            BASE_WEEK + 1
+        );
+
+        (
+            uint256 y1AtW2,
+            ,
+        ) = hub.weeklyRates(
+            refA,
+            BASE_WEEK + 2
+        );
 
         assertEq(y1AtW, 0);
         assertEq(y1AtW1, 0);
@@ -593,7 +646,13 @@ contract ReferralHubCheckpointsTest is Test {
         assertEq(referredInput, 60_000 * 1e6);
         assertEq(selfInput, 15_000 * 1e6);
 
-        (uint256 y1Bps, , ) = hub.weeklyRates(refA, BASE_WEEK + 1);
+        (
+            uint256 y1Bps,
+            ,
+        ) = hub.weeklyRates(
+            refA,
+            BASE_WEEK + 1
+        );
 
         assertEq(y1Bps, 700);
     }
@@ -709,7 +768,13 @@ contract ReferralHubCheckpointsTest is Test {
 
         _warpToWeek(1);
 
-        (uint256 y1Dwelled, , ) = hub.weeklyRates(refA, BASE_WEEK + 1);
+        (
+            uint256 y1Dwelled,
+            ,
+        ) = hub.weeklyRates(
+            refA,
+            BASE_WEEK + 1
+        );
 
         assertEq(y1Dwelled, 0);
 
@@ -720,8 +785,21 @@ contract ReferralHubCheckpointsTest is Test {
 
         _warpToWeek(3);
 
-        (uint256 y1Replay, , ) = hub.weeklyRates(refA, BASE_WEEK + 1);
-        (uint256 y1Plain, , ) = hub.weeklyRates(refA, BASE_WEEK + 2);
+        (
+            uint256 y1Replay,
+            ,
+        ) = hub.weeklyRates(
+            refA,
+            BASE_WEEK + 1
+        );
+
+        (
+            uint256 y1Plain,
+            ,
+        ) = hub.weeklyRates(
+            refA,
+            BASE_WEEK + 2
+        );
 
         assertEq(y1Replay, 0);
         assertEq(y1Plain, 700);

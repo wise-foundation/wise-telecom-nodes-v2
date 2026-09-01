@@ -36,7 +36,7 @@ interface IPermit2Domain {
  * @dev Minimal local surface of the LIVE WiseTelecomNodes diamond,
  * driven through its own dispatcher and fallback router. The cohort,
  * referral and registry-pointer entrypoints are declared even though
- * the live dispatcher does not know them yet — after the rehearsed
+ * the live dispatcher does not know them yet; after the rehearsed
  * upgrade they resolve through the selector routing, which is what
  * this test proves.
  */
@@ -322,11 +322,11 @@ interface IUsdToken {
  * @title ReferralRegistryUpgradeForkBase
  * @dev Rehearses the {UpgradeReferralRegistry} rollout
  * against a LIVE, already-finalized diamond on a
- * fork of each production chain — the one rehearsal embedding the
+ * fork of each production chain, the one rehearsal embedding the
  * full recorder-plus-registry lifecycle.
  * The LIVE diamond entry contract is never
  * redeployed: the round deploys NEW facets, routes selectors through
- * the real 3-day timelock, and wires the slot-77 pointer — the first
+ * the real 3-day timelock, and wires the slot-77 pointer, the first
  * rehearsal ever to deploy a standalone companion contract
  * ({ReferralRegistry}) on a live fork. Proves, per chain:
  *   1. the live dispatcher does NOT know the cohort, referral OR
@@ -334,16 +334,16 @@ interface IUsdToken {
  *      raw-zero on the real bytecode;
  *   2. the standalone registry deploys on-fork and allowlists the
  *      diamond (mirroring {DeployReferralRegistry});
- *   3. the exact selector manifest the upgrade script broadcasts —
- *      ten batches plus the transfer-hook swap — works under the
+ *   3. the exact selector manifest the upgrade script broadcasts
+ *      (ten batches plus the transfer-hook swap) works under the
  *      real master and both real 3-day timelocks;
  *   4. the SECOND clock: the pointer proposal through the
  *      freshly-routed {AdminFacet} trio, its premature-execute
  *      revert, and the pointer-unset intermediate state being
  *      default-off (plain deposits and transfers write zero recorder
  *      state, `getReferrerOf` returns zero WITHOUT reverting, and
- *      `depositWithReferral` reverts {ReferralRegistryNotSet} loudly
- *      — no silent referrer drop) with arming blocked until wired;
+ *      `depositWithReferral` reverts {ReferralRegistryNotSet} loudly,
+ *      no silent referrer drop) with arming blocked until wired;
  *   5. after executePointer + arm, the full recorder lifecycle holds
  *      against the real USD token with the registry as sole truth:
  *      referred credit, write-once referrer (asserted on the
@@ -354,7 +354,7 @@ interface IUsdToken {
  *      dormant-book walk staying under its gas budget;
  *   6. the tracked-equals-book and ring-equals-book-lane identities
  *      hold after every mutating step, and
- *      the registry's code persists across blocks (EIP-6780 — no
+ *      the registry's code persists across blocks (EIP-6780: no
  *      selfdestruct path exists; re-verify semantics per chain
  *      before any real broadcast on non-Cancun networks).
  * The diamond address is read from config/vault.<product>.<network>
@@ -2379,7 +2379,7 @@ contract ReferralRegistryCrossVaultArbitrumFork is ReferralRegistryCrossVaultFor
  * @dev Robinhood is the single-diamond chain: same-chain moves cannot
  * exist there, and the move-carry rollout's pre-broadcast check
  * ("no live peer links anywhere") is pinned here against the real
- * bytecode — the sibling products' CREATE3 addresses (identical per
+ * bytecode: the sibling products' CREATE3 addresses (identical per
  * product across chains) must not be registered peers, and
  * `moveBetweenVaults` must revert {PeerVaultNotEnabled} through the
  * live genesis dispatcher.

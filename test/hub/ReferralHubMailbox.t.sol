@@ -16,6 +16,9 @@ import {ReferralHubDeclarations} from "../../src/hub/pending/ReferralHubDeclarat
 import {CohortWeeks} from "../../src/diamond/shared/pending/CohortWeeks.sol";
 import {NotMaster} from "../../src/diamond/shared/OwnableMaster.sol";
 
+/**
+ * @dev Six-decimal mintable USD stand-in for the hub tests.
+ */
 contract MockUSD is ERC20 {
 
     constructor()

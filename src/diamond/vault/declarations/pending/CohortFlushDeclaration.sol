@@ -11,16 +11,16 @@ pragma solidity =0.8.36;
  * delivers by direct local call (the hub-chain vaults themselves).
  * `flushedThroughWeek` and `flushGapCursor` (gap-log index in the
  * low 128 bits, intra-record resume week in the high 128) are
- * per-referrer send cursors — pure fee optimizations, because the
+ * per-referrer send cursors: pure fee optimizations, because the
  * hub's paid-cursors make every re-send idempotent; they only mark
  * what has already been carried so builders skip it.
  * `allowedFlushBot` + `publicFlushEnabled` gate flushing OTHER
  * referrers' books (a referrer's own-book flush is ungated forever);
  * `flushGasLimit` is the CCIP destination gas budget (zero =
- * FLUSH_GAS_LIMIT default). While `flushHub` is `ZERO_ADDRESS` — the
- * virgin default — every flush entrypoint reverts {FlushHubNotSet},
- * so a live diamond with virgin tail storage — and every
- * intermediate state of any upgrade sequence — behaves byte-for-byte
+ * FLUSH_GAS_LIMIT default). While `flushHub` is `ZERO_ADDRESS` (the
+ * virgin default), every flush entrypoint reverts {FlushHubNotSet},
+ * so a live diamond with virgin tail storage (and every
+ * intermediate state of any upgrade sequence) behaves byte-for-byte
  * as today (default-off convention).
  *
  * `proposedFlushHub` + `proposedFlushHubChainSelector` +
@@ -31,7 +31,7 @@ pragma solidity =0.8.36;
  * to the off default. Unlike the payout-hub pointer there is NO
  * execute-time shape probe: the hub usually lives on another chain,
  * where no probe is possible, so the 3-day window itself is the
- * review period — a zero hub with a nonzero selector is the one
+ * review period; a zero hub with a nonzero selector is the one
  * shape execute rejects. Nothing in this shard is touched by any
  * deposit, transfer, compound, queue or bridge path: the cursors and
  * policy fields are written only by the explicit flush entrypoints

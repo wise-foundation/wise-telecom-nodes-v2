@@ -7,7 +7,7 @@ import {CohortWeeks} from "../../../shared/pending/CohortWeeks.sol";
 import {IReferralRegistry} from "../../interfaces/pending/IReferralRegistry.sol";
 
 /**
- * @dev CohortRecorderBase — the cohort recorder engine, a 1:1 port of
+ * @dev CohortRecorderBase: the cohort recorder engine, a 1:1 port of
  * the proven sandbox `test/fenwick/ReferralCommissionDemo.sol` onto
  * the diamond's packed tail-shard storage ({CohortContributionDeclaration},
  * {CohortBookDeclaration}). One engine source, compiled into two
@@ -15,7 +15,7 @@ import {IReferralRegistry} from "../../interfaces/pending/IReferralRegistry.sol"
  * {CohortHookFacet} (reached through the `transferHookFacet` pointer),
  * and the cross-chain bridge-carry + referrer-flip closure lands in
  * {CohortBridgeHookFacet} (dispatcher-routed, reached by the helper
- * stubs through `selectorToFacet` under the same transient bracket) —
+ * stubs through `selectorToFacet` under the same transient bracket);
  * the split exists only because the whole engine outgrew one
  * EIP-170 deployment; both slices share this byte-identical storage
  * layout.
@@ -26,16 +26,16 @@ import {IReferralRegistry} from "../../interfaces/pending/IReferralRegistry.sol"
  * current before the walk); settle-before-credit keeps crumb
  * time-weights exact (the elapsed window accrues at the balances that
  * actually existed). The clamp is one-way: `_syncRefereeCohort`
- * only ever lowers `trackedContribution` to the held balance — for
+ * only ever lowers `trackedContribution` to the held balance (for
  * EVERY depositor, referred or not, because the self-stake ladder
- * input must stay honest — and reduces the referrer's book
+ * input must stay honest) and reduces the referrer's book
  * newest-credit-first so a sell-plus-redeposit cycle can never upgrade
  * old credit while fresh cover exists.
  *
  * Never-block guarantee: the settle walk is
- * capped at MAX_SETTLE_BOUNDARIES = 104 steps — after 104 rotations
+ * capped at MAX_SETTLE_BOUNDARIES = 104 steps (after 104 rotations
  * both rings are provably empty, so anything further is a closed-form
- * mature-only gap record plus one partial segment — and no function
+ * mature-only gap record plus one partial segment), and no function
  * here has a revert path: every lane operation saturates via
  * {CohortWeeks} and reports clips through {CohortLaneSaturated}
  * instead of reverting, because this code runs inside the transfer
@@ -43,7 +43,7 @@ import {IReferralRegistry} from "../../interfaces/pending/IReferralRegistry.sol"
  * transfer stays cheap: `_syncRefereeCohort` exits on two reads when
  * the user holds at least their tracked contribution, before touching
  * any book state. Loop bounds: settle walk 104
- * (MAX_SETTLE_BOUNDARIES), reduction walks 52 each (RING_SLOTS) —
+ * (MAX_SETTLE_BOUNDARIES), reduction walks 52 each (RING_SLOTS), both
  * cited from {CohortWeeks} next to each loop.
  *
  * Packing deltas vs the sandbox: rings are uint64[52] (four lanes per
@@ -57,7 +57,7 @@ import {IReferralRegistry} from "../../interfaces/pending/IReferralRegistry.sol"
  * Referrer resolution: the `_cohortReferrerOf` seam staticcalls the
  * standalone {ReferralRegistry} through the slot-77 pointer (the
  * bridge-out capture adds the sibling `_cohortReferrerPairOf` pair
- * read under the same guard discipline) — never the diamond's
+ * read under the same guard discipline), never the diamond's
  * forever-virgin slot-67 mapping. The read is guarded to
  * keep the hook path revert-free for ANY registry condition:
  * assembly staticcall into a
@@ -65,20 +65,20 @@ import {IReferralRegistry} from "../../interfaces/pending/IReferralRegistry.sol"
  * memory-expansion bomb), success requires exactly 32 bytes of
  * returndata with clean upper bits (a dirty word must not revert
  * through abi.decode), and an unset pointer short-circuits to
- * "unreferred" without a call — the documented off state, not an
+ * "unreferred" without a call: the documented off state, not an
  * anomaly. A FAILED lookup is returned as `ok == false`, distinct
  * from "no referrer", and each caller then skips its ENTIRE mutation
  * unit: `_syncRefereeCohort` leaves the clamp for a later retry
  * (folding failure into "unreferred" would clamp the referee while
- * never reducing the referrer's book — a permanent, unrecoverable
+ * never reducing the referrer's book: a permanent, unrecoverable
  * over-credit once the hub prices it), and
  * `_creditContributionCohort` credits nobody for that deposit while
- * still tracking the contribution (the protocol-favoring direction —
+ * still tracking the contribution (the protocol-favoring direction:
  * a later clamp can only over-reduce into the saturating clip, never
  * over-credit). Every failed lookup emits
  * {CohortReferrerLookupFailed} for monitoring. The routed
  * {ReferralFacet} view getter deliberately does NOT use this guarded
- * seam — a view revert DoSes nothing.
+ * seam; a view revert DoSes nothing.
  *
  * Move carry: same-chain `moveBetweenVaults` is
  * a system relocation, not a sale, so the moved slice of the
@@ -86,15 +86,15 @@ import {IReferralRegistry} from "../../interfaces/pending/IReferralRegistry.sol"
  * `_captureMoveOutCohort` replaces the move path's post-burn sync: it
  * clamps exactly like `_syncRefereeCohort`, but the reduction of
  * `carryDelta = min(delta, burnedAmount)` runs through the captured
- * walk, whose exact `(ring, slot, take)` pairs — plus the week-less
- * mature residual — are scaled per component to destination units
+ * walk, whose exact `(ring, slot, take)` pairs, plus the week-less
+ * mature residual, are scaled per component to destination units
  * (floor division, sum-of-scaled-parts so the destination adds
  * exactly what it is told) and staged in the chain registry keyed
  * `(thisVault, dstVault, user)`. Any excess deficit beyond the burned
  * amount reduces sale-like first, so a pre-burn lookup failure can
  * never launder a sale deficit into the carry. On the destination,
  * `_applyMoveInCohort` drains the mailbox and replants: same slots,
- * same rings, same `block.timestamp` — a byte-identical graduation
+ * same rings, same `block.timestamp`, a byte-identical graduation
  * schedule, which is what makes wash-moving A→B→A provably a no-op.
  * Unreferred movers stage a tracked-only envelope (the self-stake
  * ladder input survives relocation).
@@ -102,9 +102,9 @@ import {IReferralRegistry} from "../../interfaces/pending/IReferralRegistry.sol"
  * Carry failure doctrine (the never-block guarantee extended to the
  * move path): the move
  * itself must NEVER be blocked by attribution machinery. Both
- * registry interactions are failure-tolerant — `_stageCarryGuarded`
+ * registry interactions are failure-tolerant (`_stageCarryGuarded`
  * try/catches the void call, `_consumeCarryGuarded` pre-checks
- * code.length then try/catches — and every non-applied outcome
+ * code.length then try/catches), and every non-applied outcome
  * degrades to attribution loss plus an anomaly event
  * ({CohortCarrySkipped} source-side, {CohortCarryDiscarded}
  * destination-side). A payload applies only when `stagedAt` equals
@@ -113,32 +113,32 @@ import {IReferralRegistry} from "../../interfaces/pending/IReferralRegistry.sol"
  * from a not-yet-carry-aware or unarmed counterparty structurally
  * inert; `_carryPayloadValid` then rejects any malformed word
  * wholesale before a single lane is touched. Replants go through the
- * saturating helpers with {CohortLaneSaturated} on clip — never a
+ * saturating helpers with {CohortLaneSaturated} on clip, never a
  * revert, because a destination revert would revert the source's
  * entire move. Loop bounds: capture and replant walk at most
  * MAX_CARRY_PAIRS = 104 pairs (52 per ring), payloads at most
- * MAX_CARRY_WORDS = 54 words — cited from {CohortWeeks} at each site.
+ * MAX_CARRY_WORDS = 54 words, cited from {CohortWeeks} at each site.
  *
  * Bridge carry: a cross-chain bridge is the same system relocation in
  * aggregate form. `_captureBridgeOutCohort` mirrors the move capture
- * — identical clamp, identical `carryDelta = min(deficit, burned)`
- * law, identical excess-reduces-sale-like-first ordering — but the
+ * (identical clamp, identical `carryDelta = min(deficit, burned)`
+ * law, identical excess-reduces-sale-like-first ordering), but the
  * reduction's three aggregate lane totals travel instead of slot
  * pairs, packed into the bridge wire's `referralData` bytes together
  * with the referrer's origin sync key (read through the guarded
  * `_cohortReferrerPairOf` staticcall). On arrival
  * `_applyBridgeInCohort` validates the payload wholesale
- * ({CohortWeeks.bridgeCarryValid} — including the conservation
+ * ({CohortWeeks.bridgeCarryValid}, including the conservation
  * ceiling `trackedDelta <= mintedAmount`, which prices forged book
  * credit at one-to-one in burned shares), always applies the tracked
  * delta, merges the carried origin key into the local registry
  * (guarded CALL, failure means the local answer stands), and lands
- * the lanes under WHATEVER the local registry answers afterwards —
+ * the lanes under WHATEVER the local registry answers afterwards:
  * clamp-consistent by construction, no collision branch. Landing is
  * oldest-position: ring slot `(arrivalWeek + 1) % 52` on both rings
  * plus the week-less mature lane, so relocation only ever accelerates
  * graduation. Every failure on the receive side degrades to an
- * anomaly event and never reverts — this path runs inside
+ * anomaly event and never reverts; this path runs inside
  * `ccipReceive`, where a revert would strand an already-burned
  * bridge.
  *
@@ -150,10 +150,10 @@ import {IReferralRegistry} from "../../interfaces/pending/IReferralRegistry.sol"
  * the user's local book credit: settle the old book, clamp against
  * the OLD referrer first (a lazy deficit is destroyed sale-like,
  * never laundered), capture the reduction's exact slot pairs and
- * replant them 1:1 at identical coordinates under the new referrer —
- * the one legitimate cross-referrer reuse of the same-chain pair
+ * replant them 1:1 at identical coordinates under the new referrer
+ * (the one legitimate cross-referrer reuse of the same-chain pair
  * codec, valid because both books share this chain's
- * `block.timestamp` inside one transaction.
+ * `block.timestamp` inside one transaction).
  */
 abstract contract CohortRecorderBase is FacetBase {
 

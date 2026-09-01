@@ -11,7 +11,7 @@ import {NotMaster} from "../../src/diamond/shared/OwnableMaster.sol";
 import {NotProposed} from "../../src/diamond/shared/OwnableMaster.sol";
 
 /**
- * @dev Admin/access-control suite for {ReferralHub} — the
+ * @dev Admin/access-control suite for {ReferralHub}: the
  * {OwnableMaster} two-step wiring, the reporter allowlist (grant,
  * revoke, zero-address guard, `ReporterAllowedSet`), the permissionless
  * `setPayoutAddress` registry (default self, explicit set, reset to

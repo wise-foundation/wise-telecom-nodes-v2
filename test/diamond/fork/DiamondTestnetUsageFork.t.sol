@@ -78,7 +78,7 @@ abstract contract DiamondTestnetUsageForkBase is Test {
 
     address internal constant DIAMOND = 0xb375bB64b068817030729B05bBda7eF25C0270Ab;
 
-    // Real WiseTelecomNodes holder addresses (from the live USDC snapshot).
+    // ---- Real holder addresses (live USDC snapshot) ----
     address internal constant JOINER = 0x56b668F57624661BA9387bAb7D06c5F4698a9225;
     address internal constant FULFILLER = 0x4C333c8853F6B6766AF0EE357DdA74B2c7D06341;
 

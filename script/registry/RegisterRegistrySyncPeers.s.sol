@@ -10,22 +10,22 @@ import {ReferralRegistry} from "../../src/registry/pending/ReferralRegistry.sol"
 /// {ReferralRegistry}: sets the chain's CCIP router (one-shot) and registers every
 /// peer registry on a lane that actually exists. Run once per chain AFTER
 /// `DeployReferralRegistry.deploy()` has recorded every chain's registry address in
-/// `config/registry.<network>.json` — the peer table reads those files, so all four
+/// `config/registry.<network>.json`; the peer table reads those files, so all four
 /// registries must be deployed before any peering runs.
 ///
 /// Lane matrix: every pair among mainnet, base and arbitrum, plus robinhood to
-/// mainnet and base ONLY. NEVER register an arbitrum<->robinhood sync peer — that
+/// mainnet and base ONLY. NEVER register an arbitrum<->robinhood sync peer: that
 /// leg stays deliberately unwired even though the CCIP routers began carrying the
 /// lane in August 2026: the earliest-assignment merge converges through any
 /// connected route, so the two-hop relay via mainnet or base already covers it.
 ///
 /// Phases (chain via --rpc-url):
-///   `wire()`   — setCcipRouter (skipped if already set) + propose/execute a sync peer
+///   `wire()`   : setCcipRouter (skipped if already set) + propose/execute a sync peer
 ///                for every reachable remote registry (instant while the registry's
 ///                sync setup is not finalized). Idempotent: enabled peers are skipped.
-///   `finalize()` — one-shot `finalizeSyncSetup()`; after this every peer change waits
+///   `finalize()` : one-shot `finalizeSyncSetup()`; after this every peer change waits
 ///                the 3-day timelock. Run only after `status()` shows the full mesh.
-///   `status()` — read-only print of router, finalized flag and per-lane peers.
+///   `status()` : read-only print of router, finalized flag and per-lane peers.
 ///
 /// NOTHING here may be broadcast until the owner gives the explicit go-ahead.
 contract RegisterRegistrySyncPeers is VaultConfig {

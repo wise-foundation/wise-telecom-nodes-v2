@@ -115,7 +115,7 @@ interface IUsdErc20 {
  * NEW facets (AdminFacet with the payout-hub pointer six, SweepFacet
  * with the liability buffer term, ReferralPayoutFacet with the
  * hub-gated writers), routes the three selector batches through the
- * real 3-day timelock, and — on the payout vault only — wires the
+ * real 3-day timelock, and (on the payout vault only) wires the
  * slot-80 pointer through the second real 3-day clock. Proves, per
  * chain:
  *   1. the live dispatcher does NOT know the payout surfaces and
@@ -126,7 +126,7 @@ interface IUsdErc20 {
  *      round both writers revert {NotPayoutHub} while the pointer is
  *      unset, and the redeployed SweepFacet's overhang equals the
  *      pre-upgrade reading exactly (the buffer term is `+ 0`);
- *   4. payout vault only — the second clock: the pointer proposal
+ *   4. payout vault only, the second clock: the pointer proposal
  *      through the freshly-routed trio, its premature-execute
  *      revert, execute with the real USD-token shape probe, then the
  *      full rail end-to-end: a standalone {ReferralHub} deployed
@@ -386,7 +386,11 @@ abstract contract ReferralPayoutUpgradeForkBase is Test {
         Cfg memory cfg = _config();
 
         if (cfg.payoutVault == false) {
-            vm.skip(true);
+
+            vm.skip(
+                true
+            );
+
             return;
         }
 

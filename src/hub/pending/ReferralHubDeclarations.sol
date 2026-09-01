@@ -7,26 +7,26 @@ import {CohortWeeks} from "../../diamond/shared/pending/CohortWeeks.sol";
 
 /**
  * @dev Storage, events, errors and constants for the mainnet
- * referral hub. One standalone mainnet contract — never a facet,
- * never delegatecalled — so this chain owns its layout outright and
+ * referral hub. One standalone mainnet contract (never a facet,
+ * never delegatecalled), so this chain owns its layout outright and
  * `check_storage_layout.sh` deliberately does not cover it. Inherits
  * {OwnableMaster} (slots 0-1) as the house two-step ownership base;
- * governance here is plain `onlyMaster` — parameter timelocks are a
+ * governance here is plain `onlyMaster`; parameter timelocks are a
  * future hardening item.
  *
  * Keying: intake cursors and per-source score reports are keyed by
  * `bytes32 source`, not `address`, because CREATE3 gives each product
- * the SAME diamond address on every chain it runs on — address keys
+ * the SAME diamond address on every chain it runs on; address keys
  * would collide the day remote spokes report cross-chain. The local
  * form is `bytes32(uint256(uint160(reporter)))` (top 96 bits zero,
- * reserved); remote sources will derive `keccak256(chainId, vault)`
+ * reserved); remote sources derive `keccak256(chainId, vault)`
  * instead. Claimable balances and payout designations are keyed per
  * source CHAIN (chain id → referrer/owner): a chain's designation
  * moves only money earned on the chain where control of the address
  * was proven, so a same-address stranger on another chain can never
  * redirect it. Local intake and designation write the executing
- * chain's bucket; remote deliveries thread their origin chain when
- * the cross-chain mailbox lands. Score and rate aggregation stay
+ * chain's bucket; remote deliveries thread their authenticated
+ * origin chain through the mailbox. Score and rate aggregation stay
  * global per referrer address.
  *
  * Packed formats owned by this contract (the crumb/gap word formats
@@ -47,11 +47,11 @@ import {CohortWeeks} from "../../diamond/shared/pending/CohortWeeks.sol";
  * - paidCursor entry: three 80-bit token-second lanes in the crumb
  *   geometry (Y1 at bit 0, Y2 at 80, M at 160), decoded with the
  *   {CohortWeeks} lane accessors.
- * - payoutStamp entry: `setAt << 8 | chainRank` — the freshness
+ * - payoutStamp entry: `setAt << 8 | chainRank`, the freshness
  *   stamp of a payout designation. Local designations (this chain
  *   is the mesh's rank-0 chain) always overwrite and re-stamp;
  *   transported designations apply latest-wins/idempotent against
- *   the stored stamp — the strict-greater compare makes replays and
+ *   the stored stamp; the strict-greater compare makes replays and
  *   reordered deliveries no-ops.
  *
  * Cross-chain flush mailbox: the hub is its own CCIP endpoint
@@ -60,7 +60,7 @@ import {CohortWeeks} from "../../diamond/shared/pending/CohortWeeks.sol";
  * its origin chain id: `flushSourceChainId` names the spoke VAULTS
  * whose flush envelopes are accepted, `designationSourceChainId`
  * the spoke REGISTRIES whose payout-designation pushes are. A flush
- * receive does O(1) work under the source-paid gas budget — it
+ * receive does O(1) work under the source-paid gas budget: it
  * stores `keccak256(chainId, vault, payload)` into
  * `flushCommitment[messageId]` (the commitment map doubles as the
  * replay guard) and emits the payload; the permissionless
@@ -69,26 +69,26 @@ import {CohortWeeks} from "../../diamond/shared/pending/CohortWeeks.sol";
  * internals under the reserved remote source key
  * `keccak256(chainId, vault)`. Because envelopes may apply in any
  * order, `appliedScoreStamp` gates each entry's absolute score
- * report by the envelope's build stamp — crumbs, gaps and
+ * report by the envelope's build stamp; crumbs, gaps and
  * designations need no such gate (cursors and designation stamps
  * already order them). A designation push applies inline on receive
- * (one stamped write, idempotent — replays need no guard).
+ * (one stamped write, idempotent; replays need no guard).
  * `botShareBps` is the courier share deducted at delivery pricing
- * for remote deliveries whose stamped deliverer is not the referrer
- * — the share credits the deliverer's own (source chain, deliverer)
+ * for remote deliveries whose stamped deliverer is not the referrer;
+ * the share credits the deliverer's own (source chain, deliverer)
  * claimable bucket, so courier money follows the same
  * control-proven-on-source-chain rule as referrer money.
  *
  * Threat model: score truth enters ONLY through `allowedReporter`
- * (master-gated allowlist) and the master-registered flush sources
- * — one trust class: system-owned infrastructure, each contained to
+ * (master-gated allowlist) and the master-registered flush sources;
+ * one trust class: system-owned infrastructure, each contained to
  * its own source key by the cursors and per-source score diffs.
  * The spoke-side keeper-bot policy matrix gates who may BUILD a
  * flush; the hub prices whatever authenticated envelopes deliver.
  * Cursors make every delivery idempotent and replay-safe;
  * the append-only checkpoint log, the future-only rate tables and
  * the future-only dwell-min schedule together make every past week's
- * rates a pure function of frozen data — immutable even against
+ * rates a pure function of frozen data, immutable even against
  * master. Pricing floors per lane so the hub can never overpay
  * exact.
  */

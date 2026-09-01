@@ -23,8 +23,8 @@ import {
  * empty-book settle writing no crumbs; the mint-never-credits rule;
  * and a randomized-operation fuzz asserting after every operation
  * that sum of referee contributions == bookY1 + bookY2 + bookM ==
- * referralScore. No pricing exists in the recorder — rates, claims
- * and bot shares live at the hub — so nothing here asserts
+ * referralScore. No pricing exists in the recorder (rates, claims
+ * and bot shares live at the hub), so nothing here asserts
  * accrual amounts; crumb words (three 80-bit token-seconds lanes plus
  * the written bit) are the only settle output. Gap-record details
  * are covered by the sibling crumb suite.

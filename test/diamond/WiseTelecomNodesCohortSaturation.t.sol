@@ -21,7 +21,7 @@ import {ReferralRegistry} from "../../src/registry/pending/ReferralRegistry.sol"
  * the crumb-word's written bit / reserved bit ranges. Ring-array slot
  * arithmetic (base + index / 4 for the packed uint64[52]) is pinned
  * against `forge inspect CohortRecorderFacet storage-layout`:
- * cohortRingYear1 is slot 72, cohortRingYear2 is slot 73 — verified,
+ * cohortRingYear1 is slot 72, cohortRingYear2 is slot 73; verified,
  * not assumed.
  */
 contract WiseTelecomNodesCohortSaturationTest is Test {

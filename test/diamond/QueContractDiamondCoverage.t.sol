@@ -3137,7 +3137,7 @@ contract QueContractDiamondCoverageTest is Test {
         );
     }
 
-    // ---- 6. Diamond machinery — selector routing ----
+    // ---- 6. Diamond machinery: selector routing ----
 
     function _bareQueue()
         internal
@@ -3598,7 +3598,7 @@ contract QueContractDiamondCoverageTest is Test {
         );
     }
 
-    // ---- 7. onlyDelegateCall — direct facet calls revert ----
+    // ---- 7. onlyDelegateCall: direct facet calls revert ----
 
     function test_onlyDelegateCall_adminFacet_reverts()
         public
@@ -3638,7 +3638,7 @@ contract QueContractDiamondCoverageTest is Test {
         );
     }
 
-    // ---- 8. queue interest — member keeps earning and claiming while queued ----
+    // ---- 8. queue interest: member keeps earning and claiming while queued ----
 
     function _expectedInterest(
         uint256 _balance,

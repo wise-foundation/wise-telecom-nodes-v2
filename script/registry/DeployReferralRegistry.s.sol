@@ -6,39 +6,39 @@ import "forge-std/console2.sol";
 import {VaultConfig} from "../vault/VaultConfig.sol";
 import {ReferralRegistry} from "../../src/registry/pending/ReferralRegistry.sol";
 
-/// @notice Deploys the per-chain {ReferralRegistry} — ONE instance per CHAIN, never
+/// @notice Deploys the per-chain {ReferralRegistry}: ONE instance per CHAIN, never
 /// per vault (one shared referrer book serving every diamond on the chain).
 /// This is deliberately a separate script from the per-vault upgrade round: the round runs
 /// once per VAULT_PRODUCT while the registry must exist exactly once per chain, and the
 /// round's `proposePointer()` reads the address this script records in
 /// `config/registry.<network>.json`.
 ///
-/// Phases (chain via --rpc-url; VAULT_PRODUCT is NOT used — all products are scanned):
-///   `deploy()` — refuses to run if the chain's registry config already points at deployed
+/// Phases (chain via --rpc-url; VAULT_PRODUCT is NOT used; all products are scanned):
+///   `deploy()` : refuses to run if the chain's registry config already points at deployed
 ///                code (one registry per chain, ever). Broadcasts `new ReferralRegistry(master, rank)`
 ///                (master = broadcast key), then `setAllowedVault(diamond, true)` for every
 ///                product whose `config/vault.<product>.<network>.json` exists on this
 ///                chain, and records the address in `config/registry.<network>.json`.
-///   `allow()`  — idempotent allowlist top-up for a later product on the same chain.
-///   `wirePayoutRoute()` — SPOKE chains only: points the registry's caller-paid
+///   `allow()`  : idempotent allowlist top-up for a later product on the same chain.
+///   `wirePayoutRoute()` : SPOKE chains only: points the registry's caller-paid
 ///                `pushPayoutAddress` at the mainnet hub (`proposePayoutHub(hub,
-///                mainnetSelector)` + `executePayoutHubChange` — instant while the sync
+///                mainnetSelector)` + `executePayoutHubChange`; instant while the sync
 ///                setup is unfinalized, a second run after the 3-day window otherwise),
 ///                reading the hub from `config/hub.mainnet.json`. On the hub chain the
-///                route deliberately stays detached — referrers there designate at the
+///                route deliberately stays detached: referrers there designate at the
 ///                hub directly. Requires `setCcipRouter` to have been run as part of the
 ///                sync wiring (the push shares the sync gas limit and router).
-///   `latch()`   — fires the registry's ONE-WAY correction latch (idempotent — skips when
+///   `latch()`   : fires the registry's ONE-WAY correction latch (idempotent: skips when
 ///                already latched). Runbook: run on EVERY chain's registry before payouts
 ///                arm at the hub; there is no unlatch, on purpose.
-///   `status()` — read-only sanity print (no broadcast).
+///   `status()` : read-only sanity print (no broadcast).
 ///
 ///   forge script script/registry/DeployReferralRegistry.s.sol --sig "deploy()" --rpc-url mainnet --broadcast
 ///   forge script script/registry/DeployReferralRegistry.s.sol --sig "status()" --rpc-url mainnet
-/// repeated per chain (mainnet, base, arbitrum, robinhood — 4 registries total).
+/// repeated per chain (mainnet, base, arbitrum, robinhood; 4 registries total).
 ///
 /// Plain CREATE is used; CREATE3 (same registry address on all four chains, matching the
-/// diamonds' own deployment style) remains an option at broadcast time — the config file is
+/// diamonds' own deployment style) remains an option at broadcast time; the config file is
 /// the source of truth either way. NOTHING here may be broadcast until the owner gives the
 /// explicit go-ahead. After a REAL
 /// broadcast is executed and verified, `git mv` the registry out of
@@ -169,6 +169,11 @@ contract DeployReferralRegistry is VaultConfig {
             console2.log("payout route already wired", hub);
             return;
         }
+
+        require(
+            registry.ccipRouter() != address(0),
+            "DeployReferralRegistry: sync router not set (run RegisterRegistrySyncPeers.wire() first)"
+        );
 
         vm.startBroadcast(
             privKey
@@ -329,7 +334,7 @@ contract DeployReferralRegistry is VaultConfig {
     /// referrer sync: Ethereum mainnet wins same-second ties, then the
     /// remaining chains in a deterministic lane-centrality order. Every
     /// chain's registry must be deployed with its own rank and the set
-    /// must stay collision-free forever — a new chain takes the next
+    /// must stay collision-free forever; a new chain takes the next
     /// unused number.
     function _localChainRank(
         string memory _network

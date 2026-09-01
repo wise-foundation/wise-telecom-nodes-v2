@@ -21,11 +21,11 @@ import {OnlyDelegateCall} from "../../../shared/DiamondErrors.sol";
  * `raisePendingReferralPayout` booking writer (the hub sums each
  * delivery batch in memory and raises ONCE per delivery message),
  * and the hub-gated `fundReferralPayout`, which transfers USD to
- * the hub and lowers the liability in the same call — the vault's
+ * the hub and lowers the liability in the same call: the vault's
  * USD balance and the reserved buffer drop together, so the sweep
  * inequality is untouched and the buffer tracks the debt at every
  * instant. Authorization is the timelocked `payoutHub` pointer
- * alone — never an ERC-20 allowance, which would let USD leave
+ * alone, never an ERC-20 allowance, which would let USD leave
  * without this accounting seeing it; while the pointer is zero both
  * writers revert {NotPayoutHub} and the vault behaves byte-for-byte
  * as before (default-off convention). Funding can never exceed the

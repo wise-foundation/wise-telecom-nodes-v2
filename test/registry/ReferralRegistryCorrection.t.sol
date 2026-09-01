@@ -115,15 +115,16 @@ contract MockCorrectionCcipRouter {
 }
 
 /**
- * @dev Correction-lane suite for {ReferralRegistry} — the
+ * @dev Correction-lane suite for {ReferralRegistry}: the
  * master-proposed, user-cancellable, 3-day-timelocked rewrite of a
- * mis-assigned `(user, referrer)` pair and the ONE-WAY latch that
- * permanently retires the lane once payouts arm. Pins: the propose
+ * mis-assigned `(user, referrer)` pair and the ONE-WAY latch (a
+ * master action, intended for the moment payouts arm) that
+ * permanently retires the lane. Pins: the propose
  * guards (master gate, assignment-shaped referrer validation
  * including the vault/registry laundering rejects, nothing-to-correct
  * arms), the unilateral user cancel plus master cancel with cancel
- * surviving the latch, the timelock boundary (fuzzed), and — the core
- * of the design — that execution rides the EXISTING flip closure:
+ * surviving the latch, the timelock boundary (fuzzed), and (the core
+ * of the design) that execution rides the EXISTING flip closure:
  * identical pending-flip markers with keep-if-set, identical
  * `pokeMigration` migrate/defer arms, identical `effectiveReferrerOf`
  * redirect while a marker stands, and an untouched sync key so the

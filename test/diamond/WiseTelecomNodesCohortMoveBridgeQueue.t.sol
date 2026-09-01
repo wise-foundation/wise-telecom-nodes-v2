@@ -158,7 +158,7 @@ contract MockCCIPRouter {
  * `bridgeToVault` is the diamond's only payable surface and
  * `_executeBridgeOut` runs `_cohortSync` while `msg.value` still
  * carries the CCIP fee, so {CohortHookFacet}'s entrypoints must stay
- * `payable` — a non-payable engine would revert on the compiler's
+ * `payable`; a non-payable engine would revert on the compiler's
  * callvalue guard and DoS bridging out on every fee-charging lane.
  */
 contract WiseTelecomNodesCohortMoveBridgeQueueTest is DiamondTestHarness {

@@ -13,7 +13,7 @@ import {
  * {ReferralCommissionDemo} under the claim-at-hub architecture. A
  * crumb is one storage word per referrer per settled week: three
  * 80-bit token-seconds lanes (Y1 at shift 0, Y2 at 80, M at 160) plus
- * the written flag at bit 252 and NOTHING else — every full-word
+ * the written flag at bit 252 and NOTHING else; every full-word
  * assertion here is deliberately exact equality against
  * writtenBit | lanes so any stray bit in the 240..255 region fails
  * loudly. Covered: exact amount*WEEK lane weights across full weeks;

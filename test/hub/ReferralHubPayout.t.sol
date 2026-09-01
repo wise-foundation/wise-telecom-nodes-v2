@@ -11,6 +11,9 @@ import {ReferralHubDeclarations} from "../../src/hub/pending/ReferralHubDeclarat
 import {CohortWeeks} from "../../src/diamond/shared/pending/CohortWeeks.sol";
 import {NotMaster} from "../../src/diamond/shared/OwnableMaster.sol";
 
+/**
+ * @dev Six-decimal mintable USD stand-in for the hub tests.
+ */
 contract MockUSD is ERC20 {
 
     constructor()
@@ -41,7 +44,7 @@ contract MockUSD is ERC20 {
 
 /**
  * @dev Hub-local payout-rail suite: the claim surface against a
- * pre-funded pot with NO payout vault wired — claim authorization
+ * pre-funded pot with NO payout vault wired: claim authorization
  * (referrer or resolved payout address, nobody else), full claims,
  * `claimUpTo` clamping to entitlement and to covered funds, the
  * dry-pot and nothing-claimable reverts, the `setPayoutVault`

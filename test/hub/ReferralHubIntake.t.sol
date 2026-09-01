@@ -10,27 +10,30 @@ import {CohortWeeks} from "../../src/diamond/shared/pending/CohortWeeks.sol";
 
 /**
  * @dev Intake suite for the mainnet referral hub {ReferralHub} /
- * {ReferralHubIntake} — the crumb and gap pricing choke point. Covered:
+ * {ReferralHubIntake}, the crumb and gap pricing choke point. Covered:
  * exact-integer single-crumb pricing against the genesis tier
  * ladder under the dwell-min W/W+1/W+2 activation schedule; growing
  * current-week words paying only the fresh increment; replay and
  * fuzzed-lane redelivery idempotency; reordered/duplicated delivery
  * sequences converging on the maximum-lane price regardless of order
- * (I4); a regressive lane emitting `CrumbLaneRegression` and pricing
- * zero while the cursor holds at its high-water mark; the absence
+ * (I4, cursor idempotency and exact pricing: replayed, reordered or
+ * partially-overlapping deliveries accrue exactly once, at exactly
+ * the rate the ladder implies); a regressive lane emitting
+ * `CrumbLaneRegression` and pricing zero while the cursor holds at
+ * its high-water mark; the absence
  * (word == 0) versus written-but-empty (word == CRUMB_WRITTEN_BIT)
  * versus real-word trichotomy; every `deliverCrumbs`/`deliverGap`
  * validation revert; per-source cursor and score isolation across two
  * independently allowed reporters; exact and windowed-resume gap
  * pricing (the unscored referrer never reaches the cap that unlocks
  * the mature rate, so the span prices zero while cursors still
- * advance); at-cap referrers — uncapped ladder sum reaching
- * `capBps` — unlocking the genesis year-2/mature rates for both
+ * advance); at-cap referrers (uncapped ladder sum reaching
+ * `capBps`) unlocking the genesis year-2/mature rates for both
  * crumb and gap pricing; and the I7 rational pricing bound
- * `claimable * 10_000 * YEAR <= lanes * bps`
+ * (`claimable * 10_000 * YEAR <= lanes * bps`)
  * under arbitrary split-delivery sequences. `address(this)` is both
  * deployer/master and, once self-allowed in `setUp`, the default
- * reporter — `deliverer == address(this)` is therefore the default
+ * reporter; `deliverer == address(this)` is therefore the default
  * assertion baseline; `reporter1`/`reporter2` are used only where
  * source isolation is itself under test.
  */
@@ -173,7 +176,7 @@ contract ReferralHubIntakeTest is Test {
         address _reporter,
         address _referrer,
         uint256 _week,
-        uint256 _word_
+        uint256 _crumbWord
     )
         internal
     {
@@ -182,7 +185,7 @@ contract ReferralHubIntakeTest is Test {
         uint256[] memory words_ = new uint256[](1);
 
         weeks_[0] = _week;
-        words_[0] = _word_;
+        words_[0] = _crumbWord;
 
         vm.prank(
             _reporter
@@ -846,14 +849,42 @@ contract ReferralHubIntakeTest is Test {
 
         assertEq(hub.claimable(block.chainid, refA), expected1 + expected2);
 
-        (uint256 y1Reporter1, , ) = hub.paidCursorAt(reporter1, refA, week);
-        (uint256 y1Reporter2, , ) = hub.paidCursorAt(reporter2, refA, week);
+        (
+            uint256 y1Reporter1,
+            ,
+        ) = hub.paidCursorAt(
+            reporter1,
+            refA,
+            week
+        );
+
+        (
+            uint256 y1Reporter2,
+            ,
+        ) = hub.paidCursorAt(
+            reporter2,
+            refA,
+            week
+        );
 
         assertEq(y1Reporter1, q1);
         assertEq(y1Reporter2, q2);
 
-        (uint256 referred1, uint256 self1) = hub.lastReportOf(reporter1, refA);
-        (uint256 referred2, uint256 self2) = hub.lastReportOf(reporter2, refA);
+        (
+            uint256 referred1,
+            uint256 self1
+        ) = hub.lastReportOf(
+            reporter1,
+            refA
+        );
+
+        (
+            uint256 referred2,
+            uint256 self2
+        ) = hub.lastReportOf(
+            reporter2,
+            refA
+        );
 
         assertEq(referred1, HIGH_SCORE);
         assertEq(self1, 0);
@@ -912,9 +943,35 @@ contract ReferralHubIntakeTest is Test {
 
         uint256 expectedMCursor = mature * WEEK;
 
-        (, , uint256 mCursorFirst) = hub.paidCursorAt(address(this), refA, fromWeek);
-        (, , uint256 mCursorMid) = hub.paidCursorAt(address(this), refA, fromWeek + 33);
-        (, , uint256 mCursorLast) = hub.paidCursorAt(address(this), refA, toWeekExclusive - 1);
+        (
+            ,
+            ,
+            uint256 mCursorFirst
+        ) = hub.paidCursorAt(
+            address(this),
+            refA,
+            fromWeek
+        );
+
+        (
+            ,
+            ,
+            uint256 mCursorMid
+        ) = hub.paidCursorAt(
+            address(this),
+            refA,
+            fromWeek + 33
+        );
+
+        (
+            ,
+            ,
+            uint256 mCursorLast
+        ) = hub.paidCursorAt(
+            address(this),
+            refA,
+            toWeekExclusive - 1
+        );
 
         assertEq(mCursorFirst, expectedMCursor);
         assertEq(mCursorMid, expectedMCursor);
@@ -958,10 +1015,45 @@ contract ReferralHubIntakeTest is Test {
 
         uint256 expectedMCursor = mature * WEEK;
 
-        (, , uint256 cursorStart) = hub.paidCursorAt(address(this), refA, fromWeek);
-        (, , uint256 cursorEndOfFirstChunk) = hub.paidCursorAt(address(this), refA, fromWeek + 103);
-        (, , uint256 cursorStartOfSecondChunk) = hub.paidCursorAt(address(this), refA, fromWeek + 104);
-        (, , uint256 cursorLast) = hub.paidCursorAt(address(this), refA, toWeekExclusive - 1);
+        (
+            ,
+            ,
+            uint256 cursorStart
+        ) = hub.paidCursorAt(
+            address(this),
+            refA,
+            fromWeek
+        );
+
+        (
+            ,
+            ,
+            uint256 cursorEndOfFirstChunk
+        ) = hub.paidCursorAt(
+            address(this),
+            refA,
+            fromWeek + 103
+        );
+
+        (
+            ,
+            ,
+            uint256 cursorStartOfSecondChunk
+        ) = hub.paidCursorAt(
+            address(this),
+            refA,
+            fromWeek + 104
+        );
+
+        (
+            ,
+            ,
+            uint256 cursorLast
+        ) = hub.paidCursorAt(
+            address(this),
+            refA,
+            toWeekExclusive - 1
+        );
 
         assertEq(cursorStart, expectedMCursor);
         assertEq(cursorEndOfFirstChunk, expectedMCursor);

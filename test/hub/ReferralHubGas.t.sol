@@ -28,12 +28,12 @@ import {CohortWeeks} from "../../src/diamond/shared/pending/CohortWeeks.sol";
  * Cells and measured worst cases:
  * 1. `reportScores` first-ever call on a virgin instance: first write
  *    of the per-source report and the global aggregates plus the
- *    first checkpoint push — every touched slot goes zero -> nonzero,
+ *    first checkpoint push; every touched slot goes zero -> nonzero,
  *    the single worst case for the function.
  * 2. `reportScores` same-week repeat that changes only `selfScore`:
  *    the packed report differs, so the report slot and the global
  *    aggregates rewrite in place and the checkpoint log updates its
- *    same-week tail entry instead of pushing — much cheaper than
+ *    same-week tail entry instead of pushing, much cheaper than
  *    cell 1 even though the measurement transaction is itself cold
  *    (every touched slot was last written in `setUp`'s transaction,
  *    not this one).
@@ -52,18 +52,18 @@ import {CohortWeeks} from "../../src/diamond/shared/pending/CohortWeeks.sol";
  *    window opens two weeks after the seed report so dwell-min has
  *    matured for every priced week.
  * 5. `ccipReceive` mailbox commit of a MAXIMUM-size flush envelope
- *    (465 words — 16 entries at the full work cap with designation
+ *    (465 words, 16 entries at the full work cap with designation
  *    words, the largest byte count the caps admit): the receive path
  *    does only the commitment hash, one SSTORE and the payload
  *    event, and the measurement pins it under the 300k
- *    FLUSH_GAS_LIMIT default — the budget every spoke pays for
+ *    FLUSH_GAS_LIMIT default, the budget every spoke pays for
  *    cross-chain delivery, so this ceiling is semantic, not merely a
  *    regression guard. The store never parses, so the words carry
- *    arbitrary values — only the size is load-bearing.
+ *    arbitrary values; only the size is load-bearing.
  *
  * Measured numbers are documented next to the ceilings so a future
  * regression shows in the review diff, not only in a failing
- * assertion; they are re-measured — and this table re-pasted — after
+ * assertion; they are re-measured (and this table re-pasted) after
  * ANY change to the hub sources: reportScores first-ever (cell 1)
  * 102,258; reportScores same-week repeat (cell 2) 48,424;
  * deliverCrumbs single week/word (cell 3) 114,865; deliverGap

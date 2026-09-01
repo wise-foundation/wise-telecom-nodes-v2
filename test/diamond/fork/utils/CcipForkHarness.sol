@@ -77,13 +77,13 @@ interface ICcipOffRampDiscovery {
  *    decodes), pranks the real off-ramp on the destination fork and
  *    calls `executeSingleMessage`, so the message flows through the
  *    real off-ramp, the real router `routeMessage`, and the real
- *    per-message gas limit — the faithful pre-broadcast budget signal.
+ *    per-message gas limit: the faithful pre-broadcast budget signal.
  *    The shim speaks BOTH live ramp generations: OnRamp/OffRamp 1.6.0
  *    (abi-encoded ramp message, commit-root verification implicitly
  *    bypassed by the prank) and OnRamp/OffRamp 2.0.0, the CCV era
  *    (length-prefix-packed `MessageV1` wire bytes decoded by the
  *    ported codec below, delivery self-call pranked, and the CCV
- *    attestation quorum satisfied with mocked verifiers — the exact
+ *    attestation quorum satisfied with mocked verifiers, the exact
  *    2.0 analogue of the 1.6 bypass; everything downstream of
  *    verification stays real: the ERC-165 receiver probe, the real
  *    router `routeMessage`, and the wire message's own
@@ -586,7 +586,7 @@ abstract contract CcipForkHarness is Test {
 
     /**
      * @dev The scrape shim decodes the `CCIPMessageSent` event of the
-     * source lane's live on-ramp generation — the abi-encoded ramp
+     * source lane's live on-ramp generation: the abi-encoded ramp
      * message of OnRamp 1.6.0 or the packed `MessageV1` wire bytes of
      * OnRamp 2.0.0. A lane running any other version would fail the
      * scrape with an unhelpful "log not found", so the version is
@@ -695,7 +695,7 @@ abstract contract CcipForkHarness is Test {
      * self-call-only `executeSingleMessage` under a prank. The CCV
      * attestation quorum is satisfied by asking the off-ramp itself
      * which verifiers this message requires (`getCCVsForMessage` on
-     * the scraped bytes) and mocking exactly those — the 2.0 analogue
+     * the scraped bytes) and mocking exactly those, the 2.0 analogue
      * of the 1.6 shim's implicit commit-root bypass. `gasLimitOverride`
      * stays 0 so the receiver call runs under the wire message's own
      * `ccipReceiveGasLimit`, through the real router `routeMessage`.
@@ -835,7 +835,7 @@ abstract contract CcipForkHarness is Test {
     /**
      * @dev Ported from the MIT-licensed `MessageV1Codec._decodeMessageV1`
      * of the verified OffRamp 2.0.0 mainnet deployment, restricted to
-     * the data-only shape every vault-lane message has — a message
+     * the data-only shape every vault-lane message has; a message
      * carrying a CCT token transfer is loudly rejected instead of
      * decoded. External so the packed wire bytes can be walked with
      * calldata slices; call as `this.decodeCcipV2Message(...)`.
@@ -983,7 +983,7 @@ abstract contract CcipForkHarness is Test {
      * @dev Off-ramp discovery is version-aware: the two live off-ramp
      * generations return DIFFERENT `getSourceChainConfig` tuple shapes
      * under the SAME selector, and a returndata shape mismatch inside
-     * a try/catch is an uncaught decode revert — so each candidate's
+     * a try/catch is an uncaught decode revert, so each candidate's
      * `typeAndVersion` is probed first and only the matching shape is
      * ever decoded. A router can list both generations for one source
      * lane during a migration; the match on the CONFIGURED on-ramp
@@ -1175,7 +1175,7 @@ abstract contract CcipForkHarness is Test {
      * lane, run under the real master: propose, a premature execute
      * asserted to revert {CrossChainPeerTimelockNotElapsed} whenever
      * the live vault reports itself finalized, warp past the 3-day
-     * delay, execute — then the warp is rewound so the real fee
+     * delay, execute; then the warp is rewound so the real fee
      * quoter never sees an artificially stale gas price.
      */
     function _peerLadder(

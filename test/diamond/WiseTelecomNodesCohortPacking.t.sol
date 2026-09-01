@@ -16,22 +16,22 @@ import {CohortWeeks} from "../../src/diamond/shared/pending/CohortWeeks.sol";
  * `saturatingSub`, each proven to conserve the algebraic sum or
  * difference across `result` and `clipped`), and a pinned-constant
  * regression test so any accidental edit to the frozen crumb-word
- * geometry — consumed byte for byte by the mainnet hub
- * — fails loudly. No diamond harness is needed: every target
+ * geometry (consumed byte for byte by the mainnet hub)
+ * fails loudly. No diamond harness is needed: every target
  * function is `pure`, so this suite calls the library directly and
  * relies on Solidity inlining internal library members into the
  * caller. The move-carry codec (envelope, amounts word, packed
- * slot pairs — same-chain move attribution payload) is covered by the
+ * slot pairs; the same-chain move attribution payload) is covered by the
  * same round-trip/disjointness/pinned-constant treatment in its own
  * section below. The bridge-carry codec (the fixed four-word
  * cross-chain aggregate payload) closes the file with the same
  * round-trip/disjointness fuzz over its packers, its own
  * pinned-constant regression, and a table-driven matrix over
  * `bridgeCarryValid` proving the two canonical shapes (referred and
- * tracked-only) pass while each of the seven structural rules —
- * exact length, version, the three reserved-zero regions,
+ * tracked-only) pass while each of the seven structural rules
+ * (exact length, version, the three reserved-zero regions,
  * zero-referrer lane emptiness, the tracked/lane sum law, the
- * not-all-zero floor and the mint-amount conservation ceiling —
+ * not-all-zero floor and the mint-amount conservation ceiling)
  * rejects in isolation, including the ceiling's exact boundary.
  */
 contract WiseTelecomNodesCohortPackingTest is Test {

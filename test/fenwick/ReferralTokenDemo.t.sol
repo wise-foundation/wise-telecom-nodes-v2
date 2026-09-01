@@ -16,7 +16,7 @@ import {
  * the two addresses (amount structurally unobservable), is swappable
  * at runtime including back to the no-hook default, bubbles hook
  * reverts verbatim, rejects direct facet entry via the transient
- * guard, and never runs on mint — all mirroring the live diamond.
+ * guard, and never runs on mint, all mirroring the live diamond.
  */
 contract ReferralTokenDemoTest is Test {
 

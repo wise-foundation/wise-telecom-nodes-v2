@@ -7,7 +7,7 @@ pragma solidity =0.8.36;
  * {CohortFlushFacet}'s LOCAL delivery mode: when the flush-hub
  * pointer carries a zero chain selector the hub lives on this chain,
  * and the facet delivers scores, crumb words and gap records by
- * direct call instead of a CCIP envelope — the vault itself is the
+ * direct call instead of a CCIP envelope: the vault itself is the
  * allowed reporter, so the hub keys the data under the local
  * address-derived source key and no envelope, deliverer stamp or
  * designation word exists on this path (on the hub's own chain

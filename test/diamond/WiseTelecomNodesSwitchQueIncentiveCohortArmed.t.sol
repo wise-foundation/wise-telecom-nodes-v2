@@ -79,7 +79,7 @@ contract SwitchArmedMockPermit2 is IPermit2 {
  * functions move no vault-share tokens (the escrowed amount never
  * leaves the vault, as documented on the functions themselves in
  * {QueueJoinLeaveFacet}), so they never call `_moveVaultTokens` /
- * `_runTransferHook` and never consult the referral registry — the
+ * `_runTransferHook` and never consult the referral registry: the
  * recorder's `trackedContribution` / `cohortBook` / rings are
  * byte-identical before and after a switch call, armed or not.
  *
@@ -90,7 +90,7 @@ contract SwitchArmedMockPermit2 is IPermit2 {
  * counterparties). When the user's `trackedContribution` sits exactly
  * at their held balance (the steady state an initial `joinQue`
  * escrow-clamp already pins), every one of those four checks reads
- * `held >= tracked` and early-returns silently — so the two-call route
+ * `held >= tracked` and early-returns silently, so the two-call route
  * is ALSO silent, and fused-switch stays byte-identical to it even
  * armed (`test_switchQueIncentive_armedNoDeficit_byteIdenticalToLeaveJoin`).
  *
@@ -112,7 +112,7 @@ contract SwitchArmedMockPermit2 is IPermit2 {
  * `test_switchQueIncentive_armedHostileRegistry_stillSilentAndSucceeds`
  * closes the last angle: switch never even reaches
  * `_cohortReferrerOf`, so a registry etched with unconditionally
- * reverting bytecode cannot affect it at all — unlike `syncReferee` /
+ * reverting bytecode cannot affect it at all; unlike `syncReferee` /
  * `joinQue`, which route through the guarded staticcall and would
  * merely skip their clamp, switch has no registry-shaped failure mode
  * to skip in the first place.

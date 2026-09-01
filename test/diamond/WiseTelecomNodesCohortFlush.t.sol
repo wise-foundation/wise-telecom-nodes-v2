@@ -120,7 +120,7 @@ contract MockFlushCcipRouter {
  * @dev Records outbound CCIP sends with a payload-size-dependent
  * fee: `getFee` grows linearly with the message data length and
  * `ccipSend` demands exactly that fee, so the suite can prove that
- * `quoteFlushFee` — which plans on unsettled storage — is a strict
+ * `quoteFlushFee` (which plans on unsettled storage) is a strict
  * lower bound once execution settles and grows the envelope, and
  * that a window send over a subset slice never costs more than the
  * cursor-planned quote.
@@ -266,7 +266,7 @@ contract FlushRefundRejector {
  * delivery end-to-end against a REAL {ReferralHub} with every
  * expected claimable computed independently from recorder words and
  * `weeklyRates`, and REMOTE CCIP delivery asserted by decoding the
- * exact packed flush envelope out of a recording mock router —
+ * exact packed flush envelope out of a recording mock router:
  * header, entry, scores, designation, crumb pairs and pre-sliced gap
  * records word by word. Cursor behavior (catch-up window start,
  * ~104-week advance per flush, gap-record slicing across flushes,
@@ -277,7 +277,7 @@ contract FlushRefundRejector {
  * with the caller stamped as deliverer, the shared foreign-book
  * gate), and a size-dependent fee mock pins `quoteFlushFee` as a
  * strict lower bound when storage settles and grows between quote
- * and execution — the courier's mandatory over-funding margin.
+ * and execution, the courier's mandatory over-funding margin.
  */
 contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
 
@@ -2601,6 +2601,15 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
             refA
         );
 
+        uint256 record = _rec(diamond).getCohortGapLogEntry(
+            refA,
+            0
+        );
+
+        uint256 mature = CohortWeeks.gapRecordMature(
+            record
+        );
+
         vm.store(
             address(diamond),
             keccak256(
@@ -2612,6 +2621,23 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
             bytes32(
                 uint256(3_358) << 128
             )
+        );
+
+        (
+            uint256 staleIndex,
+            uint256 staleResumeWeek
+        ) = _flush(diamond).getFlushGapCursor(
+            refA
+        );
+
+        assertEq(
+            staleIndex,
+            0
+        );
+
+        assertEq(
+            staleResumeWeek,
+            3_358
         );
 
         vm.warp(
@@ -2637,6 +2663,28 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
         assertEq(
             gapResumeWeek,
             0
+        );
+
+        uint256 expectedAfterSkip = _expectedCrumbRangePay(
+            diamond,
+            refA,
+            3_000,
+            3_207
+        ) + _expectedGapRangePay(
+            mature,
+            refA,
+            3_208,
+            3_312
+        );
+
+        assertGt(
+            expectedAfterSkip,
+            0
+        );
+
+        assertEq(
+            hub.claimable(block.chainid, refA),
+            expectedAfterSkip
         );
     }
 

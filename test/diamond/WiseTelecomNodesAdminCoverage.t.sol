@@ -246,7 +246,7 @@ contract WiseTelecomNodesAdminCoverageTest is DiamondTestHarness {
         return new uint256[](0);
     }
 
-    // ---- WiseTelecomNodesDeclarations — constructor ----
+    // ---- WiseTelecomNodesDeclarations: constructor ----
 
     function test_constructor_storesConfig()
         public

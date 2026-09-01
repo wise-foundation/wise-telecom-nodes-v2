@@ -16,19 +16,18 @@ import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
 /**
  * @dev The mainnet hub (scoreboard + paymaster) of the
- * referral commission system — ONE standalone deployed contract
+ * referral commission system: ONE standalone deployed contract
  * closing the chain Declarations → Checkpoints → Rates →
  * Intake. Score aggregation, weekly checkpoint history, crumb/gap
  * pricing into claimable balances, and the payout rail (claims,
- * liability booking, funding pulls) are live and fully tested;
- * everything still undecided is a documented seam, not code.
+ * liability booking, funding pulls) all live in this one contract.
  * Year-1 pays the tier ladder capped at
  * 10%; year-2 (500 bps) and mature (100 bps) rates pay only in weeks
- * where the referrer's uncapped ladder sum reaches the cap — all
+ * where the referrer's uncapped ladder sum reaches the cap; all
  * three knobs week-versioned behind `pushRateTable`.
  *
  * Payout rail: referrers claim the vault's USD at this hub, keyed
- * per (source chain, referrer) — each chain's payout designation
+ * per (source chain, referrer): each chain's payout designation
  * moves only money earned on the chain where control of the address
  * was proven, so a same-address stranger on another chain can never
  * redirect it; score and rate aggregation stay global per address.
@@ -38,14 +37,14 @@ import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
  * catches up on the first booking; `bookLiability` is the
  * permissionless catch-up poke). A claim pays the resolved payout
  * address and pulls any shortfall through the vault's hub-gated
- * `fundReferralPayout` in the same transaction — the pot is the
+ * `fundReferralPayout` in the same transaction; the pot is the
  * vault's USD pool, `claim()` reverts when the full balance cannot
  * be covered and `claimUpTo` pays any covered amount.
  * `setPayoutAddress` designates where claims pay (default self;
  * `msg.sender` is the whole proof, stamped `setAt << 8 | chainRank`
  * so transported designations apply latest-wins against it); the
  * claim trigger is the referrer or the resolved payout address
- * itself — funds can never be directed anywhere else.
+ * itself; funds can never be directed anywhere else.
  * `totalAccrued − totalClaimed` equals the outstanding claimable
  * sum, and `totalAccrued − totalBooked` the not-yet-booked
  * liability, so the accrual anchor stays monotonic.
@@ -60,11 +59,11 @@ import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
  * keying, and the courier share (`botShareBps`, deducted at
  * delivery pricing for remote non-own-book entries) credits the
  * envelope's stamped deliverer in its own source-chain bucket. The
- * hub-chain vaults report through the same reporter surface below —
+ * hub-chain vaults report through the same reporter surface below;
  * their flush facet runs in local direct-call mode.
  *
- * Completion register (the open seams):
- * - Sybil countermeasure: attaches inside `_weeklyRates` —
+ * Deliberately outside this contract:
+ * - Sybil countermeasure: attaches inside `_weeklyRates` as a
  *   policy-module change only.
  * - Per-event inline reporting on the hub-chain vaults (score
  *   deltas pushed inside every user flow rather than at flush
@@ -73,18 +72,18 @@ import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
  *
  * Threat model: master (two-step {OwnableMaster}) governs the
  * reporter allowlist, future rate tables and the future-week-only
- * dwell-min schedule — every rate lever is week-versioned and
+ * dwell-min schedule: every rate lever is week-versioned and
  * future-only, so the pricing of any week whose opening boundary has
  * passed is a pure function of frozen data and can never change,
  * even for master. Master can NEVER
  * touch scores, cursors, checkpoints or claimables
  * directly. Master additionally wires the payout vault pointer
- * (`setPayoutVault`) — a lever over where liability books and
+ * (`setPayoutVault`), a lever over where liability books and
  * funding pulls from, never over balances: every USD transfer out
  * of the hub goes to a claim's resolved payout address, and the
  * vault side bounds funding to the booked liability behind its own
  * timelocked hub gate. Reporters are trusted for their OWN source's
- * data only —
+ * data only;
  * cursors and per-source score diffs contain a malicious reporter's
  * blast radius to its own source key. Claims follow
  * checks-effects-interactions: balances zero before the funding
@@ -147,8 +146,12 @@ contract ReferralHub is
             ZeroAddress()
         );
 
+        bytes32 source = _sourceKey(
+            msg.sender
+        );
+
         _applyScoreReport(
-            _sourceKey(msg.sender),
+            source,
             _referrer,
             _referredScore,
             _selfScore
@@ -201,8 +204,12 @@ contract ReferralHub is
         external
         onlyReporter
     {
+        bytes32 source = _sourceKey(
+            msg.sender
+        );
+
         _deliverGap(
-            _sourceKey(msg.sender),
+            source,
             _referrer,
             _record,
             _fromWeek,
@@ -436,6 +443,16 @@ contract ReferralHub is
         _bookAccrual();
     }
 
+    /**
+     * @dev Wires the vault that liability books against and funding
+     * pulls from. Zero unwires the rail back to accrual-only mode:
+     * pricing keeps accruing claimables, but nothing books and claims
+     * cannot pull funding. Rotating the vault does not migrate
+     * already-booked liability: `totalBooked` stays with the old
+     * vault, the new vault starts unbooked while outstanding
+     * claimables persist, so claims exceeding the hub balance revert
+     * until the new vault is funded or reconciled.
+     */
     function setPayoutVault(
         address _vault
     )

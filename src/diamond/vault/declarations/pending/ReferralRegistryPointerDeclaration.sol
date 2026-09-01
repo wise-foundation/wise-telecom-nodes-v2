@@ -4,16 +4,16 @@ pragma solidity =0.8.36;
 
 /**
  * @dev Referral-registry pointer tail shard. `referralRegistry` is the
- * address of this chain's standalone {ReferralRegistry} — the single
+ * address of this chain's standalone {ReferralRegistry}, the single
  * source of referrer truth shared by every vault on the chain; the
  * legacy slot-67 mapping in {ReferralRegistryDeclaration} stays
- * declared but forever virgin. While the pointer is `ZERO_ADDRESS` —
- * the virgin default — the referral feature is off in both
+ * declared but forever virgin. While the pointer is `ZERO_ADDRESS`
+ * (the virgin default), the referral feature is off in both
  * directions: every `...WithReferral` deposit entrypoint reverts
  * {ReferralRegistryNotSet} (loud, no silent drop of a user's
  * referrer) and the cohort recorder's `_cohortReferrerOf`
  * short-circuits to "unreferred", so a live diamond with virgin tail
- * storage — and every intermediate state of any upgrade sequence —
+ * storage (and every intermediate state of any upgrade sequence)
  * behaves byte-for-byte as today on every non-referral path
  * (default-off convention).
  *
@@ -21,7 +21,7 @@ pragma solidity =0.8.36;
  * the propose/execute/cancel flow cloned from
  * {TransferHookDeclaration}: instant while the diamond is still in
  * setup (before `finalizeSetup`), 3-day timelocked afterwards, and
- * proposing `ZERO_ADDRESS` reverts back to the off default —
+ * proposing `ZERO_ADDRESS` reverts back to the off default;
  * detaching a registry mid-flight is a deliberate, timelocked act
  * that pauses referral deposits and freezes recorder referrer
  * resolution until repointed. Execute additionally shape-probes a

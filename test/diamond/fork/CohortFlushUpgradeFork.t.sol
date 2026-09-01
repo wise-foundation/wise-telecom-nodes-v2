@@ -42,7 +42,7 @@ import {WiseTelecomNodesDiamondSelectors} from "../../../script/diamond/WiseTele
  * by the flush-transport rehearsal, driven through the diamond's own
  * dispatcher and fallback router. The referral, cohort, flush and
  * pointer entrypoints are declared even though the live dispatcher
- * does not know them before the rehearsed upgrade — after the
+ * does not know them before the rehearsed upgrade; after the
  * selector round they resolve through the routing table, which is
  * part of what this suite proves.
  */
@@ -235,13 +235,13 @@ interface IUsdBalance {
  * Score timing doctrine drives the scenario shape: a week's rates
  * are a pure function of the checkpoints in force at its opening
  * boundary, so the FIRST flush only lands the referrer's scores
- * (its own weeks price at the zero rates then in force — late
+ * (its own weeks price at the zero rates then in force; late
  * flushes affect later weeks only), and the priced money arrives
  * with a SECOND flush after the scores have stood through the
  * dwell-min window. The live CCIP fee quoters may refuse a clock
  * warped weeks ahead, so every post-aging flush probes the quoter
  * first and falls back to delivering the storage-reconstructed
- * envelope through a pranked router — the reconstruction is
+ * envelope through a pranked router; the reconstruction is
  * byte-asserted against the real on-ramp wire whenever the lane's
  * on-ramp supports the scrape, so the fallback can never drift from
  * what the wire would carry.
@@ -1782,7 +1782,7 @@ abstract contract CohortFlushUpgradeForkBase is CcipForkHarness {
  * split from the helpers-only {CohortFlushUpgradeForkBase} so that
  * sibling suites reusing the install ladders and wire helpers (the
  * operator-bot ordering rehearsal) inherit the base WITHOUT
- * re-registering these four lane E2Es — running them twice per
+ * re-registering these four lane E2Es: running them twice per
  * lane would double the live-RPC cost and double the exposure to
  * parallel tests warping the same shared destination fork clock.
  */
@@ -2320,7 +2320,7 @@ contract CohortFlushUsdgRobinhoodMainnetFork is CohortFlushUpgradeForkE2E {
  * @dev Three-fork mesh proof of the reserved remote source-key
  * encoding: CREATE3 gives the usdc product the SAME diamond address
  * on base and arbitrum, so an address-keyed hub would collapse both
- * spokes into one book — the exact collision the hashed
+ * spokes into one book, the exact collision the hashed
  * `keccak256(chainId, vault)` source keys and the per-source-chain
  * claimable/designation buckets exist to prevent. The test grounds
  * the premise on real forks (identical vault address, live bytecode

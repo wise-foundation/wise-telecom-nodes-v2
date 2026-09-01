@@ -45,11 +45,11 @@ contract MockUSD is ERC20 {
 }
 
 /**
- * @dev Crumb suite for the cohort recorder — the FROZEN word format
+ * @dev Crumb suite for the cohort recorder: the FROZEN word format
  * the mainnet hub consumes. Every assertion is an exact
  * full-word equality (written bit | three 80-bit token-second lanes),
- * so a stray bit anywhere in the word — including the reserved
- * regions bits 240..251 and 253..255 — fails loudly. Covered: exact
+ * so a stray bit anywhere in the word (including the reserved
+ * regions bits 240..251 and 253..255) fails loudly. Covered: exact
  * amount x seconds lane weights across full weeks; the lane shift as
  * a cohort graduates Y1 -> Y2 at its 52-week boundary (segment
  * recorded BEFORE the boundary rotation, so the graduation week
@@ -59,7 +59,7 @@ contract MockUSD is ERC20 {
  * fromWeek | toWeekExclusive << 32 | mature << 64) after the capped
  * 104-boundary walk; the mixed case where `advanceBook` pre-walked
  * part of a dormant span and the gap covers the rest; and
- * finalized-crumb immutability — once the walk crosses a week's
+ * finalized-crumb immutability: once the walk crosses a week's
  * closing boundary its word never changes again.
  */
 contract WiseTelecomNodesCohortCrumbsTest is DiamondTestHarness {

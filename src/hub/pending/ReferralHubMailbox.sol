@@ -8,46 +8,46 @@ import {CohortWeeks} from "../../diamond/shared/pending/CohortWeeks.sol";
 /**
  * @dev Cross-chain mailbox layer: the internals behind the hub's
  * CCIP receive surface. A flush envelope is never applied under the
- * source-paid delivery gas budget — `_receiveFlush` does O(1) work,
+ * source-paid delivery gas budget: `_receiveFlush` does O(1) work,
  * storing `keccak256(chainId, vault, payload)` into
  * `flushCommitment[messageId]` (a nonzero commitment doubles as the
  * replay guard) and emitting the full payload, so any keeper can
  * later call the permissionless apply with the payload from the
  * event. `_applyFlushEnvelope` proves the supplied bytes against the
- * commitment — the commitment binds origin chain, vault AND payload,
- * so nothing the applier passes is trusted — then walks the entries
+ * commitment (the commitment binds origin chain, vault AND payload,
+ * so nothing the applier passes is trusted), then walks the entries
  * through the SAME intake internals every local reporter uses,
  * under the reserved remote source key `keccak256(chainId, vault)`.
  *
  * Idempotence and ordering: applying an envelope any number of
- * times, in any order relative to other envelopes, converges — paid
+ * times, in any order relative to other envelopes, converges: paid
  * cursors absorb crumb and gap re-sends, absolute score reports are
  * gated per (source, referrer) by the envelope's build stamp
  * (`appliedScoreStamp`, greater-or-equal so a re-apply of the
  * freshest envelope still lands), and designations apply latest-wins
  * by their own stamps. The commitment entry is therefore kept
- * forever and apply never marks anything consumed — re-applying is
+ * forever and apply never marks anything consumed; re-applying is
  * always safe and pays nothing twice.
  *
  * Validation is wholesale and strict: version and crumb-version
  * bytes, reserved bits, entry count, exact payload length, per-slice
- * gap spans and the total work cap all reject the entire envelope —
+ * gap spans and the total work cap all reject the entire envelope;
  * the sources are the system's own authenticated contracts, so a
  * malformed envelope is a bug to surface loudly, never data to
  * salvage; the spoke can always re-flush. One deliberate exception
  * inside a valid envelope: a week the intake still considers future
  * (spoke clocks may run seconds ahead of this chain near a week
  * boundary) reverts the apply, and the SAME apply call simply
- * succeeds once this chain crosses the boundary — lazy application
+ * succeeds once this chain crosses the boundary; lazy application
  * makes the revert self-healing. A designation pair with a zero or
  * far-future set-time or an overflowing rank is skipped with an
- * anomaly event instead — designations are an auxiliary word inside
+ * anomaly event instead: designations are an auxiliary word inside
  * an envelope that moves money, and the registry's caller-paid push
  * is their recovery rail.
  *
  * Designation pushes (`_receiveDesignationPush`) apply inline on
  * receive: one strict 160-byte versioned payload, one stamped
- * latest-wins write — cheap enough for the delivery budget and
+ * latest-wins write, cheap enough for the delivery budget and
  * idempotent by stamp, so the push path needs no replay guard and no
  * mailbox entry.
  */

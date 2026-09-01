@@ -133,7 +133,7 @@ contract MergeRevertRegistry {
 /**
  * @dev A registry stand-in whose `mergeReferrer` succeeds (counting
  * calls so the merge attempt is observable) while every post-merge
- * `effectiveReferrerOf` lookup reverts — the shape of a registry that
+ * `effectiveReferrerOf` lookup reverts: the shape of a registry that
  * breaks between the merge write and the landing read. The apply path
  * must keep the tracked delta and drop only the book lanes.
  */
@@ -176,8 +176,8 @@ contract LookupRevertRegistry {
  * creation code, keeping the contract clear of the EIP-170 limit the
  * full-surface harness split was made for. `exposedCohortBridgeOut`
  * additionally forwards into the helper-chain stub so the stub's own
- * disarmed short-circuit — pre-guarded by its only production call
- * site and therefore reachable nowhere else — executes as real code.
+ * disarmed short-circuit (pre-guarded by its only production call
+ * site and therefore reachable nowhere else) executes as real code.
  */
 contract CohortBridgeSeamHarness is CohortRecorderBase {
 
@@ -330,15 +330,15 @@ contract CohortBridgeSeamHarness is CohortRecorderBase {
 
 /**
  * @dev Sibling narrow-writer harness dedicated to the referrer-flip
- * migration internals — a SEPARATE contract from
+ * migration internals, a SEPARATE contract from
  * {CohortBridgeSeamHarness} so neither closure approaches the EIP-170
  * runtime limit, mirroring how {CohortLaneHarness} and
  * {CohortCarryHarness} split the same-chain surface. Same standalone
  * rules: layout parity via {FacetBase}'s constructor, `exposed*`
  * verbatim into the engine, `harnessSet*` one declared field each.
  * `exposedReplantPairs` forwards into the pair replant walk directly
- * so its zero-amount skip — defensive against a pair shape the
- * captured reduction walk itself never records — executes as real
+ * so its zero-amount skip (defensive against a pair shape the
+ * captured reduction walk itself never records) executes as real
  * code.
  */
 contract CohortFlipSeamHarness is CohortRecorderBase {
@@ -488,7 +488,7 @@ contract CohortFlipSeamHarness is CohortRecorderBase {
  * no-op and funds keep moving), and a lower-decimal peer whose
  * per-component floor scaling is asserted on the source-side wire
  * payload. Direct external calls to the three routed engine
- * entrypoints must revert {NotHookExecution} — the bracket only ever
+ * entrypoints must revert {NotHookExecution}; the bracket only ever
  * closes around the vault's own internal dispatch.
  *
  * The two in-file harnesses drive the engine internals the

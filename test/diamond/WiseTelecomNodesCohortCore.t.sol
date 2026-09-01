@@ -56,7 +56,7 @@ contract MockUSD is ERC20 {
  * three-way equality (sum of referee contributions == bookY1 + bookY2
  * + bookM == score) after every operation. Slot arithmetic under
  * test: the cohort deposited in week w lives in ring slot w mod 52
- * and is rotated at boundary week w + 52 (same slot index — the
+ * and is rotated at boundary week w + 52 (same slot index; the
  * aliasing is the mechanism, not an accident).
  */
 contract WiseTelecomNodesCohortCoreTest is DiamondTestHarness {

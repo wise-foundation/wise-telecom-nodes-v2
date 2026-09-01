@@ -51,14 +51,14 @@ contract TwoVaultMockUSD is ERC20 {
  * (same-chain move-carry, referrer-flip and bridge-carry): two fully
  * wired vaults (all facets + queue + referral + cohort recorder +
  * routed {CohortBridgeHookFacet} + {CohortHookFacet} as transfer
- * hook) sharing ONE {ReferralRegistry} — the production per-chain
- * topology — and peer-registered in both directions through
+ * hook) sharing ONE {ReferralRegistry} (the production per-chain
+ * topology) and peer-registered in both directions through
  * the real 3-day `PEER_VAULT_CHANGE_DELAY` (a single shared warp).
  * The test contract is master of both diamonds and of the registry.
  *
  * `CohortSnap` + `_assertScheduleEq` define the round-trip
  * equivalence set: rings (both, all 52 slots), book lanes and
- * `trackedContribution` must match byte for byte — while
+ * `trackedContribution` must match byte for byte, while
  * `cohortLastSettle`, crumbs and the gap log are deliberately
  * EXCLUDED (they are honest per-vault history: settle cursors move
  * with the settles a move itself triggers, and time served on each

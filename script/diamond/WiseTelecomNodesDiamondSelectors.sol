@@ -70,12 +70,12 @@ interface IAutoCompoundGetters {
  * shard getters, which the frozen live dispatchers cannot serve),
  * referralPayout=3 (cohortRecorder grew 11→12 with the master-only
  * retroactive seed, shipping wholesale inside the registry round's
- * recorder group) — total 155, of which
+ * recorder group); total 155, of which
  * 90 are wired at genesis (the genesis-era admin group had 27;
  * `setCohortSyncEnabled` ships with the cohort upgrade's AdminFacet
- * redeploy, the referral-registry pointer six —
- * propose/execute/cancel plus the three routed getters backing the
- * slot-77 shard's `internal` fields — ship with the registry
+ * redeploy, the referral-registry pointer six
+ * (propose/execute/cancel plus the three routed getters backing the
+ * slot-77 shard's `internal` fields) ship with the registry
  * round's AdminFacet redeploy, the payout-hub pointer six ship
  * the same way with the payout round's AdminFacet redeploy, and the
  * flush-hub pointer six with the flush round's). The
@@ -90,14 +90,14 @@ interface IAutoCompoundGetters {
  * rescue group (proposals executed fleet-wide, verified onchain
  * 2026-08-29).
  * The referralPayout group is post-launch and NOT yet installed
- * anywhere: it ships with the future payout upgrade script — the
+ * anywhere: it ships with {UpgradeReferralPayout} as the
  * routed view plus the two hub-gated writers
  * (`raisePendingReferralPayout`, `fundReferralPayout`) behind the
  * timelocked payout-hub pointer. The cohortFlush group is likewise
  * post-launch and not yet installed: the flush transport's two
  * payable entrypoints, the fee quote, the three policy setters
  * behind master, and the five routed views backing the slot-83
- * shard's `internal` fields — shipped by the flush upgrade script
+ * shard's `internal` fields, shipped by {UpgradeCohortFlush}
  * together with the grown AdminFacet and the settle-aware
  * {CohortHookFacet}. `applyTransferHook`
  * and the slot-45 `applyCohort*` entrypoints are deliberately absent
@@ -107,10 +107,10 @@ interface IAutoCompoundGetters {
  * (`applyCohortMoveOut` / `applyCohortMoveIn`) and to seven with the
  * flush transport's `applyCohortSettle`. The cross-chain
  * engine slice ({CohortBridgeHookFacet}: `applyCohortFlip` and the
- * bridge-carry pair) is DISPATCHER-routed instead — the engine
+ * bridge-carry pair) is DISPATCHER-routed instead (the engine
  * outgrew one EIP-170 deployment, and routing the second slice
  * through `selectorToFacet` reuses the selector timelock rather than
- * adding a second pointer slot — but its three selectors still revert
+ * adding a second pointer slot), but its three selectors still revert
  * on any direct external call (the transient `hookExecuting` bracket
  * only closes around the vault's own internal dispatch), so the
  * externally-REACHABLE surface grew only by `receiveReferrerFlip`
@@ -119,7 +119,7 @@ interface IAutoCompoundGetters {
  * `referralSelectors` includes the routed `getReferrerOf` view (the
  * registry-reading replacement for the retired slot-67
  * auto-getter): the live diamond keeps its genesis bytecode, so every
- * post-genesis read surface must be routed to a facet explicitly —
+ * post-genesis read surface must be routed to a facet explicitly;
  * same story as the six pointer selectors in the admin group.
  */
 library WiseTelecomNodesDiamondSelectors {

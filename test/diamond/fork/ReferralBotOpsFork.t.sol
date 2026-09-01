@@ -67,19 +67,19 @@ contract FlushRouterRecorder {
  * hub state no matter in which order they are delivered and applied.
  * The unit mailbox suite proves the stamp/cursor algebra only with
  * hand-packed payloads and the flush-upgrade rehearsals always
- * deliver in send order — this suite drives envelopes the live
+ * deliver in send order; this suite drives envelopes the live
  * spoke's own facet packed through the hub in REVERSED order.
  *
  * Methodology of the convergence proof: two referrers with byte-for-
  * byte mirrored books (same deposits, same timestamps, one courier
  * each so the per-source courier buckets stay apart) are flushed
- * twice at exact week boundaries — boundary alignment keeps the two
+ * twice at exact week boundaries; boundary alignment keeps the two
  * envelopes' crumb weeks disjoint, so per-lane floor dust cannot
  * differ between application orders and the convergence assertions
  * are EXACT. One referrer's pair is applied in send order, the
- * mirror's in reverse, and every register the bot economy reads —
- * per-source-chain claimable, courier bucket, global score, applied
- * score stamp — must end identical. A deposit lands between the two
+ * mirror's in reverse, and every register the bot economy reads
+ * (per-source-chain claimable, courier bucket, global score, applied
+ * score stamp) must end identical. A deposit lands between the two
  * builds so the reversed run also proves the stamp gate: the earlier
  * envelope's absolute score word, applied last, must be skipped
  * instead of regressing the freshly landed larger score.
@@ -103,25 +103,25 @@ contract FlushRouterRecorder {
  * afterwards pins the paid-cursor economics a courier eats: the
  * stale overlap word prices zero (lane regression, no accrual, no
  * courier share) while the stale envelope's genuinely unpriced
- * backlog weeks still pay in full — and a re-apply of the stale
+ * backlog weeks still pay in full, and a re-apply of the stale
  * envelope after all that accrues nothing.
  *
  * Wire fidelity follows the flush-upgrade rehearsal's doctrine: the
  * first flush of each referrer rides the real routed lane whenever
  * the live on-ramp supports the scrape, and the reordered pair is
  * delivered with the storage-reconstructed envelope through the
- * pranked router — a held message's on-ramp log cannot survive the
+ * pranked router; a held message's on-ramp log cannot survive the
  * earlier deliveries' log scrapes anyway. Where the live fee quoter
  * refuses the aged clock, the flush still executes the REAL facet
  * (settle to the second, cursor advance, envelope packing) against a
  * zero-fee recording router etched over the real one for exactly
- * that call — the recorder captures the hash of the envelope the
+ * that call; the recorder captures the hash of the envelope the
  * facet hands to `ccipSend`, and every delivered reconstruction is
  * byte-asserted against that capture, so the mock-path envelopes can
  * never drift from what the deployed bytecode would ship. Revert
  * gates a courier must parse (NotFlushBot on a foreign book,
  * InsufficientFlushFee on an underpaid send) are pinned on the exact
- * custom errors in-flow — the fee gate rides the live quote when the
+ * custom errors in-flow; the fee gate rides the live quote when the
  * quoter answers with a nonzero fee and a pinned nonzero quote
  * otherwise, so neither pin is ever silently skipped.
  */

@@ -10,7 +10,7 @@ import {ReferralRegistryDeclarations} from "../../src/registry/pending/ReferralR
 import {CohortWeeks} from "../../src/diamond/shared/pending/CohortWeeks.sol";
 
 /**
- * @dev Carry-staging suite for {ReferralRegistry} — the
+ * @dev Carry-staging suite for {ReferralRegistry}: the
  * same-chain move-attribution mailbox. Covers the allowlist gate on
  * both writers (including the revoked-vault revert the vaults absorb
  * through their guarded CALL seams), the guard-class stage reverts

@@ -78,8 +78,8 @@ interface IWtnVault {
  *   2. a REAL existing queue member (impersonated, discovered live from
  *      the queue head) can LEAVE their order and REJOIN it.
  *
- * The queue moves need no token approval — they shuffle the caller's own
- * shares between their wallet and the diamond's escrow — while the
+ * The queue moves need no token approval (they shuffle the caller's own
+ * shares between their wallet and the diamond's escrow) while the
  * deposit does (USD.safeTransferFrom pulls from the depositor). USDT
  * legs return no data from `approve`, so the approval is issued with a
  * low-level call that tolerates both USDC and USDT.

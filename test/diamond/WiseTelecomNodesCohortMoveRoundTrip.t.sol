@@ -10,7 +10,7 @@ import {TwoVaultCohortHarness} from "./utils/TwoVaultCohortHarness.sol";
 /**
  * @dev Round-trip equivalence suite for the same-chain
  * attribution carry: moving A→B→A leaves the source
- * vault's referral schedule — rings, book lanes, tracked — byte-
+ * vault's referral schedule (rings, book lanes, tracked) byte-
  * identical to a world where the move never happened, which is the
  * age-reset-impossibility statement (replanted units graduate at the
  * exact boundary weeks they would have at home) and simultaneously
@@ -19,12 +19,12 @@ import {TwoVaultCohortHarness} from "./utils/TwoVaultCohortHarness.sol";
  * `vm.revertToState`; both branches are settled to the same final
  * instant before comparison because rotation is settle-driven, while
  * `cohortLastSettle`, crumbs and the gap log stay excluded from the
- * equivalence set (honest per-vault history — the crumb conservation
+ * equivalence set (honest per-vault history; the crumb conservation
  * test instead proves crumbA + crumbB equals the control crumb per
  * lane per finalized week). The partial-move test pins the
  * no-inflation cap: the destination gains exactly the walk output,
  * bounded by min(tracked, moved). The same-address property of
- * `moveBetweenVaults` (no recipient parameter exists — `mintFromPeer`
+ * `moveBetweenVaults` (no recipient parameter exists; `mintFromPeer`
  * is always called with the mover) is pinned via the `MovedIn` event,
  * the invariant a future cross-chain bridge carry must replicate with
  * an
@@ -32,7 +32,7 @@ import {TwoVaultCohortHarness} from "./utils/TwoVaultCohortHarness.sol";
  * populated, full exit) gets a gas ceiling pin. Fuzz amounts stay
  * below the shipped `graceThresholdAmount` (10,000 units): a larger
  * deposit grace-stamps the user and `moveBetweenVaults` reverts
- * `GracePeriodNotElapsed` for 45 days — pre-existing product policy
+ * `GracePeriodNotElapsed` for 45 days, pre-existing product policy
  * the carry composes with, not a behavior of the carry itself.
  */
 contract WiseTelecomNodesCohortMoveRoundTripTest is TwoVaultCohortHarness {

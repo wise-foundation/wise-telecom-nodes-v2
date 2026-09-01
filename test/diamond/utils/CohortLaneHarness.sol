@@ -17,7 +17,7 @@ import {ReferralRegistry} from "../../../src/registry/pending/ReferralRegistry.s
  * (slots 72-73), crumb words (slot 74) and gap log (slot 75) live at
  * the exact slots a facet would see under DELEGATECALL from the live
  * diamond. Every `exposed*` function forwards verbatim into the
- * inherited engine internal under test — nothing here alters engine
+ * inherited engine internal under test; nothing here alters engine
  * logic. Every `harnessSet*` writer touches exactly one declared
  * storage field so a fuzz or unit driver can seed near-saturation
  * magnitudes the public deposit-cap API (1e9 * 1e6) can never reach.
@@ -193,7 +193,7 @@ contract CohortLaneHarness is CohortRecorderBase {
     /**
      * @dev The engine resolves referrers through the registry pointer
      * into a standalone {ReferralRegistry} wired via
-     * {harnessSetRegistry} — embedding the registry creation code in
+     * {harnessSetRegistry}: embedding the registry creation code in
      * a lazy deploy here would push the harness past the EIP-170
      * runtime limit, so tests deploy and allowlist the registry
      * themselves. The forward runs with the harness as the

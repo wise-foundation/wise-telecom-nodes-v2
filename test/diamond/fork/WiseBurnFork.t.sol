@@ -44,8 +44,8 @@ interface IWtnBurn {
  *
  *   1. seed the diamond with WISE (a plain ERC20 transfer into it),
  *   2. call `burnWise()` through the deployed router, and
- *   3. assert the exact rotating slice (5/10/20/15/5/1%) is truly BURNED
- *      — both the diamond's WISE balance AND WISE.totalSupply fall by the
+ *   3. assert the exact rotating slice (5/10/20/15/5/1%) is truly BURNED:
+ *      both the diamond's WISE balance AND WISE.totalSupply fall by the
  *      burned amount, proving a genuine supply burn, not a move.
  *
  * The rotation index is read live: at the pinned deploy it is 0, so the

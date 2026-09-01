@@ -11,7 +11,7 @@ import {CohortWeeks} from "../../../src/diamond/shared/pending/CohortWeeks.sol";
  * capture→stage→apply seam. A SEPARATE harness because the combined
  * exposure surface plus {CohortLaneHarness}'s embedded lazy
  * {ReferralRegistry} creation code pushed one contract past the
- * EIP-170 runtime limit — this one therefore takes its registry as an
+ * EIP-170 runtime limit; this one therefore takes its registry as an
  * address through `harnessSetRegistry` (tests deploy and allowlist
  * the shared registry themselves, matching the per-chain production
  * topology) and embeds no creation code. Same standalone-deployment

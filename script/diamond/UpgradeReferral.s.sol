@@ -10,7 +10,7 @@ import {WiseTelecomNodesDiamond} from "../../src/diamond/vault/WiseTelecomNodesD
 
 import {WiseTelecomNodesDiamondSelectors} from "./WiseTelecomNodesDiamondSelectors.sol";
 
-/// @notice SUPERSEDED twice over — do not broadcast: first by {UpgradeCohortRecorder}, now by
+/// @notice SUPERSEDED twice over; do not broadcast: first by {UpgradeCohortRecorder}, now by
 /// {UpgradeReferralRegistry} (the referral facets write the per-chain
 /// standalone {ReferralRegistry}; this script's slot-67 flow no longer exists in the facets).
 /// Kept for the historical record; its fork rehearsal was retired with the registry rework.
@@ -19,7 +19,7 @@ import {WiseTelecomNodesDiamondSelectors} from "./WiseTelecomNodesDiamondSelecto
 /// mirroring the diamond's own propose/execute timelock: `propose()` deploys the two new
 /// facets and proposes both selector batches (the six `...WithReferral` deposits plus the
 /// routed `referrerOf` getter). After the 3-day SELECTOR_CHANGE_DELAY, `execute()` flips them
-/// in — it needs no addresses because the diamond reads its own proposal storage. The transfer
+/// in; it needs no addresses because the diamond reads its own proposal storage. The transfer
 /// hook is deliberately untouched: referrals are written by deposits only and are write-once,
 /// so transfers can neither assign nor change them. Slot 64 (`referrerOf`) is virgin tail
 /// storage on the live

@@ -82,7 +82,7 @@ contract MockPermit2 is IPermit2 {
  * the facet sits installed-but-unarmed (parity with the plain grace
  * hook), the direct-call and unrouted-selector guards on the
  * `applyCohort*` entrypoints, and the full timelocked live-upgrade
- * sequence — installing the cohort selectors and hook onto a diamond
+ * sequence: installing the cohort selectors and hook onto a diamond
  * that started on the plain grace hook with pre-existing holders,
  * confirming neutrality until armed, then swapping back to a fresh
  * grace hook and confirming the recorder goes cleanly inert. Mirrors

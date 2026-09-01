@@ -23,7 +23,7 @@ import {MockFlipVault} from "../ReferralRegistrySync.t.sol";
  * to exercise the defer-and-restore arm.
  *
  * Ghost machinery: after every action a journal sweep compares each
- * (registry, user) pair against its previous snapshot — a nonzero
+ * (registry, user) pair against its previous snapshot: a nonzero
  * sync key that grows or clears increments `ghostKeyViolations`, and
  * a referrer change without a strictly lower key (or to zero)
  * increments `ghostFlipViolations`. Step-level checks inside the
@@ -34,7 +34,7 @@ import {MockFlipVault} from "../ReferralRegistrySync.t.sol";
  * recorded relocation call, clears silently when old equals current,
  * or is restored untouched when the vault reverts). Violation
  * counters instead of reverts, because the invariant runner tolerates
- * handler-call reverts — the invariants then require all counters to
+ * handler-call reverts; the invariants then require all counters to
  * stay zero.
  */
 contract ReferralSyncHandler is Test {
@@ -505,10 +505,10 @@ contract ReferralSyncHandler is Test {
  * key never increases and never clears, journaled ghost-side after
  * every action); RS2 requires every observed referrer change to be
  * justified by a strictly decreasing key; RS3 pins convergence at the
- * frontier — all registries holding the global minimum key for a user
+ * frontier: all registries holding the global minimum key for a user
  * agree on the referrer; RS4 is the stronger binding law behind it
  * (keys are minted once, at one origin, so equal nonzero keys anywhere
- * must bind the same referrer — honest relays can never fork a key);
+ * must bind the same referrer; honest relays can never fork a key);
  * RS5 is well-formedness (key zero exactly when unassigned, stored
  * rank within the deployed rank set, stored timestamp nonzero and
  * never in the future); RS6 and RS7 assert the step-level flip-marker

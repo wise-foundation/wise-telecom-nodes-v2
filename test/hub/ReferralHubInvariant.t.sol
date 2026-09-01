@@ -11,6 +11,9 @@ import {Client} from "@chainlink/contracts-ccip/contracts/libraries/Client.sol";
 import {ReferralHub} from "../../src/hub/pending/ReferralHub.sol";
 import {CohortWeeks} from "../../src/diamond/shared/pending/CohortWeeks.sol";
 
+/**
+ * @dev Six-decimal mintable USD stand-in for the hub tests.
+ */
 contract MockUSD is ERC20 {
 
     constructor()
@@ -46,16 +49,16 @@ contract MockUSD is ERC20 {
  * reporters and 6 referrers, matching the handler-plus-ghost shape of
  * `test/diamond/invariant/CohortRecorderInvariant.t.sol`. Crumb words
  * are driven through a per-(reporter, referrer, week) ghost that only
- * ever grows or replays — never regresses — mimicking the recorder's
+ * ever grows or replays, never regresses, mimicking the recorder's
  * "lanes only ever grow within a week" ring model (see the
  * CohortWeeks doc comment);
  * `deliverCrumbs` and the per-week loop inside `deliverGap` are
  * restricted to strictly-past weeks so the handler's pre-read of
  * `weeklyRates`/`paidCursorAt` is guaranteed stable against the exact
  * state the real call will observe (rates for a week are frozen once
- * the week's opening boundary passes — checkpoints written during or
+ * the week's opening boundary passes: checkpoints written during or
  * after a week can no longer move its opening scores, and rate tables
- * are future-only — so for a strictly-past week the handler's view
+ * are future-only, so for a strictly-past week the handler's view
  * read and the hub's pricing read can never diverge).
  *
  * The mailbox action (`deliverRemoteCrumbs`) drives the same cell
@@ -67,7 +70,7 @@ contract MockUSD is ERC20 {
  * split). Remote cursors live under the hashed source key the
  * address-derived `paidCursorAt` view cannot reach, so the handler
  * keeps a PURE ghost cursor for remote cells (it is the sole writer
- * of that source — the ghost is the truth) and the per-cell
+ * of that source; the ghost is the truth) and the per-cell
  * hub-cursor assert skips them; the `totalAccrued` equality still
  * cross-checks their pricing exactly, and the split can never change
  * the accounting identity because deliverer share plus referrer
@@ -80,7 +83,7 @@ contract MockUSD is ERC20 {
  * `ghostTotalExpectedPaid` (per-cell high-water cursor and a running
  * total, both computed in the HANDLER by reading `paidCursorAt` and
  * `weeklyRates` immediately before every pricing call and replicating
- * `_laneIncrement` / `_advanceCursor` / `_payIncrements` verbatim —
+ * `_laneIncrement` / `_advanceCursor` / `_payIncrements` verbatim;
  * this is what makes I4 an exact equality rather than a bound);
  * `touchedCells` (every (reporter, referrer, week) triple either
  * action has ever priced, deduplicated); `journaledWeeks` plus the
@@ -89,12 +92,12 @@ contract MockUSD is ERC20 {
  * every referrer's `weeklyRates` triple and `openingScoresAt` pair,
  * taken the FIRST time each week crosses from current into fully past,
  * i.e. inside `warpWeeks` right after the warp, for exactly the weeks
- * newly left behind — re-verified every invariant check to prove no
+ * newly left behind; re-verified every invariant check to prove no
  * later-arriving report or delivery can ever move a closed week's
  * rates or opening scores, per I5). I3 is checked by reading
  * `lastReportOf` for
  * each of the 3 reporters directly off the hub rather than mirroring
- * it in a second ghost mapping — the invariant already cross-checks
+ * it in a second ghost mapping; the invariant already cross-checks
  * two independently-updated storage locations (`globalReferredScore`
  * / `globalSelfScore` against `lastSourceReport`) written by the same
  * `_applyScoreReport` call, so a shadow copy would only test itself.
@@ -165,40 +168,6 @@ contract ReferralHubInvariantHandler is Test {
 
     uint256 public remoteNonce;
 
-    function claimUpTo(
-        uint256 _referrerSeed,
-        uint256 _amountSeed
-    )
-        external
-    {
-        address referrer = referrers[_referrerSeed % referrers.length];
-
-        uint256 entitled = hub.claimable(
-            block.chainid,
-            referrer
-        );
-
-        if (entitled == 0) {
-            return;
-        }
-
-        uint256 amount = bound(
-            _amountSeed,
-            1,
-            entitled
-        );
-
-        vm.prank(
-            referrer
-        );
-
-        hub.claimUpTo(
-            block.chainid,
-            referrer,
-            amount
-        );
-    }
-
     constructor(
         ReferralHub _hub,
         address[3] memory _reporters,
@@ -263,7 +232,11 @@ contract ReferralHubInvariantHandler is Test {
             reporter
         );
 
-        hub.reportScores(referrer, referred, self);
+        hub.reportScores(
+            referrer,
+            referred,
+            self
+        );
     }
 
     function deliverCrumbs(
@@ -336,7 +309,11 @@ contract ReferralHubInvariantHandler is Test {
             reporter
         );
 
-        hub.deliverCrumbs(referrer, weeksArg, words);
+        hub.deliverCrumbs(
+            referrer,
+            weeksArg,
+            words
+        );
     }
 
     function deliverGap(
@@ -385,7 +362,12 @@ contract ReferralHubInvariantHandler is Test {
             reporter
         );
 
-        hub.deliverGap(referrer, record, fromWeek, span);
+        hub.deliverGap(
+            referrer,
+            record,
+            fromWeek,
+            span
+        );
     }
 
     function deliverRemoteCrumbs(
@@ -484,6 +466,40 @@ contract ReferralHubInvariantHandler is Test {
             REMOTE_CHAIN_ID,
             REMOTE_VAULT,
             payload
+        );
+    }
+
+    function claimUpTo(
+        uint256 _referrerSeed,
+        uint256 _amountSeed
+    )
+        external
+    {
+        address referrer = referrers[_referrerSeed % referrers.length];
+
+        uint256 entitled = hub.claimable(
+            block.chainid,
+            referrer
+        );
+
+        if (entitled == 0) {
+            return;
+        }
+
+        uint256 amount = bound(
+            _amountSeed,
+            1,
+            entitled
+        );
+
+        vm.prank(
+            referrer
+        );
+
+        hub.claimUpTo(
+            block.chainid,
+            referrer,
+            amount
         );
     }
 
@@ -624,7 +640,13 @@ contract ReferralHubInvariantHandler is Test {
             return;
         }
 
-        ghostTotalExpectedPaid += _priceIncrements(_referrer, _week, y1Inc, y2Inc, mInc);
+        ghostTotalExpectedPaid += _priceIncrements(
+            _referrer,
+            _week,
+            y1Inc,
+            y2Inc,
+            mInc
+        );
     }
 
     function _advanceGhostCursor(
@@ -690,7 +712,13 @@ contract ReferralHubInvariantHandler is Test {
             return;
         }
 
-        ghostTotalExpectedPaid += _priceIncrements(_referrer, _week, y1Inc, y2Inc, mInc);
+        ghostTotalExpectedPaid += _priceIncrements(
+            _referrer,
+            _week,
+            y1Inc,
+            y2Inc,
+            mInc
+        );
     }
 
     function _packRemoteEnvelope(
@@ -753,7 +781,6 @@ contract ReferralHubInvariantHandler is Test {
             + _y2Inc * y2Bps / BPS_DENOMINATOR / CohortWeeks.YEAR
             + _mInc * mBps / BPS_DENOMINATOR / CohortWeeks.YEAR;
     }
-
 
     function _journalNewlyPastWeeks(
         uint256 _currentWeek

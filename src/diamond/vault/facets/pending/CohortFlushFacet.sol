@@ -11,7 +11,7 @@ import {IReferralRegistry} from "../../interfaces/pending/IReferralRegistry.sol"
 import {IReferralFlushHub} from "../../interfaces/pending/IReferralFlushHub.sol";
 
 /**
- * @dev CohortFlushFacet — the routed flush transport of the cohort
+ * @dev CohortFlushFacet: the routed flush transport of the cohort
  * recorder: it carries this vault's referral book (absolute referred
  * and self scores, frozen weekly crumb words, compressed dormant gap
  * records, and the referrer's own-chain payout designation) to the
@@ -21,14 +21,14 @@ import {IReferralFlushHub} from "../../interfaces/pending/IReferralFlushHub.sol"
  * message to the hub's cross-chain mailbox, caller-paid with excess
  * refunded; a zero selector means the hub lives on this chain and
  * every entry is delivered by direct call through
- * {IReferralFlushHub} — the vault itself is the hub's allowed
+ * {IReferralFlushHub}; the vault itself is the hub's allowed
  * reporter, no envelope or designation word exists on that path, and
  * hub reverts bubble on purpose. While the flush-hub pointer is
- * unset every entrypoint reverts {FlushHubNotSet}, so a live diamond
- * with virgin tail storage behaves byte-for-byte as today.
+ * unset every flush entrypoint reverts {FlushHubNotSet}, so a live
+ * diamond with virgin tail storage behaves byte-for-byte as today.
  *
  * Everything sent is STORAGE-DERIVED: the caller chooses only which
- * referrers to flush and when — never a single payload byte. Before
+ * referrers to flush and when, never a single payload byte. Before
  * planning, each referrer's book is settled to the second through
  * the `COHORT_SETTLE_SELECTOR` engine-slice entrypoint (no engine
  * code is compiled here, so the flush path can never diverge from
@@ -36,7 +36,7 @@ import {IReferralFlushHub} from "../../interfaces/pending/IReferralFlushHub.sol"
  * no-ops and the flush carries the frozen book unchanged. A
  * referrer's own-book flush is ungated forever; flushing someone
  * else's book requires the `allowedFlushBot` whitelist or the
- * `publicFlushEnabled` switch — the hub prices the courier's
+ * `publicFlushEnabled` switch; the hub prices the courier's
  * cross-chain delivery share from the deliverer stamped into the
  * envelope header, so gating lives here and pricing lives there.
  *
@@ -51,15 +51,15 @@ import {IReferralFlushHub} from "../../interfaces/pending/IReferralFlushHub.sol"
  * gap records are sliced to at most MAX_SETTLE_BOUNDARIES weeks per
  * slice so each fully applies in one pass, with a slice's mature
  * principal clamped to the per-week lane ceiling exactly as a
- * saturated crumb would have been; and total work — crumb words plus
- * gap-sliced weeks — is capped at MAX_FLUSH_WORK per envelope, with
+ * saturated crumb would have been; and total work (crumb words plus
+ * gap-sliced weeks) is capped at MAX_FLUSH_WORK per envelope, with
  * later entries degrading to scores-only until the next flush. The
  * payout designation is read from the slot-77 registry through a
  * guarded staticcall (32-byte-bounded words, dirty or missing data
- * degrades to "no designation word" — the registry's caller-paid
+ * degrades to "no designation word"; the registry's caller-paid
  * push is the recovery rail, so a skipped piggyback loses nothing).
  * `quoteFlushFee` plans on current storage without settling, so it
- * is a close lower-bound estimate — callers send margin and the
+ * is a close lower-bound estimate; callers send margin and the
  * excess refunds.
  */
 contract CohortFlushFacet is FacetBase {

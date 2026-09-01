@@ -17,33 +17,33 @@ import {WiseTelecomNodesDiamondSelectors} from "./WiseTelecomNodesDiamondSelecto
 /// the referralPayout selector group (the routed liability view plus the two hub-gated
 /// writers `raisePendingReferralPayout` / `fundReferralPayout`), the AdminFacet redeploy
 /// carrying the payout-hub pointer six, and the SweepFacet redeploy whose
-/// `_calculateNeededBuffer` reserves `pendingReferralPayout` — the behavioral half of the
+/// `_calculateNeededBuffer` reserves `pendingReferralPayout`, the behavioral half of the
 /// round, inert while the accumulator is zero. The LIVE diamond entry contracts are never
-/// redeployed and never migrated — this round only deploys NEW facet contracts and routes
+/// redeployed and never migrated: this round only deploys NEW facet contracts and routes
 /// selectors through the diamond's existing 3-day timelock, plus one pointer write.
 ///
 /// Prerequisite (once, on the hub chain): {DeployReferralHub} has deployed the hub against
 /// the payout vault's own USD token and recorded the address in `config/hub.<network>.json`
-/// — `propose()` fail-fasts if not, and `proposeHub()`/`executeHub()` only run for the ONE
+/// (`propose()` fail-fasts if not), and `proposeHub()`/`executeHub()` only run for the ONE
 /// payout vault (the usdc product on the hub chain); every other vault runs just
 /// `propose()`/`execute()` so the fleet stays uniform while its writers stay dormant behind
 /// the zero pointer.
 ///
-/// TWO chained 3-day clocks on the payout vault — the pointer trio selectors are NEW (not
+/// TWO chained 3-day clocks on the payout vault; the pointer trio selectors are NEW (not
 /// genesis-routed), so `proposePayoutHub` only exists on the diamond after the selector
 /// round executes:
-///   `propose()`    — deploys the 3 manifest facets, proposes all 3 selector batches.
+///   `propose()`    : deploys the 3 manifest facets, proposes all 3 selector batches.
 ///                    Clock 1 starts.
-///   `execute()`    — after 3 days: flips every batch. Idempotent (queuedAt-guarded),
+///   `execute()`    : after 3 days: flips every batch. Idempotent (queuedAt-guarded),
 ///                    re-runnable after partial mining.
-///   `proposeHub()` — payout vault only, same day as execute(): starts clock 2 through the
+///   `proposeHub()` : payout vault only, same day as execute(): starts clock 2 through the
 ///                    freshly-routed {AdminFacet} trio, pointing at the config hub.
-///   `executeHub()` — after 3 more days: executes the pointer change (code + USD-token
+///   `executeHub()` : after 3 more days: executes the pointer change (code + USD-token
 ///                    shape probe onchain) and post-asserts pointer == config. Then run
 ///                    {DeployReferralHub}.wire() so the hub books against this vault.
-///   `abort()`      — cancels every pending selector batch and the pointer proposal (each
+///   `abort()`      : cancels every pending selector batch and the pointer proposal (each
 ///                    pre-execute only).
-///   `status()`     — read-only sanity print for the runbook (no broadcast).
+///   `status()`     : read-only sanity print for the runbook (no broadcast).
 ///
 /// Ordering law the steps encode: hub deployed (right token) → selectors live → pointer
 /// wired → hub-side wire() LAST. Every intermediate state is default-off: the payout
@@ -64,7 +64,7 @@ import {WiseTelecomNodesDiamondSelectors} from "./WiseTelecomNodesDiamondSelecto
 ///
 /// NOTHING here may be broadcast until the owner gives the explicit go-ahead. After a REAL
 /// broadcast is executed and verified, `git mv` the graduated files out of EVERY pending/
-/// segment in the same commit — facets/pending/ (ReferralPayoutFacet),
+/// segment in the same commit: facets/pending/ (ReferralPayoutFacet),
 /// declarations/pending/ (the payout shards this round's facets were compiled with) and
 /// src/hub/pending/.
 contract UpgradeReferralPayout is VaultConfig {
@@ -389,13 +389,17 @@ contract UpgradeReferralPayout is VaultConfig {
         view
         returns (bool)
     {
-        return _sameString(
+        bool isUsdcProduct = _sameString(
             _vaultProduct(),
             "usdc"
-        ) && _sameString(
+        );
+
+        bool isMainnetHub = _sameString(
             _networkName(),
             "mainnet"
         );
+
+        return isUsdcProduct && isMainnetHub;
     }
 
     function _proposeGroup(

@@ -9,7 +9,7 @@ import {DeployVaultDeterministic} from "../../script/vault/DeployVaultDeterminis
 /**
  * @dev Tests for the usdg deposit-forwarding rule of the deterministic
  * deploy script: for the usdg product the deposit forward (thirdParty)
- * is forced to the worker address — the overhang-sweep receiver — and
+ * is forced to the worker address (the overhang-sweep receiver) and
  * a conflicting non-zero config value aborts. Other products keep the
  * configured thirdParty untouched. Inherits the deploy script so the
  * tests exercise the very helper the production script uses.

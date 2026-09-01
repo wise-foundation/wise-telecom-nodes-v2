@@ -23,18 +23,18 @@ import {WiseTelecomNodesDiamondErrors} from "../../../src/diamond/vault/WiseTele
  * @dev Rehearses the usdg mainnet <-> arbitrum vault peering against
  * the LIVE deployed diamonds on forks of both chains. The usdg product
  * shares one CREATE3 canonical address on every chain it lives on, and
- * the CCIP routers already carry a real mainnet <-> arbitrum lane —
+ * the CCIP routers already carry a real mainnet <-> arbitrum lane;
  * only the VAULT-level peering may still be missing, which is exactly
  * what this suite proves and then repairs in rehearsal:
  *
  *   1. while a leg is un-peered, a funded bridge attempt on that side
- *      reverts {CrossChainPeerNotEnabled} — the baseline is asserted,
+ *      reverts {CrossChainPeerNotEnabled}; the baseline is asserted,
  *      not assumed, and the test self-skips if reality changed;
  *   2. the full timelocked peering ladder runs per missing side under
  *      the real master: propose, premature execute reverting
  *      {CrossChainPeerTimelockNotElapsed} (asserted whenever the live
  *      vault reports itself finalized), warp past the 3-day delay,
- *      execute — then a complete round trip bridges shares mainnet ->
+ *      execute; then a complete round trip bridges shares mainnet ->
  *      arbitrum and back through the real on-ramps and off-ramps;
  *   3. the usdg robinhood <-> arbitrum legs are recorded by discovery
  *      instead of assumed: the CCIP routers began carrying this lane

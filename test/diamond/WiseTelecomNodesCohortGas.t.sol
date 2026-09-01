@@ -52,7 +52,7 @@ contract MockUSD is ERC20 {
  * @dev Records the wire `data` of the last `ccipSend` instead of
  * relaying it synchronously, so a test can rebuild the exact
  * `Any2EVMMessage` the DON would deliver and measure the destination
- * `ccipReceive` as its own cold call — a synchronous relay would fold
+ * `ccipReceive` as its own cold call; a synchronous relay would fold
  * the delivery gas into the source-side send. `getFee` returns a flat
  * fee like the bridge suite's relaying mock.
  */
@@ -100,8 +100,8 @@ contract RecordingCcipRouter {
  * dormant book (cells 1-2, cell 2 showing the closed-form gap tail is
  * O(1) regardless of how far beyond the cap the dormancy runs);
  * `advanceBook` lets a keeper pre-walk that cost out of the hook path
- * in bounded chunks (cells 3-4); and the common case — tracked
- * balance already equal to held balance — exits `_syncRefereeCohort`
+ * in bounded chunks (cells 3-4); and the common case (tracked
+ * balance already equal to held balance) exits `_syncRefereeCohort`
  * on two reads before touching any book state (cell 5). Ceilings are
  * committed constants set ~25% above measured gas on this commit;
  * `GAS_TABLE|` rows are logged at -vv so a regression shows the exact
@@ -114,14 +114,14 @@ contract RecordingCcipRouter {
  * apply as the destination's cold `ccipReceive`: a two-diamond pair
  * wired through a recording router, the destination referrer's book
  * cap-dormant at delivery (105 weeks) so the apply's settle walks the
- * full 104-boundary cap before landing the carry — ceiling 3,000,000,
+ * full 104-boundary cap before landing the carry; ceiling 3,000,000,
  * 75% of the 4,000,000 CCIP delivery gas limit the arming script
  * commits via `setBridgeGasLimit`, because a delivery that outgrows
  * that limit strands the carry. Cell 7 measures the registry's
  * permissionless `pokeMigration` single-vault worst case: the old
  * referrer's rings populated across forty weekly cohorts, then
  * cap-dormant, so the flip migration settles the full walk, drains
- * the matured book and replants it under the new referrer — ceiling
+ * the matured book and replants it under the new referrer; ceiling
  * 3,500,000, sized to the same dormant-full-walk budget band as
  * cell 1's 3,600,000 transfer-hook ceiling.
  */

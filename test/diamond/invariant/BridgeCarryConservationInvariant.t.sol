@@ -205,7 +205,7 @@ contract MockDeferredCCIPRouter {
  * credit ever granted. Every tracked-mutating action runs inside a
  * bracket that reads the global tracked contribution of both referees
  * on both vaults before and after, and compares the observed change
- * against the action's justified delta — a referred deposit justifies
+ * against the action's justified delta: a referred deposit justifies
  * `+amount`, a referee bridge-out justifies at most `-amount` (the
  * pre-burn sync makes the captured deficit at least the burn), a
  * delivery justifies the carried `trackedDelta` decoded from the wire
@@ -224,7 +224,7 @@ contract MockDeferredCCIPRouter {
  * destination book to the current week boundary (so the rotation
  * projection is consistent), snapshots the earliest week at which any
  * of the referrer's book mass could reach the mature lane, delivers,
- * and requires the landing never to move that earliest week later —
+ * and requires the landing never to move that earliest week later,
  * plus the sharp landing bounds: carried mature mass is mature now,
  * carried year-2 mass matures no later than the next boundary, and
  * carried year-1 mass no later than fifty-three weeks out (the
@@ -1043,7 +1043,7 @@ contract BridgeCarryHandler is Test {
  * credit that entered the system); BC2 requires the step-level
  * tracked-justification bracket to have never observed an
  * unjustified rise (the conservation ceiling that prices any forged
- * or double-applied carry); BC3 is the exact global identity — the
+ * or double-applied carry); BC3 is the exact global identity: the
  * two books together always equal the referees' combined tracked
  * contribution, even while carries are in flight, because capture
  * removes the carried slice from both sides and delivery restores it
@@ -1052,7 +1052,7 @@ contract BridgeCarryHandler is Test {
  * lands with its full tracked delta); BC5 re-checks the ring-to-lane
  * identity on both vaults, which a landing that touched a ring
  * without its book (or vice versa) would break; BC6 asserts the
- * per-delivery maturity-demotion checks stayed clean — relocation may
+ * per-delivery maturity-demotion checks stayed clean: relocation may
  * only ever accelerate the year-1 to year-2 to mature walk, never
  * refresh a cohort's age.
  */

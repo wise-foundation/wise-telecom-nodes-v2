@@ -8,11 +8,12 @@ import {CohortWeeks} from "../../diamond/shared/pending/CohortWeeks.sol";
 
 /**
  * @dev Intake choke point: the ONLY writers of scores, cursors and
- * claimables in the whole chain. The future cross-chain mailbox and
- * mainnet-vault inline delivery are future CALLERS of these same
- * internals — one intake codepath, never a second topology. The
+ * claimables in the whole chain. The cross-chain mailbox is a
+ * CALLER of these same internals; hub-chain per-event inline
+ * reporting remains a future caller: one intake codepath, never a
+ * second topology. The
  * crumb WORD is the frozen interface: intake takes raw
- * recorder words (validated against the frozen geometry — any bit
+ * recorder words (validated against the frozen geometry; any bit
  * outside the three 80-bit lanes and the written flag rejects); the
  * flush envelope and its `crumbVersion` are cross-chain message
  * artifacts that do not exist here. Quantities and increments travel through
@@ -36,17 +37,17 @@ import {CohortWeeks} from "../../diamond/shared/pending/CohortWeeks.sol";
  * exactly once, and a growing current-week word pays only fresh
  * increments at the week's already-frozen rate (continuous
  * claims). A regressive lane emits the `CrumbLaneRegression` anomaly
- * and pays zero — never a revert.
+ * and pays zero, never a revert.
  *
  * Pricing floors per lane: `inc × bps / 10_000 / YEAR`, dust
  * retained, so total paid per (source, referrer, week) can never
  * exceed lanes × frozen rate. Gap records decompress span
  * semantics (Y1 = Y2 = 0, M constant) through the SAME `_priceWeek`
  * path in caller-windowed chunks of at most MAX_SETTLE_BOUNDARIES
- * weeks — resume is just another call, because overlapping windows
+ * weeks; resume is just another call, because overlapping windows
  * are zero-increment no-ops on the cursors. A gap record whose
- * mature principal could not have come from the recorder — one whose
- * per-week token-seconds would overflow the frozen 80-bit lane —
+ * mature principal could not have come from the recorder (one whose
+ * per-week token-seconds would overflow the frozen 80-bit lane)
  * rejects as invalid rather than corrupting cursor geometry.
  * Every delivery threads its origin `(chainId, deliverer)` pair down
  * to the accrual site: local reporter entrypoints pass
@@ -57,7 +58,7 @@ import {CohortWeeks} from "../../diamond/shared/pending/CohortWeeks.sol";
  * from the executing chain) and the deliverer is not the referrer,
  * `botShareBps` of the freshly priced amount credits the
  * deliverer's own (source chain, deliverer) claimable bucket and
- * the remainder the referrer's — evaluated per priced (referrer,
+ * the remainder the referrer's, evaluated per priced (referrer,
  * week) entry, so an own-book flush always pays 100% to the
  * referrer, and local deliveries always do (the split condition is
  * structurally false for them). `totalAccrued` counts the full
@@ -69,8 +70,8 @@ import {CohortWeeks} from "../../diamond/shared/pending/CohortWeeks.sol";
  * authenticated origin chain's. Freshly priced
  * commission also books as liability on the payout vault:
  * `_bookAccrual` raises the vault's pending-payout accumulator by
- * the `totalAccrued − totalBooked` delta — ONE external call per
- * delivery batch (or catch-up poke), never per priced week — and
+ * the `totalAccrued − totalBooked` delta: ONE external call per
+ * delivery batch (or catch-up poke), never per priced week, and
  * skips silently while the vault pointer is unset (accrual-only
  * mode; the delta catches up on the first booking after wiring).
  * The raise call is trusted: the vault gates it to this hub's

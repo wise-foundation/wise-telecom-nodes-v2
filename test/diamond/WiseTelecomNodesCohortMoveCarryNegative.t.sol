@@ -39,7 +39,7 @@ contract RevertingPeerVault {
 
 /**
  * @dev A peer mock that calls back into the caller's own
- * `moveBetweenVaults` from inside `mintFromPeer` — `msg.sender` at
+ * `moveBetweenVaults` from inside `mintFromPeer`: `msg.sender` at
  * that point is the source diamond itself (a delegatecall-routed
  * facet call always presents the diamond's address to the callee),
  * so the callback re-enters the diamond that is still mid-move.
@@ -68,7 +68,7 @@ contract ReentrantPeerVault {
 }
 
 /**
- * @dev A peer mock that accepts `mintFromPeer` as a silent no-op —
+ * @dev A peer mock that accepts `mintFromPeer` as a silent no-op;
  * it never applies any cohort attribution, mirroring a real
  * destination diamond that has not yet installed the cohort recorder
  * at all. Proves a source-side stage can outlive a peer that will
@@ -94,7 +94,7 @@ contract NoCohortPeerVault {
 
 /**
  * @dev A peer mock with `decimals() == 4`, two less than the
- * harness vaults' 6, so the same-chain scale factor is `1 / 100` —
+ * harness vaults' 6, so the same-chain scale factor is `1 / 100`,
  * enough to exercise per-component floor scaling on a tiny move
  * without needing a second real diamond.
  */
@@ -123,17 +123,17 @@ contract LowDecimalsPeerVault {
  * test here drives a REAL moveBetweenVaults call across two real
  * diamonds (or one real diamond against a hostile peer mock) and
  * asserts the same doctrine the engine proves in isolation: the move
- * itself — burn on the source, mint on the destination — must never
+ * itself (burn on the source, mint on the destination) must never
  * be blocked by attribution machinery (the never-block doctrine
  * extended to the move
  * path), and every non-applied carry degrades soft into an anomaly
  * event rather than a fund-affecting revert. The one exception is a
  * genuinely PAUSED destination, which is a deliberate operational
- * halt of the move itself, not an attribution failure — that case is
+ * halt of the move itself, not an attribution failure; that case is
  * expected to revert the whole move atomically and leave the source
  * untouched. An unarmed counterparty (source or destination) makes
  * its half of the carry seam a structural no-op, which orphans a
- * staged payload in the shared registry rather than discarding it —
+ * staged payload in the shared registry rather than discarding it;
  * the orphan is provably inert (stagedAt only ever matches a
  * DIFFERENT move's block.timestamp) and a later real move to the same
  * (srcVault, dstVault, user) key overwrites it via the registry's

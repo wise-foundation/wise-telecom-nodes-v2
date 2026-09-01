@@ -57,7 +57,7 @@ contract MockUSD is ERC20 {
  * and `transferBetween` run WITHOUT try/catch by design: a transfer
  * hook revert must fail the run, because the recorder's never-block
  * guarantee means a transfer should never revert on
- * recorder grounds — a revert here is a real bug, not noise to swallow.
+ * recorder grounds; a revert here is a real bug, not noise to swallow.
  */
 contract CohortRecorderHandler is Test {
 
@@ -406,7 +406,7 @@ contract CohortRecorderHandler is Test {
  * equality (sum of REF's referees' tracked contribution == REF's book
  * total == REF's score) that {WiseTelecomNodesCohortCoreTest} checks
  * unit-by-unit as I1; REC2 pins the ring-to-book lane identity (I2);
- * REC3 is new to this suite — once a cohort week closes (its index
+ * REC3 is new to this suite: once a cohort week closes (its index
  * falls below `lastSettle / 1 weeks`), its crumb word can never be
  * written to again by construction (the settle cursor only moves
  * forward), and this invariant re-verifies every previously finalized

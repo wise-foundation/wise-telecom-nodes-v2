@@ -13,12 +13,12 @@ import {IAny2EVMMessageReceiver} from "@chainlink/contracts-ccip/contracts/inter
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
 /**
- * @dev The per-chain referral registry — ONE standalone
+ * @dev The per-chain referral registry: ONE standalone
  * deployed contract closing the chain over
  * {ReferralRegistryDeclarations}. `assignReferrer` is the single
  * LOCAL write path: allowlisted vaults forward `(user, referrer)`
  * from their referral deposit entrypoints, and this contract alone
- * enforces the assignment semantics — zero rejected, self rejected,
+ * enforces the assignment semantics: zero rejected, self rejected,
  * first assignment sticks against every later local write, event only
  * on the actual first-set transition. The first set also stamps the
  * packed sync key `(block.timestamp << 8) | LOCAL_CHAIN_RANK`.
@@ -27,15 +27,15 @@ import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
  * the vaults' revert priority. The hardening pair rejects the calling
  * vault and this registry as referrers so cohort credit can never be
  * laundered into system addresses. `assignReferrer` performs a pure
- * storage write plus event and makes NO external call — the vaults'
+ * storage write plus event and makes NO external call; the vaults'
  * reentrancy reasoning relies on this staying true.
  *
  * Cross-chain min-merge: `_mergeReferrerPair` is one of exactly two
- * places an existing assignment can ever change — the other is the
- * pre-latch dual-consent correction lane. It is fed by two entrances —
+ * places an existing assignment can ever change; the other is the
+ * pre-latch dual-consent correction lane. It is fed by two entrances,
  * `mergeReferrer` (an allowlisted vault relaying the pair carried on
  * a bridge message) and `ccipReceive` (a peer registry's sync
- * message) — and applies the strictly-decreasing key rule: adopt when
+ * message), and applies the strictly-decreasing key rule: adopt when
  * unassigned, overwrite when the incoming packed key is strictly
  * smaller, ignore otherwise. A flip records pending-flip markers per
  * tracked vault and nothing else; the book migration runs later via
@@ -48,26 +48,26 @@ import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
  * `broadcastSync` is permissionless and caller-paid: it sends this
  * registry's stored origin pair for one user to any set of enabled
  * peer lanes, refunding excess fee at the end. Out-of-order execution
- * is explicitly allowed — merge order cannot matter.
+ * is explicitly allowed; merge order cannot matter.
  *
  * Correction lane: `proposeCorrectReferrer` (master) opens a 3-day
  * window in which `cancelCorrectReferrer` (the user unilaterally, or
  * master) kills the proposal; `executeCorrectReferrer` (master, after
  * the window) then rewrites `referrerOf` and marks pending flips
- * exactly like a sync flip does — the book relocation itself stays
+ * exactly like a sync flip does; the book relocation itself stays
  * with the permissionless `pokeMigration`, so the correction rides
  * the one existing migration path. A matured proposal has no expiry:
  * it stays executable until executed, cancelled or latched, and the
- * user's cancel stays available up to the moment of execution — an
+ * user's cancel stays available up to the moment of execution: an
  * unbounded veto, not a 3-day one. Execute re-checks the vault
  * laundering guard (an address allowlisted during the window cannot
  * become a referrer) and that the target still differs from the
  * current referrer, so a proposal overtaken by a sync flip to the
  * same target dies with `NothingToCorrect`. The sync key is
- * deliberately left untouched — the full model lives in the
+ * deliberately left untouched; the full model lives in the
  * declarations contract's documentation block. `latchCorrections`
- * (master) permanently disables propose and execute — cancel stays
- * open for cleanup — and has no reverse operation; it is fired the
+ * (master) permanently disables propose and execute (cancel stays
+ * open for cleanup) and has no reverse operation; it is fired the
  * moment payouts arm, making the book immutable against master from
  * that point on.
  *
@@ -81,8 +81,8 @@ import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
  *
  * Carry staging: `stageCarry`/`consumeCarry` are the
  * same-chain move-attribution mailbox (threat model and lifecycle in
- * the declarations block). `stageCarry`'s guards are guard-class only
- * — reachable solely through a buggy allowlisted vault, since the
+ * the declarations block). `stageCarry`'s guards are guard-class only,
+ * reachable solely through a buggy allowlisted vault, since the
  * vaults construct payloads from their own storage: nonzero
  * endpoints, no self-destination, payload length within
  * `(0, MAX_CARRY_WORDS]`. `consumeCarry` is deliberately guard-free:
@@ -92,7 +92,11 @@ import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
  * a rogue allowlisted vault can only ever drain payloads addressed
  * to itself.
  */
-contract ReferralRegistry is ReferralRegistryDeclarations, IAny2EVMMessageReceiver, IERC165 {
+contract ReferralRegistry is
+    ReferralRegistryDeclarations,
+    IAny2EVMMessageReceiver,
+    IERC165
+{
 
     uint256 public immutable LOCAL_CHAIN_RANK;
 
@@ -790,7 +794,8 @@ contract ReferralRegistry is ReferralRegistryDeclarations, IAny2EVMMessageReceiv
         onlyMaster
     {
         require(
-            _gasLimit >= SYNC_GAS_LIMIT && _gasLimit <= MAX_SYNC_GAS_LIMIT,
+            _gasLimit >= SYNC_GAS_LIMIT
+                && _gasLimit <= MAX_SYNC_GAS_LIMIT,
             InvalidSyncGasLimit()
         );
 

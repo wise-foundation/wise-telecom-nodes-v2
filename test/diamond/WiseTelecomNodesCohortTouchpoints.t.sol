@@ -81,7 +81,7 @@ contract MockPermit2 is IPermit2 {
  * default-off arming discipline (sections 0), the contribution credit
  * paths through every deposit and compound variant including the
  * all-depositor tracking of unreferred users (section 1), and the
- * one-way lazy clamp — transfer deficits landing on the NEXT sync,
+ * one-way lazy clamp: transfer deficits landing on the NEXT sync,
  * two-party hook sync, the permissionless poke, and clamp-before-credit
  * ordering (section 2). The recorder engine lives in one deployment
  * ({CohortHookFacet}) installed as the transfer hook; the suite wires

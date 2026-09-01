@@ -6,24 +6,24 @@ import {ReferralTokenDemo} from "./ReferralTokenDemo.sol";
 
 /**
  * @dev Lazy-sync referral accounting on top of the transfer-hook
- * sandbox — the mechanism under formal proof. Each referred user
+ * sandbox, the mechanism under formal proof. Each referred user
  * carries `referredContribution` (their deposit-sourced credit toward
  * their referrer's score), and `_syncReferee` enforces the
  * clamp lazily at every touchpoint: if the tracked contribution
  * exceeds the user's current balance, both the contribution and the
  * referrer's score are reduced by exactly the difference, so
  * afterwards contribution == balance; if balance >= contribution
- * nothing changes. The clamp is strictly one-sided — no path ever
+ * nothing changes. The clamp is strictly one-sided: no path ever
  * credits contribution for balance received outside deposit/compound.
  *
  * THE INVARIANT THIS SANDBOX EXISTS TO PROVE: `referredContribution`
  * (and with it the referrer's score) can increase ONLY inside
  * `depositWithReferral` and `compound`, by exactly the deposited or
- * compounded amount; every other operation — transfer, transferFrom
- * (both synced via the swappable amount-less hook), mint (models
- * transfers-in / unearned balance), moveBetweenVaultsExit (burn,
- * discredits immediately per design decision), and the permissionless
- * `syncReferee` poke — leaves it unchanged or strictly decreases it.
+ * compounded amount; every other operation leaves it unchanged or
+ * strictly decreases it: transfer, transferFrom (both synced via the
+ * swappable amount-less hook), mint (models transfers-in / unearned
+ * balance), moveBetweenVaultsExit (burn, discredits immediately per
+ * design decision), and the permissionless `syncReferee` poke.
  * The poke is grief-safe for the same reason: calling it on anyone
  * can only move state toward contribution == min(contribution,
  * balance), never away from it.
@@ -41,7 +41,7 @@ import {ReferralTokenDemo} from "./ReferralTokenDemo.sol";
  *
  * The raw `addVolume` / `removeVolume` drivers inherited from the
  * base practice contract are disabled here so score can only move
- * through the contribution paths — the property space is closed.
+ * through the contribution paths; the property space is closed.
  * Queue escrow and bridge attribution-carry are deliberately out of
  * scope for now.
  */

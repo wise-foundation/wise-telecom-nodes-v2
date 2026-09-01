@@ -36,7 +36,7 @@ import {WiseTelecomNodesDiamondSelectors} from "../../../script/diamond/WiseTele
  * by the cross-chain carry rehearsal, driven through the diamond's own
  * dispatcher and fallback router. The referral, cohort and
  * registry-pointer entrypoints are declared even though the live
- * dispatcher does not know them before the rehearsed upgrade — after
+ * dispatcher does not know them before the rehearsed upgrade; after
  * the selector round they resolve through the routing table, which is
  * part of what this suite proves.
  */
@@ -153,18 +153,18 @@ interface IWtnCarryVault {
  *      (asserted by decoding the scraped on-ramp log), the
  *      destination mints, grows tracked by the carried delta, adopts
  *      the source-stamped registry pair (earliest-wins key intact),
- *      and lands the book one week ahead of the arrival week —
+ *      and lands the book one week ahead of the arrival week, with
  *      {CohortBridgeCarrySent} and {CohortBridgeCarryApplied} pinned
  *      on their respective forks;
  *   2. an unreferred user still bridges a zero-referrer carry: the
  *      destination tracked contribution grows, both registries stay
  *      unassigned and no book credit exists anywhere;
  *   3. the delivery runs through the real off-ramp under the armed
- *      per-message gas limit — successful execution IS the budget
+ *      per-message gas limit: successful execution IS the budget
  *      proof, with the observed routing gas logged for reference.
  *
  * The wire assertion consumes the recorded on-ramp log, so the suite
- * re-emits the decoded log unchanged before routing — the off-ramp
+ * re-emits the decoded log unchanged before routing; the off-ramp
  * engine then scrapes and delivers it exactly as it would have. A
  * week of aging between deposit and bridge is probed against the
  * live fee quoter first and rewound if the aged clock would trip a

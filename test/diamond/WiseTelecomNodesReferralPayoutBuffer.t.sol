@@ -49,13 +49,13 @@ contract MockUSD is ERC20 {
 /**
  * @dev Dormant-accumulator suite: proves the `pendingReferralPayout`
  * tail shard (slot 76) enters `_calculateNeededBuffer` as one more
- * additive liability term — the exact `totalCashedInterest` pattern —
+ * additive liability term (the exact `totalCashedInterest` pattern)
  * while remaining fully dormant (no writer exists yet, so
  * `vm.store` on slot 76 stands in for the not-yet-existing hub
  * payout intake). The slot-pin test couples every `vm.store` here to
  * the routed getter, so a future renumbering fails loudly in one
  * place. The dormancy test walks the real user flows (deposit, accrue,
- * claim, sweep) asserting the slot stays zero — it is the guard that
+ * claim, sweep) asserting the slot stays zero; it is the guard that
  * fires the day a writer is wired into any user path, forcing a
  * conscious migration of this suite. The gas-ceiling test pins
  * `sweepOverhang` with a nonzero accumulator so any future fattening

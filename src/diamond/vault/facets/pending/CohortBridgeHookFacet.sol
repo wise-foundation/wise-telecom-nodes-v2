@@ -5,14 +5,14 @@ pragma solidity =0.8.36;
 import {CohortRecorderBase} from "./CohortRecorderBase.sol";
 
 /**
- * @dev CohortBridgeHookFacet — the cross-chain half of the cohort
+ * @dev CohortBridgeHookFacet: the cross-chain half of the cohort
  * recorder engine: the bridge-carry capture and apply plus the
  * referrer-flip migration. It lives in its OWN deployment because the
  * full engine no longer fits one EIP-170 contract; the compiler's
  * dead-code elimination gives each engine facet only the internals
  * its entrypoints reach, so the transfer-hook facet keeps the hot
  * clamp/credit/settle/move paths and this facet carries the
- * bridge-and-flip closure of the same {CohortRecorderBase} source —
+ * bridge-and-flip closure of the same {CohortRecorderBase} source:
  * one engine source, two compiled slices, byte-identical storage
  * layout.
  *
@@ -26,7 +26,7 @@ import {CohortRecorderBase} from "./CohortRecorderBase.sol";
  * returns an empty payload, bridge apply reports failure (attribution
  * lost, mint unaffected), and the flip stub reverts so the registry
  * defers the migration. Although the selectors are routed, direct
- * external calls always revert — the `hookExecuting` bracket only
+ * external calls always revert; the `hookExecuting` bracket only
  * ever closes around the vault's own internal dispatch.
  *
  * All three entrypoints are `payable` for the same reason as the
@@ -34,7 +34,7 @@ import {CohortRecorderBase} from "./CohortRecorderBase.sol";
  * `bridgeToVaultWithReferral`, the diamond's payable functions, and a
  * delegatecall inherits the ambient `msg.value`. The bridge-apply
  * path runs inside `ccipReceive`, where a revert would strand an
- * already-burned bridge — every failure in it degrades to an anomaly
+ * already-burned bridge; every failure in it degrades to an anomaly
  * event, never a revert.
  */
 contract CohortBridgeHookFacet is CohortRecorderBase {

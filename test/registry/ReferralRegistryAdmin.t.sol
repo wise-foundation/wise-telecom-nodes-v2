@@ -10,7 +10,7 @@ import {NotMaster} from "../../src/diamond/shared/OwnableMaster.sol";
 import {NotProposed} from "../../src/diamond/shared/OwnableMaster.sol";
 
 /**
- * @dev Admin/access-control suite for {ReferralRegistry} — the
+ * @dev Admin/access-control suite for {ReferralRegistry}: the
  * {OwnableMaster} two-step wiring (propose, claim, renounce) and the
  * vault allowlist (grant, revoke, zero-address guard,
  * `VaultAllowedSet`, master gating). Every `onlyMaster` entrypoint

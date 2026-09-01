@@ -106,7 +106,7 @@ contract PushRefundRejector {
 }
 
 /**
- * @dev Payout-designation suite for {ReferralRegistry} — the
+ * @dev Payout-designation suite for {ReferralRegistry}: the
  * own-chain `setPayoutAddress` write (freshness stamp packed
  * `(block.timestamp << 8) | LOCAL_CHAIN_RANK`, redesignation always
  * overwrites and re-stamps, zero payout is a valid designation), the
@@ -115,10 +115,11 @@ contract PushRefundRejector {
  * unset), exact-fee send with deterministic message id, excess
  * refund and refund-failure arms, `quotePushPayoutFee`,
  * `getPayoutDesignation`, and the payout-hub route trio
- * (propose/execute/cancel — instant while wiring, 3-day timelocked
+ * (propose/execute/cancel: instant while wiring, 3-day timelocked
  * after `finalizeSyncSetup`, half-zero proposals rejected, all-zero
- * detaches). Mock router and refund rejector live at the top of this
- * file.
+ * detaches). The zero-designation push test also pins the
+ * non-default sync gas limit branch of the push message builder.
+ * Mock router and refund rejector live at the top of this file.
  */
 contract ReferralRegistryPayoutTest is Test {
 

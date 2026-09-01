@@ -16,7 +16,7 @@ import {CohortWeeks} from "../../../src/diamond/shared/pending/CohortWeeks.sol";
  * trackedDelta equals the lane sum, the origin sync key rides word1,
  * the year aggregates share word2 (year-1 low half, year-2 high
  * half) and the mature aggregate sits in word3's low half. Nothing
- * here alters codec logic — every function forwards verbatim into
+ * here alters codec logic; every function forwards verbatim into
  * the library internals under test.
  */
 contract SyncMergeCodecHarness {
@@ -63,7 +63,7 @@ contract SyncMergeCodecHarness {
 }
 
 /**
- * @dev MRG property family — dual-engine properties (Foundry fuzzing
+ * @dev MRG property family: dual-engine properties (Foundry fuzzing
  * today, Kontrol/KEVM symbolic execution on the SAME functions) for
  * the cross-chain min-merge core of {ReferralRegistry} plus the two
  * pure codec lemmas of {CohortWeeks} the bridge carry leans on.
@@ -76,19 +76,19 @@ contract SyncMergeCodecHarness {
  * stored verbatim; otherwise both fields stay untouched. MRG3:
  * merging one pair twice equals merging it once. MRG4: two pairs
  * with distinct keys converge to the identical (referrer, key) in
- * either delivery order; exact key ties converge on the key alone —
+ * either delivery order; exact key ties converge on the key alone:
  * the referrer tie-break is keep-first-delivery by design (the
  * no-op path that emits {SyncKeyCollision}), so the tie variant
  * pins that actual behavior instead of claiming full convergence.
  * MRG5: an equal-key different-referrer merge leaves referrer and
  * key untouched. MRG6: adopting into an empty slot stores exactly
- * the incoming origin key — never a local re-stamp from
+ * the incoming origin key, never a local re-stamp from
  * block.timestamp or the local chain rank. MRG7: every honestly
  * packed referred bridge-carry payload passes
  * {CohortWeeks.bridgeCarryValid} for any mint amount at or above its
  * own lane-sum ceiling and fails it whenever the carried delta
  * exceeds the minted amount. MRG8: per-component floor scaling can
- * never sum above the floor-scaled total — the arithmetic reason an
+ * never sum above the floor-scaled total: the arithmetic reason an
  * honestly floor-scaled payload always satisfies the MRG7 ceiling.
  *
  * Kontrol tractability scope (mirrors the conventions of the other
@@ -97,11 +97,11 @@ contract SyncMergeCodecHarness {
  * mapping slot stays concrete for the symbolic engine;
  * block.timestamp is warped to one concrete base; assignedAt and
  * rank are the symbolic inputs, bounded inside the validation floor
- * the merge itself enforces — assignedAt in (0, now + 1 hour], rank
+ * the merge itself enforces: assignedAt in (0, now + 1 hour], rank
  * in [0, 15]; codec lanes are bounded to the 80-bit lane mask so all
  * intermediate sums stay far below 2^128. Every property drives at
  * most one state-mutating external call per assertion step, entering
- * through the allowlisted-vault `mergeReferrer` entrance —
+ * through the allowlisted-vault `mergeReferrer` entrance;
  * `ccipReceive` reaches the identical internal merge after its
  * transport checks, so the merge algebra proven here covers both
  * entrances. The order-convergence properties compare two

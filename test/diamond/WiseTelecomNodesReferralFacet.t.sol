@@ -54,7 +54,7 @@ contract MockUSD is ERC20 {
 
 /**
  * @dev Mirror of the real Permit2 surface used for unit testing.
- * The signature is intentionally ignored — we only validate the
+ * The signature is intentionally ignored: we only validate the
  * facet's call shape and the resulting token movement; real
  * signature verification is covered by the fork tests against the
  * canonical Permit2 deployment.
@@ -87,7 +87,7 @@ contract MockPermit2 is IPermit2 {
  * sole truth: the six `...WithReferral` deposit entrypoints on
  * {ReferralFacet} / {Permit2ReferralFacet} (validation with the
  * fixed revert priority, the write-once rule now enforced by
- * the standalone {ReferralRegistry} — first referrer sticks
+ * the standalone {ReferralRegistry}: first referrer sticks
  * forever, {ReferralAssigned} emitted by the REGISTRY with the
  * vault identity, the vault emits nothing), parity with the
  * non-referral paths, transfers never touching referrer state
@@ -100,7 +100,7 @@ contract MockPermit2 is IPermit2 {
  * wrong-shaped candidates, the zero-proposal revert-to-off state
  * ({ReferralRegistryNotSet} on referral deposits, zero from
  * `getReferrerOf`), and hostile-registry behavior on the view
- * surface (reverts bubble — the deliberate asymmetry against the
+ * surface (reverts bubble, the deliberate asymmetry against the
  * recorder's guarded seam, which the cohort suites pin). A
  * live-upgrade simulation walks the exact timelocked selector +
  * pointer sequence the registry upgrade round runs against the

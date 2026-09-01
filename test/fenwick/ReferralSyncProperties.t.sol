@@ -11,8 +11,8 @@ import {
 /**
  * @dev Dual-engine properties (Foundry fuzzing + Kontrol/KEVM
  * symbolic execution on the SAME functions) for the lazy-sync
- * referral theorem: `referredContribution` — and with it the
- * referrer's score — increases ONLY inside `depositWithReferral` /
+ * referral theorem: `referredContribution` (and with it the
+ * referrer's score) increases ONLY inside `depositWithReferral` /
  * `compound`, by exactly the credited amount; every other operation
  * (transfer, transferFrom, mint, moveBetweenVaultsExit, syncReferee)
  * leaves it unchanged or strictly decreases it, and the sync clamp

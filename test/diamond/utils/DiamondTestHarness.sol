@@ -227,7 +227,7 @@ abstract contract DiamondTestHarness is Test {
      * wires the slot-77 pointer through the {AdminFacet} trio. Must
      * run after `_wireAllFacets` (the trio needs routing) and before
      * `finalizeSetup()` so the pointer timelock is in its instant
-     * pre-initialization window — the same seam the hook install
+     * pre-initialization window, the same seam the hook install
      * uses. Multi-diamond suites use `_wireReferralRegistryShared`
      * directly so all vaults on the simulated chain consult ONE
      * registry, the production topology.
@@ -274,7 +274,7 @@ abstract contract DiamondTestHarness is Test {
      * check because the harness deploys the full facet set; etch a
      * minimal STOP at the canonical slot so the check passes. Tests
      * needing a real-ish Permit2 (the Permit2 facet test) etch a
-     * full mock BEFORE calling `_deployDiamond` — that prior etch
+     * full mock BEFORE calling `_deployDiamond`; that prior etch
      * is preserved here.
      */
     function _ensurePermit2()

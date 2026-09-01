@@ -9,8 +9,8 @@ import {ReferralRegistry} from "../../src/registry/pending/ReferralRegistry.sol"
 import {ReferralRegistryDeclarations} from "../../src/registry/pending/ReferralRegistryDeclarations.sol";
 
 /**
- * @dev Assignment-semantics suite for {ReferralRegistry} — the
- * rules enforced registry-side: zero user/referrer
+ * @dev Assignment-semantics suite for {ReferralRegistry}. Covers
+ * the rules enforced registry-side: zero user/referrer
  * revert, self-referral revert, the InvalidReferrer hardening pair
  * (calling vault, the registry itself), write-once with the loser
  * silently ignored (across repeat calls, different referrers,

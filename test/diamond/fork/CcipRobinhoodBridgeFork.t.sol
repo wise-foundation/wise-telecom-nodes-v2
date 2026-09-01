@@ -15,7 +15,7 @@ import {
  * @dev Bridge rehearsal for the Robinhood chain: the usdg
  * robinhood -> mainnet lane against the LIVE deployed diamonds on
  * forks of both chains. Mainnet is the usdg mesh's routing hub, so
- * this is the directed robinhood lane that carries vault value — the
+ * this is the directed robinhood lane that carries vault value; the
  * suite records the actual wiring instead of assuming it, and stays
  * valuable in both world-states:
  *
@@ -25,13 +25,13 @@ import {
  *      only where a lane reports itself enabled;
  *   2. when the vault peering is live in both directions, a full
  *      end-to-end bridge burns on robinhood, routes through the real
- *      ramps, and mints on mainnet — the bridge fee flows in the
+ *      ramps, and mints on mainnet; the bridge fee flows in the
  *      native gas coin, funded via `vm.deal` inside the harness;
  *   3. when the vault peering is missing on either side, the full
- *      timelocked ladder is rehearsed there first — propose,
+ *      timelocked ladder is rehearsed there first: propose,
  *      premature execute reverting {CrossChainPeerTimelockNotElapsed}
  *      (asserted whenever the live vault reports itself finalized),
- *      warp past the 3-day delay, execute — and the same end-to-end
+ *      warp past the 3-day delay, execute; the same end-to-end
  *      bridge then runs anyway.
  *
  * Every timelock warp is rewound right after its execute so the real

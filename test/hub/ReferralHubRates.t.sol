@@ -16,9 +16,9 @@ import {NotMaster} from "../../src/diamond/shared/OwnableMaster.sol";
  * dwell-min ladder inputs) at every threshold edge, both below
  * and exactly at each rung, for the referred and self components
  * separately as well as summed and capped. Exercises the
- * append-only, future-only `pushRateTable` governance path — every
+ * append-only, future-only `pushRateTable` governance path (every
  * `InvalidRateTable`/`TableNotFuture`/`TableNotOrdered` revert arm
- * and the master gate — and the property that a table can never
+ * and the master gate) and the property that a table can never
  * retroactively reprice a week whose opening boundary has already
  * passed, even after a later table lands and its own effective week
  * arrives. Year-2 and mature rates pay only in weeks where the
@@ -149,7 +149,10 @@ contract ReferralHubRatesTest is Test {
             block.timestamp + 2 * WEEK
         );
 
-        (y1Bps, , ) = hub.weeklyRates(
+        (
+            y1Bps,
+            ,
+        ) = hub.weeklyRates(
             _referrer,
             reportWeek + 2
         );
@@ -598,8 +601,21 @@ contract ReferralHubRatesTest is Test {
 
         _warpToWeek(5);
 
-        (uint256 y1AtPlus1, , ) = hub.weeklyRates(referrer, BASE_WEEK + 1);
-        (uint256 y1AtPlus4, , ) = hub.weeklyRates(referrer, BASE_WEEK + 4);
+        (
+            uint256 y1AtPlus1,
+            ,
+        ) = hub.weeklyRates(
+            referrer,
+            BASE_WEEK + 1
+        );
+
+        (
+            uint256 y1AtPlus4,
+            ,
+        ) = hub.weeklyRates(
+            referrer,
+            BASE_WEEK + 4
+        );
 
         assertEq(y1AtPlus1, 500);
         assertEq(y1AtPlus4, 510);
@@ -620,7 +636,14 @@ contract ReferralHubRatesTest is Test {
 
         _warpToWeek(2);
 
-        (uint256 y1Bps, uint256 y2Bps, uint256 mBps) = hub.weeklyRates(referrer, BASE_WEEK + 2);
+        (
+            uint256 y1Bps,
+            uint256 y2Bps,
+            uint256 mBps
+        ) = hub.weeklyRates(
+            referrer,
+            BASE_WEEK + 2
+        );
 
         assertEq(y1Bps, 1_000);
         assertEq(y2Bps, 500);
@@ -640,7 +663,14 @@ contract ReferralHubRatesTest is Test {
 
         _warpToWeek(2);
 
-        (uint256 y1Bps, uint256 y2Bps, uint256 mBps) = hub.weeklyRates(referrer, BASE_WEEK + 2);
+        (
+            uint256 y1Bps,
+            uint256 y2Bps,
+            uint256 mBps
+        ) = hub.weeklyRates(
+            referrer,
+            BASE_WEEK + 2
+        );
 
         assertEq(y1Bps, 900);
         assertEq(y2Bps, 0);
@@ -660,7 +690,14 @@ contract ReferralHubRatesTest is Test {
 
         _warpToWeek(2);
 
-        (uint256 y1Bps, uint256 y2Bps, uint256 mBps) = hub.weeklyRates(referrer, BASE_WEEK + 2);
+        (
+            uint256 y1Bps,
+            uint256 y2Bps,
+            uint256 mBps
+        ) = hub.weeklyRates(
+            referrer,
+            BASE_WEEK + 2
+        );
 
         assertEq(y1Bps, 1_000);
         assertEq(y2Bps, 500);
@@ -688,7 +725,14 @@ contract ReferralHubRatesTest is Test {
 
         _warpToWeek(2);
 
-        (uint256 y1Bps, uint256 y2Bps, uint256 mBps) = hub.weeklyRates(referrer, BASE_WEEK + 2);
+        (
+            uint256 y1Bps,
+            uint256 y2Bps,
+            uint256 mBps
+        ) = hub.weeklyRates(
+            referrer,
+            BASE_WEEK + 2
+        );
 
         assertEq(y1Bps, 1_000);
         assertEq(y2Bps, 0);
@@ -720,7 +764,14 @@ contract ReferralHubRatesTest is Test {
 
         _warpToWeek(2);
 
-        (uint256 y1Bps, uint256 y2Bps, uint256 mBps) = hub.weeklyRates(referrer, BASE_WEEK + 2);
+        (
+            uint256 y1Bps,
+            uint256 y2Bps,
+            uint256 mBps
+        ) = hub.weeklyRates(
+            referrer,
+            BASE_WEEK + 2
+        );
 
         assertEq(y1Bps, 0);
         assertEq(y2Bps, 0);
@@ -740,9 +791,32 @@ contract ReferralHubRatesTest is Test {
 
         _warpToWeek(2);
 
-        (uint256 y1AtPlus0, uint256 y2AtPlus0, uint256 mAtPlus0) = hub.weeklyRates(referrer, BASE_WEEK);
-        (uint256 y1AtPlus1, uint256 y2AtPlus1, uint256 mAtPlus1) = hub.weeklyRates(referrer, BASE_WEEK + 1);
-        (uint256 y1AtPlus2, uint256 y2AtPlus2, uint256 mAtPlus2) = hub.weeklyRates(referrer, BASE_WEEK + 2);
+        (
+            uint256 y1AtPlus0,
+            uint256 y2AtPlus0,
+            uint256 mAtPlus0
+        ) = hub.weeklyRates(
+            referrer,
+            BASE_WEEK
+        );
+
+        (
+            uint256 y1AtPlus1,
+            uint256 y2AtPlus1,
+            uint256 mAtPlus1
+        ) = hub.weeklyRates(
+            referrer,
+            BASE_WEEK + 1
+        );
+
+        (
+            uint256 y1AtPlus2,
+            uint256 y2AtPlus2,
+            uint256 mAtPlus2
+        ) = hub.weeklyRates(
+            referrer,
+            BASE_WEEK + 2
+        );
 
         assertEq(y1AtPlus0, 0);
         assertEq(y2AtPlus0, 0);
@@ -780,8 +854,23 @@ contract ReferralHubRatesTest is Test {
 
         _warpToWeek(5);
 
-        (uint256 y1Before, uint256 y2Before, uint256 mBefore) = hub.weeklyRates(referrer, BASE_WEEK + 2);
-        (uint256 y1After, uint256 y2After, uint256 mAfter) = hub.weeklyRates(referrer, BASE_WEEK + 3);
+        (
+            uint256 y1Before,
+            uint256 y2Before,
+            uint256 mBefore
+        ) = hub.weeklyRates(
+            referrer,
+            BASE_WEEK + 2
+        );
+
+        (
+            uint256 y1After,
+            uint256 y2After,
+            uint256 mAfter
+        ) = hub.weeklyRates(
+            referrer,
+            BASE_WEEK + 3
+        );
 
         assertEq(y1Before, 1_000);
         assertEq(y2Before, 500);
@@ -790,7 +879,14 @@ contract ReferralHubRatesTest is Test {
         assertEq(y2After, 0);
         assertEq(mAfter, 0);
 
-        (uint256 y1Replay, uint256 y2Replay, uint256 mReplay) = hub.weeklyRates(referrer, BASE_WEEK + 2);
+        (
+            uint256 y1Replay,
+            uint256 y2Replay,
+            uint256 mReplay
+        ) = hub.weeklyRates(
+            referrer,
+            BASE_WEEK + 2
+        );
 
         assertEq(y1Replay, 1_000);
         assertEq(y2Replay, 500);
@@ -821,8 +917,23 @@ contract ReferralHubRatesTest is Test {
 
         _warpToWeek(5);
 
-        (uint256 y1Genesis, uint256 y2Genesis, uint256 mGenesis) = hub.weeklyRates(referrer, BASE_WEEK + 2);
-        (uint256 y1Pushed, uint256 y2Pushed, uint256 mPushed) = hub.weeklyRates(referrer, BASE_WEEK + 3);
+        (
+            uint256 y1Genesis,
+            uint256 y2Genesis,
+            uint256 mGenesis
+        ) = hub.weeklyRates(
+            referrer,
+            BASE_WEEK + 2
+        );
+
+        (
+            uint256 y1Pushed,
+            uint256 y2Pushed,
+            uint256 mPushed
+        ) = hub.weeklyRates(
+            referrer,
+            BASE_WEEK + 3
+        );
 
         assertEq(y1Genesis, 1_000);
         assertEq(y2Genesis, 500);
@@ -860,7 +971,14 @@ contract ReferralHubRatesTest is Test {
 
         _warpToWeek(2);
 
-        (uint256 y1Bps, uint256 y2Bps, uint256 mBps) = hub.weeklyRates(referrer, BASE_WEEK + 2);
+        (
+            uint256 y1Bps,
+            uint256 y2Bps,
+            uint256 mBps
+        ) = hub.weeklyRates(
+            referrer,
+            BASE_WEEK + 2
+        );
 
         uint256 ladderSum = _genesisTierBps(
             _referredAbs

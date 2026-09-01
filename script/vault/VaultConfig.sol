@@ -7,7 +7,7 @@ import {CCIPConfig} from "../ccip/CCIPConfig.sol";
 /// carries the product key (VAULT_PRODUCT env, default "usdc") so the USDC and USDT meshes keep
 /// fully parallel configs: config/vault.<product>.<network>.json records a deploy,
 /// config/vault_deploy.<product>.<network>.json holds the per-chain init params, and
-/// config/vault_mesh.<product>[.testnet].json is the mesh manifest — canonical CREATE3 address,
+/// config/vault_mesh.<product>[.testnet].json is the mesh manifest: canonical CREATE3 address,
 /// deployer EOA, salt tag, peer decimals and the chain list with per-chain active flags. The
 /// testnet manifest is selected automatically by chainid.
 abstract contract VaultConfig is CCIPConfig {
@@ -474,7 +474,7 @@ abstract contract VaultConfig is CCIPConfig {
     /// a mainnet deploy reads (init params + mesh identity + CCIP endpoint), emitted at the
     /// sign-off gate; any later edit to the deploy, mesh or CCIP config that drifts from the
     /// approved lock aborts the broadcast. `vm.readFile` reverts when the lock is absent, so a
-    /// mainnet deploy can never run un-signed. Pure config-to-config comparison — no chain state.
+    /// mainnet deploy can never run un-signed. Pure config-to-config comparison, no chain state.
     function _assertSignoff(
         string memory _network
     )

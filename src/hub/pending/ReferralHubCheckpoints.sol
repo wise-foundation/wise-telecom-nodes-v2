@@ -11,21 +11,21 @@ import {CohortWeeks} from "../../diamond/shared/pending/CohortWeeks.sol";
  * late-arriving data.
  *
  * Checkpoint discipline: every score mutation calls
- * `_checkpointReferrer` AFTER applying the diff — the first mutation
+ * `_checkpointReferrer` AFTER applying the diff: the first mutation
  * of a week pushes a new entry, later same-week mutations update the
  * tail entry in place, so an entry always holds the referrer's
  * CLOSING values of its week and entries for past weeks can never
  * change again. The opening value of any week w is therefore the
  * value of the last entry with entryWeek < w (strict predecessor,
- * binary search), zero before the first entry — exact for every week
+ * binary search), zero before the first entry; exact for every week
  * with no anchor entries and no live-value fallback.
  *
  * Dwell-min (hub-side policy knob, genesis ON): ladder inputs
  * for week w are min(opening(w), opening(w-1)) per component, so a
  * deposit straddling a weekly boundary must dwell a full week before
  * it can raise the rate. The knob is week-versioned in the
- * append-only, future-only `dwellMinLog` — the same discipline as
- * the rate tables — so the setting that prices any week is fixed
+ * append-only, future-only `dwellMinLog` (the same discipline as
+ * the rate tables), so the setting that prices any week is fixed
  * once that week's opening boundary passes, and a policy change can
  * never re-verdict an undelivered past week. Every loop here is
  * log-bounded binary search; nothing iterates referrers or weeks.

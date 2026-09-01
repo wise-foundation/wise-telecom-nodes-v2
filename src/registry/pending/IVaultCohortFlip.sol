@@ -7,7 +7,7 @@ pragma solidity =0.8.36;
  * referrer-flip migration: relocate the user's local book credit from
  * the old to the new referrer. The vault reverts while its cohort
  * recorder is disarmed, which the registry treats as "defer and
- * retry later" — the pending-flip marker is restored and the
+ * retry later": the pending-flip marker is restored and the
  * migration stays poke-able forever.
  */
 interface IVaultCohortFlip {

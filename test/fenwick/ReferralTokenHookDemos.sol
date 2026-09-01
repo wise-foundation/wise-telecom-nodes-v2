@@ -10,12 +10,12 @@ import {ReferralTokenDemo} from "./ReferralTokenDemo.sol";
  * GraceFreezeHookFacet). Both inherit {ReferralTokenDemo} purely for
  * storage-layout alignment under DELEGATECALL and declare no storage
  * of their own; both require the transient `hookExecuting` flag so a
- * direct external call to the facet reverts — only the token's
+ * direct external call to the facet reverts; only the token's
  * `_runTransferHook` path can enter them, exactly like production.
  *
  * {RecordingTransferHookDemo} emits the full extent of what an
  * amount-less hook can ever observe: the two addresses plus whatever
- * it reads from host storage — here the PRE-transfer balances, which
+ * it reads from host storage: here the PRE-transfer balances, which
  * also proves the hook runs before `super` moves tokens. The amount
  * being transferred is structurally unobservable.
  *

@@ -159,7 +159,7 @@ contract RefundRejector {
 }
 
 /**
- * @dev Cross-chain sync suite for {ReferralRegistry} — the packed
+ * @dev Cross-chain sync suite for {ReferralRegistry}: the packed
  * sync key stamped by first local assignment, the min-merge algebra
  * fed through `mergeReferrer` (allowlisted vaults) and `ccipReceive`
  * (router/peer/replay gate), the flip coordination machinery
@@ -173,8 +173,8 @@ contract RefundRejector {
  * swap-remove). Merge convergence is pinned with fuzz: keys never
  * increase, merges of distinct keys commute, and repeat delivery of
  * the same pair is a silent no-op. The equal-key different-referrer
- * degenerate case is deliberately excluded from the commutation fuzz
- * — the register keeps the local side and flags the divergence with
+ * degenerate case is deliberately excluded from the commutation fuzz:
+ * the register keeps the local side and flags the divergence with
  * {SyncKeyCollision}, which the dedicated collision test pins.
  * Mock router, flip vault and refund rejector live at the top of
  * this file.

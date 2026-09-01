@@ -28,32 +28,32 @@ import {WiseTelecomNodesDiamondSelectors} from "./WiseTelecomNodesDiamondSelecto
 /// {UpgradeReferral}): the slot-77 shard recompiles every facet in the manifest and the
 /// referral facets now write the per-chain standalone {ReferralRegistry}, so installing the
 /// older script's builds would route stale bytecode. The LIVE diamond entry contracts are
-/// never redeployed and never migrated — this round only deploys NEW facet contracts and
+/// never redeployed and never migrated: this round only deploys NEW facet contracts and
 /// routes selectors through the diamond's existing 3-day timelock, plus one pointer write.
 ///
 /// Prerequisite (once per CHAIN, not per vault): {DeployReferralRegistry} has deployed the
 /// chain's registry, allowlisted this diamond, and recorded the address in
-/// `config/registry.<network>.json` — `propose()` fail-fasts if not.
+/// `config/registry.<network>.json`; `propose()` fail-fasts if not.
 ///
-/// TWO chained 3-day clocks per vault — the pointer trio selectors are NEW (not
+/// TWO chained 3-day clocks per vault; the pointer trio selectors are NEW (not
 /// genesis-routed), so `proposeReferralRegistry` only exists on the diamond after the
 /// selector round executes:
-///   `propose()`        — deploys the 12 manifest facets, proposes all 11 selector batches
+///   `propose()`        : deploys the 12 manifest facets, proposes all 11 selector batches
 ///                        AND the transfer-hook swap to {CohortHookFacet}. Clock 1 starts.
-///   `execute()`        — after 3 days: flips every batch, hook last. Idempotent
+///   `execute()`        : after 3 days: flips every batch, hook last. Idempotent
 ///                        (queuedAt-guarded), re-runnable after partial mining.
-///   `proposePointer()` — same day as execute(): starts clock 2 through the freshly-routed
+///   `proposePointer()` : same day as execute(): starts clock 2 through the freshly-routed
 ///                        {AdminFacet} trio, pointing at the config registry. Idempotent.
-///   `executePointer()` — after 3 more days: executes the pointer change (code + shape
+///   `executePointer()` : after 3 more days: executes the pointer change (code + shape
 ///                        probe onchain) and post-asserts pointer == config.
-///   `arm()`            — the separate go-live step: pre-asserts pointer wired AND this
+///   `arm()`            : the separate go-live step: pre-asserts pointer wired AND this
 ///                        diamond allowlisted on the registry, then
 ///                        `setCohortSyncEnabled(true)` (which itself requires the pointer
 ///                        onchain) and `bridgeGasLimit = 4M` (headroom for the atomic
 ///                        cross-chain carry apply on `ccipReceive`).
-///   `abort()`          — cancels every pending selector batch, the hook proposal and the
+///   `abort()`          : cancels every pending selector batch, the hook proposal and the
 ///                        pointer proposal (each pre-execute only).
-///   `status()`         — read-only sanity print for the runbook (no broadcast).
+///   `status()`         : read-only sanity print for the runbook (no broadcast).
 ///
 /// Ordering law the steps encode: registry deployed → diamond
 /// allowlisted → selectors live → pointer wired → arm LAST. Every intermediate state is
@@ -75,7 +75,7 @@ import {WiseTelecomNodesDiamondSelectors} from "./WiseTelecomNodesDiamondSelecto
 ///
 /// NOTHING here may be broadcast until the owner gives the explicit go-ahead. After a REAL
 /// broadcast is executed and verified, `git mv` the graduated
-/// files out of EVERY pending/ segment in the same commit — facets/pending/,
+/// files out of EVERY pending/ segment in the same commit: facets/pending/,
 /// declarations/pending/ (the shards this round's facets were compiled with),
 /// interfaces/pending/ and src/registry/pending/.
 contract UpgradeReferralRegistry is VaultConfig {

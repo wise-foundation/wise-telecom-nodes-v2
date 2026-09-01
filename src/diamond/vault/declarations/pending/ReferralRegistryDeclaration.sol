@@ -3,7 +3,7 @@
 pragma solidity =0.8.36;
 
 /**
- * @dev Referral-registry tail shard — declared but FOREVER VIRGIN.
+ * @dev Referral-registry tail shard, declared but FOREVER VIRGIN.
  * Referrer truth lives in the per-chain standalone
  * {ReferralRegistry}, reached through the slot-77 pointer in
  * {ReferralRegistryPointerDeclaration}; no shipped code path reads
@@ -13,7 +13,7 @@ pragma solidity =0.8.36;
  * `internal` so freshly compiled diamonds carry no auto-getter: a
  * `public` mapping here would give test diamonds a live
  * `referrerOf(address)` answering from this dead storage while live
- * diamonds (frozen genesis bytecode) have no such surface — the flip
+ * diamonds (frozen genesis bytecode) have no such surface; the flip
  * keeps both worlds on the identical registry-reading code path, the
  * routed {ReferralFacet} `getReferrerOf`. Distinct from {ReferralDeclaration},
  * which only transports opaque bridge payload bytes. Appended after

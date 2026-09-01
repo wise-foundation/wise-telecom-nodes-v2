@@ -10,7 +10,7 @@ import {CohortWeeks} from "../../diamond/shared/pending/CohortWeeks.sol";
  * dwell-min, cap and table lookup sits behind the single internal
  * `_weeklyRates`, so pending rate decisions and future ladder
  * changes are
- * hub-only changes with week-versioned history — nothing else in the
+ * hub-only changes with week-versioned history; nothing else in the
  * chain may compute a rate. Rates are expressed in bps of ANNUAL
  * commission on referred principal; pricing divides token-seconds by
  * `CohortWeeks.YEAR` in {ReferralHubIntake}.
@@ -18,7 +18,7 @@ import {CohortWeeks} from "../../diamond/shared/pending/CohortWeeks.sol";
  * `rateTables` is append-only and future-only: `_pushRateTable`
  * requires a strictly future effective week that strictly exceeds the
  * previous entry's, so the table that priced any week whose opening
- * boundary has passed can never change — past-verdict immutability
+ * boundary has passed can never change; past-verdict immutability
  * under table churn holds
  * by construction, with no second freezing mechanism. The genesis
  * entry seeds the launch ladder exactly: thresholds 5k/10k/20k/30k/
@@ -27,7 +27,7 @@ import {CohortWeeks} from "../../diamond/shared/pending/CohortWeeks.sol";
  * min(tier(self) + tier(referred), capBps = 1000) over dwell-min
  * ladder inputs, floor 0 implicit. Year-2 rate = 500 bps and mature
  * rate = 100 bps, paid only in weeks where the referrer's uncapped
- * year-1 ladder sum reaches a nonzero capBps — the same inputs, the
+ * year-1 ladder sum reaches a nonzero capBps: the same inputs, the
  * same cadence and the same immutability as the year-1 rate itself,
  * with no ranking state anywhere. Changing cap, tail rates or the
  * ladder is one `pushRateTable` call. A capBps above the table's

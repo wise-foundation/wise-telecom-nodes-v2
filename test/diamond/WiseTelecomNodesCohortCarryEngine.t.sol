@@ -39,7 +39,7 @@ contract OversizeCarryRegistry {
 /**
  * @dev Engine-level suite for the same-chain move-carry machinery in
  * {CohortRecorderBase}, driven through two standalone
- * {CohortCarryHarness} instances sharing ONE {ReferralRegistry} — the
+ * {CohortCarryHarness} instances sharing ONE {ReferralRegistry}, the
  * per-chain topology of production, without diamond wiring. Section A
  * proves the captured reduction walk: its `(ring, slot, take)` pairs
  * equal the exact storage delta the walk applied (every changed slot
@@ -51,12 +51,12 @@ contract OversizeCarryRegistry {
  * unreferred tracked-only envelope, per-slot conservation across
  * harnesses, and the engine-level A→B→A round trip returning the
  * source to byte-identical rings/book/tracked. Section C covers the
- * failure doctrine — every arm must degrade without reverting and
+ * failure doctrine: every arm must degrade without reverting and
  * without blocking: pointer unset (clamp-as-unreferred + skip),
  * lookup failure (full retry semantics, nothing mutated), revoked
  * allowlist (clamp lands, staging skipped), stale payloads
  * (discarded), malformed payloads (validator rejects wholesale),
- * empty mailbox, codeless registry — plus the per-component floor
+ * empty mailbox, codeless registry; plus the per-component floor
  * scaling and its lane-max cap.
  */
 contract WiseTelecomNodesCohortCarryEngineTest is Test {

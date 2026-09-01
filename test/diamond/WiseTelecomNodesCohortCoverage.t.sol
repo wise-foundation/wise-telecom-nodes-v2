@@ -49,7 +49,7 @@ contract MockUSD is ERC20 {
 
 /**
  * @dev Coverage-closure suite for the cohort recorder (pattern:
- * {WiseTelecomNodesAdminCoverage}) — the residual arms the behavioral
+ * {WiseTelecomNodesAdminCoverage}): the residual arms the behavioral
  * suites cannot reach through normal drivers: the `NotHookExecution`
  * guard on an engine entrypoint reached OUTSIDE the transient
  * `hookExecuting` bracket (requires deliberately routing an engine

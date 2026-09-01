@@ -58,7 +58,7 @@ contract CarryMockUSD is ERC20 {
  * message (data, sender, receiver, id) and then synchronously relays
  * it to the destination diamond's `ccipReceive` (as the DON would
  * after finality). Relay can be switched off so a recorded message
- * can be delivered later via `deliverLast` — after a warp, simulating
+ * can be delivered later via `deliverLast`: after a warp, simulating
  * in-flight time, or a second time, simulating a replay. Each
  * registered diamond maps to the chain selector it lives on so the
  * relayed `Any2EVMMessage` carries the correct source selector.
@@ -202,14 +202,14 @@ contract CarryMockRouter {
  * Covered behaviors: per-lane conservation across a partial bridge; a
  * full round trip landing at the oldest ring position on each hop
  * without inflating any lane; tracked-only carry for unreferred users;
- * the earliest-key merge on arrival in both directions — a local
+ * the earliest-key merge on arrival in both directions: a local
  * earlier key keeps the lanes under the local referrer, while a
  * carried earlier key flips the registry but defers the lanes to the
  * OLD referrer through the pending-flip marker (cover preservation)
  * until the permissionless poke migrates the book 1:1; the degrade
  * matrix (unarmed destination mints with zero recorder state, and
- * malformed or forged payloads — wrong length, wrong version, forged
- * tracked delta above the mint, referrer-zero with lanes — are
+ * malformed or forged payloads (wrong length, wrong version, forged
+ * tracked delta above the mint, referrer-zero with lanes) are
  * discarded while the mint stands); the armed source overriding
  * caller-supplied referral bytes with its own vault-built payload;
  * the unarmed source's carry-shape guard rejecting valid carry bytes

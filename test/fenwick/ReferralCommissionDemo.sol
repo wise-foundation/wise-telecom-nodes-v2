@@ -5,7 +5,7 @@ pragma solidity =0.8.36;
 import {ReferralTokenDemo} from "./ReferralTokenDemo.sol";
 
 /**
- * @dev ReferralCommissionDemo — sandbox for the per-vault RECORDER of
+ * @dev ReferralCommissionDemo: sandbox for the per-vault RECORDER of
  * the referral commission system, on top of the transfer-hook
  * practice stack. NOT production code and NOT wired into the
  * diamond; it rehearses the mechanism before a real facet is
@@ -16,24 +16,24 @@ import {ReferralTokenDemo} from "./ReferralTokenDemo.sol";
  * the mainnet hub. The vault is a
  * measuring instrument. Its entire job is to answer, exactly and
  * loop-free, "how much referred principal did each referrer have on
- * each age track, for how long" — and to keep that answer honest
+ * each age track, for how long", and to keep that answer honest
  * against every balance movement. Pricing those measurements is the
  * mainnet hub's job; this contract is the recorder shape.
  *
  * Engine ("three buckets, two rings"): per referrer the book tracks
- * bookY1/bookY2/bookM — total referred principal in its first year,
- * second year, and third year onward — plus per-week cohort rings
+ * bookY1/bookY2/bookM (total referred principal in its first year,
+ * second year, and third year onward) plus per-week cohort rings
  * (slot = week mod 52). Deposits enter ringYear1 at the current week;
  * at each weekly boundary the cohort born 52 weeks earlier graduates
  * ringYear1 -> ringYear2 and the one born 104 weeks earlier graduates
  * ringYear2 -> bookM, via pure slot arithmetic (the slot rotated at
- * boundary b is exactly b mod 52 — no search, no loop over deposits).
+ * boundary b is exactly b mod 52; no search, no loop over deposits).
  *
- * Crumbs: each settled week leaves one storage word per referrer —
+ * Crumbs: each settled week leaves one storage word per referrer,
  * three 80-bit lanes of token-seconds (time-weighted Y1, Y2, M) plus
  * a written flag. A crumb is a pure quantity: no rates, no status, no
  * referee identities. Lanes only ever grow until the walk crosses the
- * week's closing boundary, after which the crumb is final forever —
+ * week's closing boundary, after which the crumb is final forever,
  * which is what makes it safe to ship to the hub cumulatively and
  * price idempotently behind a max-cursor. Dormant fast-forward spans
  * are recorded as compressed crumb runs in gapLog (fromWeek,
@@ -41,22 +41,22 @@ import {ReferralTokenDemo} from "./ReferralTokenDemo.sol";
  * words.
  *
  * Never-block settle: the boundary walk is capped at 104
- * steps — after 104 rotations both rings are provably empty, so
- * anything beyond is a closed-form M-only tail plus one gap record —
+ * steps (after 104 rotations both rings are provably empty, so
+ * anything beyond is a closed-form M-only tail plus one gap record)
  * and the walk has no revert paths, because it runs inside the
  * amount-less transfer hook where a revert would veto the transfer
  * itself. `advanceBook` lets anyone pre-walk a dormant book in
  * bounded chunks so the hook path stays cheap in practice.
  *
- * Movement rules: the clamp is one-sided — any
+ * Movement rules: the clamp is one-sided. Any
  * ownership-changing movement (transfer, queue join, exit burn)
  * permanently reduces the referee's tracked contribution, the book
  * and the score by exactly tracked − held; NOTHING re-credits except
  * a fresh deposit or compound. Queue leave restores tokens but never
  * credit; queue fulfillment needs no referral action at all because
  * the discredit already happened at join. Book reductions consume the
- * youngest credit first — ringYear1 newest slot first, then ringYear2
- * newest first, then bookM — so every ambiguity resolves against the
+ * youngest credit first (ringYear1 newest slot first, then ringYear2
+ * newest first, then bookM), so every ambiguity resolves against the
  * beneficiary and a sell-plus-redeposit cycle cannot upgrade old
  * low-rate credit while fresh cover exists. System relocations
  * (moveBetweenVaults, bridge) are OUT of this sandbox's scope: they

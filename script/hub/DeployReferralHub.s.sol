@@ -6,31 +6,31 @@ import "forge-std/console2.sol";
 import {VaultConfig} from "../vault/VaultConfig.sol";
 import {ReferralHub} from "../../src/hub/pending/ReferralHub.sol";
 
-/// @notice Deploys the mainnet {ReferralHub} — ONE standalone instance on the hub chain,
+/// @notice Deploys the mainnet {ReferralHub}: ONE standalone instance on the hub chain,
 /// never per vault. Separate from the per-vault payout upgrade round for the same reason
 /// the registry deploy is: the round runs once per VAULT_PRODUCT while the hub exists
 /// exactly once, and the round's `proposeHub()` reads the address this script records in
 /// `config/hub.<network>.json`. The hub's USD token is a constructor immutable and MUST be
-/// the payout vault's own underlying — the vault-side pointer execute shape-probes exactly
+/// the payout vault's own underlying; the vault-side pointer execute shape-probes exactly
 /// that, so a hub deployed against the wrong token can never be wired.
 ///
 /// Phases (chain via --rpc-url; the payout vault is always the usdc product):
-///   `deploy()` — refuses to run if the chain's hub config already points at deployed code.
+///   `deploy()` : refuses to run if the chain's hub config already points at deployed code.
 ///                Broadcasts `new ReferralHub(usd)` (master = broadcast key, usd from
 ///                `config/vault.usdc.<network>.json`) and records the address in
 ///                `config/hub.<network>.json`.
-///   `wire()`   — hub-side master op, AFTER the vault-side pointer round executed:
+///   `wire()`   : hub-side master op, AFTER the vault-side pointer round executed:
 ///                `setPayoutVault(usdc diamond)` so deliveries book liability and claims
 ///                can pull funding. Idempotent.
-///   `wireFlush()` — hub-side master op for the flush transport, AFTER the per-vault
+///   `wireFlush()` : hub-side master op for the flush transport, AFTER the per-vault
 ///                cohort-flush rounds executed: sets the CCIP router (once), allowlists
 ///                every hub-chain vault as a local reporter, and registers every spoke
 ///                vault as a flush source and every spoke registry as a designation
 ///                source under its (chain selector, sender, chain id) triple, all read
-///                from the committed config files. Fully idempotent and skip-tolerant —
+///                from the committed config files. Fully idempotent and skip-tolerant:
 ///                a spoke whose vault or registry config does not exist yet is logged
 ///                and skipped, and re-running after it lands wires just the remainder.
-///   `status()` — read-only sanity print (no broadcast).
+///   `status()` : read-only sanity print (no broadcast).
 ///
 ///   forge script script/hub/DeployReferralHub.s.sol --sig "deploy()" --rpc-url mainnet --broadcast
 ///   forge script script/hub/DeployReferralHub.s.sol --sig "wireFlush()" --rpc-url mainnet --broadcast
