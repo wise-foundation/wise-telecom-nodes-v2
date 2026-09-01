@@ -22,9 +22,20 @@ pragma solidity =0.8.36;
  * key packed into the outbound bridge payload) and `mergeReferrer`
  * (the earliest-assignment merge applied on arrival) — the merge is
  * a guarded CALL too, and a failed merge only means the local answer
- * stands. The registry's master/allowlist admin surface is
- * deliberately absent — it is operated directly on the registry,
- * never through the diamonds.
+ * stands. The flush transport adds `getPayoutDesignation` — the
+ * {CohortFlushFacet} reads a referrer's own-chain payout designation
+ * through a guarded staticcall at envelope build time (the
+ * designation piggyback word), and a failed or unset read only means
+ * the envelope carries no designation. The retroactive seed adds
+ * `correctionsLatched` — {CohortRecorderFacet}'s master-only
+ * `seedCohortContribution` reverts once the registry's one-way
+ * correction latch has fired, so a single per-chain latch ends every
+ * master attribution power (corrections AND seeds) the moment payouts
+ * arm; this read is a plain interface call on purpose — an unset or
+ * unreachable registry makes seeding loudly impossible rather than
+ * silently permitted. The registry's master/allowlist
+ * admin surface is deliberately absent — it is operated directly on
+ * the registry, never through the diamonds.
  */
 interface IReferralRegistry {
 
@@ -84,4 +95,19 @@ interface IReferralRegistry {
             uint256 stagedAt,
             uint256[] memory payload
         );
+
+    function getPayoutDesignation(
+        address _owner
+    )
+        external
+        view
+        returns (
+            address payout,
+            uint256 stamp
+        );
+
+    function correctionsLatched()
+        external
+        view
+        returns (bool);
 }
