@@ -4,6 +4,7 @@ pragma solidity =0.8.36;
 
 import {WiseTelecomNodesDeclarations} from "../declarations/WiseTelecomNodesDeclarations.sol";
 import {IReferralRegistry} from "../interfaces/pending/IReferralRegistry.sol";
+import {IReferralPayoutHub} from "../interfaces/pending/IReferralPayoutHub.sol";
 
 /**
  * @dev Base helper layer: access modifiers (`supplyChangeAllowed`),
@@ -376,6 +377,185 @@ abstract contract WiseTelecomNodesBaseHelper is WiseTelecomNodesDeclarations {
             && returnData.length == 32;
     }
 
+    function _updatePayoutHub(
+        address _hub
+    )
+        internal
+    {
+        payoutHub = _hub;
+
+        emit PayoutHubSet(
+            _hub
+        );
+    }
+
+    function _proposePayoutHub(
+        address _hub
+    )
+        internal
+    {
+        proposedPayoutHub = _hub;
+        payoutHubChangeQueuedAt = block.timestamp;
+
+        emit PayoutHubProposed(
+            _hub,
+            block.timestamp + PAYOUT_HUB_CHANGE_DELAY
+        );
+    }
+
+    function _applyPayoutHubChange()
+        internal
+    {
+        require(
+            payoutHubChangeQueuedAt > 0,
+            NoPayoutHubChangeProposed()
+        );
+
+        if (initialized) {
+            require(
+                block.timestamp >= payoutHubChangeQueuedAt + PAYOUT_HUB_CHANGE_DELAY,
+                PayoutHubTimelockNotElapsed()
+            );
+        }
+
+        address newHub = proposedPayoutHub;
+
+        require(
+            newHub == ZERO_ADDRESS
+                || _probePayoutHub(newHub),
+            InvalidValue()
+        );
+
+        proposedPayoutHub = ZERO_ADDRESS;
+        payoutHubChangeQueuedAt = 0;
+
+        _updatePayoutHub(
+            newHub
+        );
+    }
+
+    function _cancelPayoutHubChange()
+        internal
+    {
+        address cancelled = proposedPayoutHub;
+
+        proposedPayoutHub = ZERO_ADDRESS;
+        payoutHubChangeQueuedAt = 0;
+
+        emit PayoutHubProposalCancelled(
+            cancelled
+        );
+    }
+
+    function _probePayoutHub(
+        address _hub
+    )
+        internal
+        view
+        returns (bool)
+    {
+        if (_hub.code.length == 0) {
+            return false;
+        }
+
+        (
+            bool success,
+            bytes memory returnData
+        ) = _hub.staticcall(
+            abi.encodeWithSelector(
+                IReferralPayoutHub.USD_TOKEN.selector
+            )
+        );
+
+        return success
+            && returnData.length == 32
+            && abi.decode(
+                returnData,
+                (address)
+            ) == address(USD_TOKEN);
+    }
+
+    function _updateFlushHub(
+        address _hub,
+        uint64 _chainSelector
+    )
+        internal
+    {
+        flushHub = _hub;
+        flushHubChainSelector = _chainSelector;
+
+        emit FlushHubSet(
+            _hub,
+            _chainSelector
+        );
+    }
+
+    function _proposeFlushHub(
+        address _hub,
+        uint64 _chainSelector
+    )
+        internal
+    {
+        proposedFlushHub = _hub;
+        proposedFlushHubChainSelector = _chainSelector;
+        flushHubChangeQueuedAt = block.timestamp;
+
+        emit FlushHubProposed(
+            _hub,
+            _chainSelector,
+            block.timestamp + FLUSH_HUB_CHANGE_DELAY
+        );
+    }
+
+    function _applyFlushHubChange()
+        internal
+    {
+        require(
+            flushHubChangeQueuedAt > 0,
+            NoFlushHubChangeProposed()
+        );
+
+        if (initialized) {
+            require(
+                block.timestamp >= flushHubChangeQueuedAt + FLUSH_HUB_CHANGE_DELAY,
+                FlushHubTimelockNotElapsed()
+            );
+        }
+
+        address newHub = proposedFlushHub;
+
+        uint64 newSelector = proposedFlushHubChainSelector;
+
+        require(
+            newHub != ZERO_ADDRESS
+                || newSelector == 0,
+            InvalidValue()
+        );
+
+        proposedFlushHub = ZERO_ADDRESS;
+        proposedFlushHubChainSelector = 0;
+        flushHubChangeQueuedAt = 0;
+
+        _updateFlushHub(
+            newHub,
+            newSelector
+        );
+    }
+
+    function _cancelFlushHubChange()
+        internal
+    {
+        address cancelled = proposedFlushHub;
+
+        proposedFlushHub = ZERO_ADDRESS;
+        proposedFlushHubChainSelector = 0;
+        flushHubChangeQueuedAt = 0;
+
+        emit FlushHubProposalCancelled(
+            cancelled
+        );
+    }
+
     function _proposeWorkerAddress(
         address _worker
     )
@@ -666,6 +846,23 @@ abstract contract WiseTelecomNodesBaseHelper is WiseTelecomNodesDeclarations {
                 COHORT_ADVANCE_SELECTOR,
                 _referrer,
                 _maxBoundaries
+            )
+        );
+    }
+
+    function _cohortSettle(
+        address _referrer
+    )
+        internal
+    {
+        if (cohortSyncEnabled == false) {
+            return;
+        }
+
+        _runCohortHook(
+            abi.encodeWithSelector(
+                COHORT_SETTLE_SELECTOR,
+                _referrer
             )
         );
     }
