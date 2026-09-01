@@ -3,6 +3,7 @@
 pragma solidity =0.8.36;
 
 import {ReferralHubRates} from "./ReferralHubRates.sol";
+import {IReferralPayoutVault} from "./IReferralPayoutVault.sol";
 import {CohortWeeks} from "../../diamond/shared/pending/CohortWeeks.sol";
 
 /**
@@ -47,11 +48,33 @@ import {CohortWeeks} from "../../diamond/shared/pending/CohortWeeks.sol";
  * mature principal could not have come from the recorder — one whose
  * per-week token-seconds would overflow the frozen 80-bit lane —
  * rejects as invalid rather than corrupting cursor geometry.
- * `deliverer` is stamped from `msg.sender` into every pricing event;
- * the bot share applies only to future cross-chain transport
- * (mainnet deliveries are always 100% referrer), so the split
- * arithmetic deliberately does not exist here — it attaches at the
- * accrual site when a non-100% deliverer first becomes reachable.
+ * Every delivery threads its origin `(chainId, deliverer)` pair down
+ * to the accrual site: local reporter entrypoints pass
+ * `(block.chainid, msg.sender)`, the mailbox passes the message's
+ * authenticated origin chain and the deliverer stamped into the
+ * envelope header. The courier share attaches exactly here, in
+ * `_payIncrements`: when the delivery is remote (`_chainId` differs
+ * from the executing chain) and the deliverer is not the referrer,
+ * `botShareBps` of the freshly priced amount credits the
+ * deliverer's own (source chain, deliverer) claimable bucket and
+ * the remainder the referrer's — evaluated per priced (referrer,
+ * week) entry, so an own-book flush always pays 100% to the
+ * referrer, and local deliveries always do (the split condition is
+ * structurally false for them). `totalAccrued` counts the full
+ * priced amount, so the accounting identity is unchanged by the
+ * split.
+ *
+ * Claimables key per source chain: local deliveries write the
+ * executing chain's bucket; remote deliveries write their
+ * authenticated origin chain's. Freshly priced
+ * commission also books as liability on the payout vault:
+ * `_bookAccrual` raises the vault's pending-payout accumulator by
+ * the `totalAccrued − totalBooked` delta — ONE external call per
+ * delivery batch (or catch-up poke), never per priced week — and
+ * skips silently while the vault pointer is unset (accrual-only
+ * mode; the delta catches up on the first booking after wiring).
+ * The raise call is trusted: the vault gates it to this hub's
+ * timelocked address and never calls back.
  */
 abstract contract ReferralHubIntake is ReferralHubRates {
 
@@ -103,7 +126,9 @@ abstract contract ReferralHubIntake is ReferralHubRates {
         bytes32 _source,
         address _referrer,
         uint256 _week,
-        uint256 _word
+        uint256 _word,
+        uint256 _chainId,
+        address _deliverer
     )
         internal
     {
@@ -128,7 +153,9 @@ abstract contract ReferralHubIntake is ReferralHubRates {
             _source,
             _referrer,
             _week,
-            _word & ~CohortWeeks.CRUMB_WRITTEN_BIT
+            _word & ~CohortWeeks.CRUMB_WRITTEN_BIT,
+            _chainId,
+            _deliverer
         );
 
         if (incrementWord == 0) {
@@ -139,7 +166,7 @@ abstract contract ReferralHubIntake is ReferralHubRates {
             _source,
             _referrer,
             _week,
-            msg.sender,
+            _deliverer,
             CohortWeeks.laneY1(incrementWord),
             CohortWeeks.laneY2(incrementWord),
             CohortWeeks.laneM(incrementWord),
@@ -152,7 +179,9 @@ abstract contract ReferralHubIntake is ReferralHubRates {
         address _referrer,
         uint256 _record,
         uint256 _fromWeek,
-        uint256 _maxWeeks
+        uint256 _maxWeeks,
+        uint256 _chainId,
+        address _deliverer
     )
         internal
     {
@@ -179,7 +208,9 @@ abstract contract ReferralHubIntake is ReferralHubRates {
             _referrer,
             mature * CohortWeeks.WEEK,
             _fromWeek,
-            end
+            end,
+            _chainId,
+            _deliverer
         );
 
         if (incrementTotal == 0) {
@@ -189,6 +220,7 @@ abstract contract ReferralHubIntake is ReferralHubRates {
         emit GapPriced(
             _source,
             _referrer,
+            _deliverer,
             _fromWeek,
             end,
             paidTotal
@@ -256,7 +288,9 @@ abstract contract ReferralHubIntake is ReferralHubRates {
         address _referrer,
         uint256 _mQuantity,
         uint256 _fromWeek,
-        uint256 _end
+        uint256 _end,
+        uint256 _chainId,
+        address _deliverer
     )
         internal
         returns (
@@ -279,7 +313,9 @@ abstract contract ReferralHubIntake is ReferralHubRates {
                 _source,
                 _referrer,
                 week,
-                quantityWord
+                quantityWord,
+                _chainId,
+                _deliverer
             );
 
             paidTotal += paid;
@@ -292,7 +328,9 @@ abstract contract ReferralHubIntake is ReferralHubRates {
         bytes32 _source,
         address _referrer,
         uint256 _week,
-        uint256 _quantityWord
+        uint256 _quantityWord,
+        uint256 _chainId,
+        address _deliverer
     )
         internal
         returns (
@@ -321,7 +359,9 @@ abstract contract ReferralHubIntake is ReferralHubRates {
         paid = _payIncrements(
             _referrer,
             _week,
-            incrementWord
+            incrementWord,
+            _chainId,
+            _deliverer
         );
     }
 
@@ -393,7 +433,9 @@ abstract contract ReferralHubIntake is ReferralHubRates {
     function _payIncrements(
         address _referrer,
         uint256 _week,
-        uint256 _incrementWord
+        uint256 _incrementWord,
+        uint256 _chainId,
+        address _deliverer
     )
         internal
         returns (uint256 paid)
@@ -411,10 +453,60 @@ abstract contract ReferralHubIntake is ReferralHubRates {
             + CohortWeeks.laneY2(_incrementWord) * y2Bps / BPS_DENOMINATOR / CohortWeeks.YEAR
             + CohortWeeks.laneM(_incrementWord) * mBps / BPS_DENOMINATOR / CohortWeeks.YEAR;
 
-        if (paid > 0) {
-            claimable[_referrer] += paid;
-            totalAccrued += paid;
+        if (paid == 0) {
+            return 0;
         }
+
+        uint256 delivererShare;
+
+        if (
+            _chainId != block.chainid
+                && _deliverer != _referrer
+        ) {
+            delivererShare = paid * botShareBps / BPS_DENOMINATOR;
+        }
+
+        if (delivererShare > 0) {
+
+            claimable[_chainId][_deliverer] += delivererShare;
+
+            emit DelivererSharePaid(
+                _chainId,
+                _deliverer,
+                _referrer,
+                delivererShare
+            );
+        }
+
+        claimable[_chainId][_referrer] += paid - delivererShare;
+
+        totalAccrued += paid;
+    }
+
+    function _bookAccrual()
+        internal
+    {
+        address vault = payoutVault;
+
+        if (vault == ZERO_ADDRESS) {
+            return;
+        }
+
+        uint256 delta = totalAccrued - totalBooked;
+
+        if (delta == 0) {
+            return;
+        }
+
+        totalBooked = totalAccrued;
+
+        IReferralPayoutVault(vault).raisePendingReferralPayout(
+            delta
+        );
+
+        emit PayoutLiabilityBooked(
+            delta
+        );
     }
 
     function _laneIncrement(
