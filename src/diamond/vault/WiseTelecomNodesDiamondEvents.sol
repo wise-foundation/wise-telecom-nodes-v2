@@ -194,6 +194,10 @@ abstract contract WiseTelecomNodesDiamondEvents {
         uint256 totalCashedInterest
     );
 
+    event PendingReferralPayoutChanged(
+        uint256 pendingReferralPayout
+    );
+
     event CashedInterestSet(
         address indexed user,
         uint256 previousAmount,
@@ -326,6 +330,11 @@ abstract contract WiseTelecomNodesDiamondEvents {
     event CohortContributionCredited(
         address indexed user,
         address indexed referrer,
+        uint256 amount
+    );
+
+    event CohortContributionSeeded(
+        address indexed user,
         uint256 amount
     );
 
@@ -572,5 +581,70 @@ abstract contract WiseTelecomNodesDiamondEvents {
 
     event AutoCompoundFeeBpsSet(
         uint256 autoCompoundFeeBps
+    );
+
+    // ---- Referral payout hub ----
+
+    event PayoutHubSet(
+        address payoutHub
+    );
+
+    event PayoutHubProposed(
+        address indexed proposedPayoutHub,
+        uint256 executableAt
+    );
+
+    event PayoutHubProposalCancelled(
+        address indexed cancelledPayoutHub
+    );
+
+    // ---- Cohort flush ----
+
+    event FlushHubSet(
+        address flushHub,
+        uint64 flushHubChainSelector
+    );
+
+    event FlushHubProposed(
+        address indexed proposedFlushHub,
+        uint64 proposedFlushHubChainSelector,
+        uint256 executableAt
+    );
+
+    event FlushHubProposalCancelled(
+        address indexed cancelledFlushHub
+    );
+
+    event FlushBotAllowedSet(
+        address indexed bot,
+        bool allowed
+    );
+
+    event PublicFlushEnabledSet(
+        bool enabled
+    );
+
+    event FlushGasLimitSet(
+        uint64 flushGasLimit
+    );
+
+    event CohortFlushSent(
+        bytes32 indexed messageId,
+        uint64 indexed destChainSelector,
+        address indexed deliverer,
+        uint256 entryCount
+    );
+
+    event CohortFlushDelivered(
+        address indexed flushHub,
+        address indexed deliverer,
+        uint256 entryCount
+    );
+
+    event CohortReferrerFlushed(
+        address indexed referrer,
+        uint256 flushedThroughWeek,
+        uint256 flushedGapIndex,
+        uint256 gapResumeWeek
     );
 }

@@ -136,6 +136,10 @@ abstract contract WiseTelecomNodesDiamondErrors {
 
     error CohortHookNotInstalled();
 
+    error NothingToSeed();
+
+    error SeedingLatched();
+
     // ---- Queue surface ----
 
     error ZeroAmount();
@@ -177,4 +181,36 @@ abstract contract WiseTelecomNodesDiamondErrors {
     error AutoCompoundNotAllowed();
 
     error AutoCompoundFeeTooHigh();
+
+    // ---- Referral payout hub ----
+
+    error NoPayoutHubChangeProposed();
+
+    error PayoutHubTimelockNotElapsed();
+
+    error NotPayoutHub();
+
+    error ExceedsPendingPayout();
+
+    // ---- Cohort flush ----
+
+    error FlushHubNotSet();
+
+    error NoFlushHubChangeProposed();
+
+    error FlushHubTimelockNotElapsed();
+
+    error NotFlushBot();
+
+    error NothingToFlush();
+
+    error FlushBatchTooLarge();
+
+    error FlushWindowInvalid();
+
+    error InsufficientFlushFee();
+
+    error FlushRefundFailed();
+
+    error InvalidFlushGasLimit();
 }
