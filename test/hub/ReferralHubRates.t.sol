@@ -47,6 +47,8 @@ contract ReferralHubRatesTest is Test {
 
     address internal stranger = address(0xBEEF);
 
+    address internal usdToken = address(0xF01);
+
     ReferralHub internal hub;
 
     function setUp()
@@ -56,7 +58,9 @@ contract ReferralHubRatesTest is Test {
             BASE_TIME
         );
 
-        hub = new ReferralHub();
+        hub = new ReferralHub(
+            usdToken
+        );
 
         hub.setAllowedReporter(
             address(this),

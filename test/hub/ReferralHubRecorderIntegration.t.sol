@@ -85,6 +85,7 @@ contract ReferralHubRecorderIntegrationTest is DiamondTestHarness {
     event GapPriced(
         bytes32 indexed source,
         address indexed referrer,
+        address deliverer,
         uint256 fromWeek,
         uint256 toWeekExclusive,
         uint256 paid
@@ -146,7 +147,9 @@ contract ReferralHubRecorderIntegrationTest is DiamondTestHarness {
             true
         );
 
-        hub = new ReferralHub();
+        hub = new ReferralHub(
+            address(usd)
+        );
 
         hub.setAllowedReporter(
             address(this),
@@ -431,7 +434,7 @@ contract ReferralHubRecorderIntegrationTest is DiamondTestHarness {
         );
 
         assertEq(
-            hub.claimable(refA),
+            hub.claimable(block.chainid, refA),
             expected
         );
 
@@ -483,13 +486,13 @@ contract ReferralHubRecorderIntegrationTest is DiamondTestHarness {
             0
         );
 
-        uint256 claimableBefore = hub.claimable(refA);
+        uint256 claimableBefore = hub.claimable(block.chainid, refA);
         uint256 totalAccruedBefore = hub.totalAccrued();
 
         bytes32 source = _sourceKey();
 
         vm.expectEmit(true, true, false, true, address(hub));
-        emit GapPriced(source, refA, 3_208, 3_258, 0);
+        emit GapPriced(source, refA, address(this), 3_208, 3_258, 0);
 
         hub.deliverGap(
             refA,
@@ -499,7 +502,7 @@ contract ReferralHubRecorderIntegrationTest is DiamondTestHarness {
         );
 
         vm.expectEmit(true, true, false, true, address(hub));
-        emit GapPriced(source, refA, 3_258, 3_300, 0);
+        emit GapPriced(source, refA, address(this), 3_258, 3_300, 0);
 
         hub.deliverGap(
             refA,
@@ -509,7 +512,7 @@ contract ReferralHubRecorderIntegrationTest is DiamondTestHarness {
         );
 
         assertEq(
-            hub.claimable(refA),
+            hub.claimable(block.chainid, refA),
             claimableBefore
         );
 
@@ -592,7 +595,7 @@ contract ReferralHubRecorderIntegrationTest is DiamondTestHarness {
             66
         );
 
-        uint256 claimableAfterFirst = hub.claimable(refA);
+        uint256 claimableAfterFirst = hub.claimable(block.chainid, refA);
         uint256 totalAfterFirst = hub.totalAccrued();
 
         assertGt(
@@ -619,7 +622,7 @@ contract ReferralHubRecorderIntegrationTest is DiamondTestHarness {
         );
 
         assertEq(
-            hub.claimable(refA),
+            hub.claimable(block.chainid, refA),
             claimableAfterFirst
         );
 
@@ -707,7 +710,7 @@ contract ReferralHubRecorderIntegrationTest is DiamondTestHarness {
         );
 
         assertEq(
-            hub.claimable(refA),
+            hub.claimable(block.chainid, refA),
             expected
         );
     }
@@ -876,7 +879,7 @@ contract ReferralHubRecorderIntegrationTest is DiamondTestHarness {
             wordsBatch
         );
 
-        uint256 claimableAfterFirst = hub.claimable(refA);
+        uint256 claimableAfterFirst = hub.claimable(block.chainid, refA);
         uint256 totalAfterFirst = hub.totalAccrued();
 
         assertGt(
@@ -891,7 +894,7 @@ contract ReferralHubRecorderIntegrationTest is DiamondTestHarness {
         );
 
         assertEq(
-            hub.claimable(refA),
+            hub.claimable(block.chainid, refA),
             claimableAfterFirst
         );
 
