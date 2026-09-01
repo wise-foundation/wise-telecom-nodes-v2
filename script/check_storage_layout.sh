@@ -22,6 +22,7 @@ FACETS=(
     BurnWiseFacet
     CashedInterestFacet
     CohortBridgeHookFacet
+    CohortFlushFacet
     CohortHookFacet
     CohortRecorderFacet
     GraceAccumHookFacet
