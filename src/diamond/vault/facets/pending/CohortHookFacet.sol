@@ -137,6 +137,23 @@ contract CohortHookFacet is CohortRecorderBase {
         );
     }
 
+    function applyCohortSettle(
+        address _referrer
+    )
+        external
+        payable
+        onlyDelegateCall
+    {
+        require(
+            hookExecuting,
+            NotHookExecution()
+        );
+
+        _settleBookCohort(
+            _referrer
+        );
+    }
+
     function applyCohortMoveOut(
         address _user,
         address _dstVault,
