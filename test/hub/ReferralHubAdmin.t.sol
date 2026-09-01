@@ -28,6 +28,7 @@ contract ReferralHubAdminTest is Test {
     );
 
     event PayoutAddressSet(
+        uint256 indexed chainId,
         address indexed owner,
         address indexed payout
     );
@@ -46,6 +47,8 @@ contract ReferralHubAdminTest is Test {
 
     address internal payoutAddr = address(0xF1);
 
+    address internal usdToken = address(0xF01);
+
     ReferralHub internal hub;
 
     function setUp()
@@ -55,7 +58,9 @@ contract ReferralHubAdminTest is Test {
             BASE_TIME
         );
 
-        hub = new ReferralHub();
+        hub = new ReferralHub(
+            usdToken
+        );
     }
 
     // ---- helpers ----
@@ -292,17 +297,18 @@ contract ReferralHubAdminTest is Test {
     function test_payoutAddress_defaultSelfThenSetThenResetToSelf()
         public
     {
-        assertEq(hub.payoutAddressOf(refA), refA);
+        assertEq(hub.payoutAddressOf(block.chainid, refA), refA);
 
         vm.expectEmit(
             true,
             true,
-            false,
+            true,
             true,
             address(hub)
         );
 
         emit PayoutAddressSet(
+            block.chainid,
             refA,
             payoutAddr
         );
@@ -315,7 +321,9 @@ contract ReferralHubAdminTest is Test {
             payoutAddr
         );
 
-        assertEq(hub.payoutAddressOf(refA), payoutAddr);
+        assertEq(hub.payoutAddressOf(block.chainid, refA), payoutAddr);
+
+        assertEq(hub.payoutStamp(block.chainid, refA), block.timestamp << 8);
 
         vm.prank(
             refA
@@ -325,7 +333,7 @@ contract ReferralHubAdminTest is Test {
             address(0)
         );
 
-        assertEq(hub.payoutAddressOf(refA), refA);
+        assertEq(hub.payoutAddressOf(block.chainid, refA), refA);
     }
 
     // ---- reportScores validation ----

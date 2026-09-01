@@ -67,6 +67,8 @@ contract ReferralHubCheckpointsTest is Test {
     address internal refB = address(0xC2);
     address internal stranger = address(0xBEEF);
 
+    address internal usdToken = address(0xF01);
+
     ReferralHub internal hub;
 
     mapping(uint256 => bytes32) internal journalFoldA;
@@ -80,7 +82,9 @@ contract ReferralHubCheckpointsTest is Test {
             BASE_TIME
         );
 
-        hub = new ReferralHub();
+        hub = new ReferralHub(
+            usdToken
+        );
 
         hub.setAllowedReporter(
             address(this),

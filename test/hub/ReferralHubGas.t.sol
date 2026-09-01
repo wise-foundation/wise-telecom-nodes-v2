@@ -5,6 +5,8 @@ pragma solidity =0.8.36;
 import {Test} from "forge-std/Test.sol";
 import {console} from "forge-std/console.sol";
 
+import {Client} from "@chainlink/contracts-ccip/contracts/libraries/Client.sol";
+
 import {ReferralHub} from "../../src/hub/pending/ReferralHub.sol";
 import {CohortWeeks} from "../../src/diamond/shared/pending/CohortWeeks.sol";
 
@@ -49,15 +51,25 @@ import {CohortWeeks} from "../../src/diamond/shared/pending/CohortWeeks.sol";
  *    per-week cost of the `_priceGapWindow` loop. The delivered
  *    window opens two weeks after the seed report so dwell-min has
  *    matured for every priced week.
+ * 5. `ccipReceive` mailbox commit of a MAXIMUM-size flush envelope
+ *    (465 words — 16 entries at the full work cap with designation
+ *    words, the largest byte count the caps admit): the receive path
+ *    does only the commitment hash, one SSTORE and the payload
+ *    event, and the measurement pins it under the 300k
+ *    FLUSH_GAS_LIMIT default — the budget every spoke pays for
+ *    cross-chain delivery, so this ceiling is semantic, not merely a
+ *    regression guard. The store never parses, so the words carry
+ *    arbitrary values — only the size is load-bearing.
  *
  * Measured numbers are documented next to the ceilings so a future
  * regression shows in the review diff, not only in a failing
  * assertion; they are re-measured — and this table re-pasted — after
  * ANY change to the hub sources: reportScores first-ever (cell 1)
- * 102,220; reportScores same-week repeat (cell 2) 48,386;
- * deliverCrumbs single week/word (cell 3) 112,476; deliverGap
- * 10-week window 408,728, 60-week window 2,088,816, marginal
- * per-week (cell 4) 33,601.
+ * 102,258; reportScores same-week repeat (cell 2) 48,424;
+ * deliverCrumbs single week/word (cell 3) 114,865; deliverGap
+ * 10-week window 413,549, 60-week window 2,105,387, marginal
+ * per-week (cell 4) 33,836; ccipReceive max envelope (cell 5)
+ * 168,988.
  */
 contract ReferralHubGasTest is Test {
 
@@ -67,6 +79,8 @@ contract ReferralHubGasTest is Test {
 
     address internal constant REFERRER = address(0xB1);
 
+    address internal constant USD_STUB = address(0xF01);
+
     uint256 internal constant FIRST_TOUCH_GAS_CEILING = 105_000;
 
     uint256 internal constant SAME_WEEK_REPEAT_GAS_CEILING = 50_000;
@@ -74,6 +88,12 @@ contract ReferralHubGasTest is Test {
     uint256 internal constant CRUMB_GAS_CEILING = 116_000;
 
     uint256 internal constant GAP_PER_WEEK_GAS_CEILING = 34_600;
+
+    uint256 internal constant FLUSH_RECEIVE_GAS_CEILING = 300_000;
+
+    address internal constant ROUTER = address(0xF1);
+
+    ReferralHub internal hubReceive;
 
     ReferralHub internal hubFirstTouch;
 
@@ -92,14 +112,18 @@ contract ReferralHubGasTest is Test {
             BASE_TIME
         );
 
-        hubFirstTouch = new ReferralHub();
+        hubFirstTouch = new ReferralHub(
+            USD_STUB
+        );
 
         hubFirstTouch.setAllowedReporter(
             REPORTER,
             true
         );
 
-        hubRepeat = new ReferralHub();
+        hubRepeat = new ReferralHub(
+            USD_STUB
+        );
 
         hubRepeat.setAllowedReporter(
             REPORTER,
@@ -116,7 +140,9 @@ contract ReferralHubGasTest is Test {
             0
         );
 
-        hubCrumb = new ReferralHub();
+        hubCrumb = new ReferralHub(
+            USD_STUB
+        );
 
         hubCrumb.setAllowedReporter(
             REPORTER,
@@ -133,11 +159,30 @@ contract ReferralHubGasTest is Test {
             0
         );
 
-        hubGap10 = new ReferralHub();
-        hubGap60 = new ReferralHub();
+        hubGap10 = new ReferralHub(
+            USD_STUB
+        );
+
+        hubGap60 = new ReferralHub(
+            USD_STUB
+        );
 
         _seedGap(hubGap10);
         _seedGap(hubGap60);
+
+        hubReceive = new ReferralHub(
+            USD_STUB
+        );
+
+        hubReceive.setCcipRouter(
+            ROUTER
+        );
+
+        hubReceive.setFlushSource(
+            7_777,
+            address(0xE1),
+            8_453
+        );
     }
 
     // ---- helpers ----
@@ -328,5 +373,44 @@ contract ReferralHubGasTest is Test {
         console.log("GAS|deliverGap window10", g10);
         console.log("GAS|deliverGap window60", g60);
         console.log("GAS|deliverGap perWeekMarginal", perWeek);
+    }
+
+    // ---- Cell 5: mailbox receive of a maximum-size envelope ----
+
+    function test_gas_ccipReceive_maxEnvelopeUnderFlushBudget()
+        public
+    {
+        uint256[] memory words = new uint256[](465);
+
+        for (uint256 i; i < words.length; ++i) {
+            words[i] = i + 1;
+        }
+
+        Client.Any2EVMMessage memory message = Client.Any2EVMMessage({
+            messageId: bytes32(uint256(1)),
+            sourceChainSelector: 7_777,
+            sender: abi.encode(
+                address(0xE1)
+            ),
+            data: abi.encodePacked(
+                words
+            ),
+            destTokenAmounts: new Client.EVMTokenAmount[](0)
+        });
+
+        bytes memory payload = abi.encodeWithSelector(
+            hubReceive.ccipReceive.selector,
+            message
+        );
+
+        vm.prank(
+            ROUTER
+        );
+
+        uint256 g = _measure(address(hubReceive), payload);
+
+        assertLe(g, FLUSH_RECEIVE_GAS_CEILING);
+
+        console.log("GAS|ccipReceive maxEnvelope", g);
     }
 }

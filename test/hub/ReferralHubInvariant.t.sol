@@ -4,8 +4,40 @@ pragma solidity =0.8.36;
 
 import {Test} from "forge-std/Test.sol";
 
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+
+import {Client} from "@chainlink/contracts-ccip/contracts/libraries/Client.sol";
+
 import {ReferralHub} from "../../src/hub/pending/ReferralHub.sol";
 import {CohortWeeks} from "../../src/diamond/shared/pending/CohortWeeks.sol";
+
+contract MockUSD is ERC20 {
+
+    constructor()
+        ERC20("Mock USD", "MUSD")
+    {}
+
+    function decimals()
+        public
+        pure
+        override
+        returns (uint8)
+    {
+        return 6;
+    }
+
+    function mint(
+        address _to,
+        uint256 _amount
+    )
+        external
+    {
+        _mint(
+            _to,
+            _amount
+        );
+    }
+}
 
 /**
  * @dev Drives the mainnet referral hub through bounded random
@@ -25,6 +57,23 @@ import {CohortWeeks} from "../../src/diamond/shared/pending/CohortWeeks.sol";
  * after a week can no longer move its opening scores, and rate tables
  * are future-only — so for a strictly-past week the handler's view
  * read and the hub's pricing read can never diverge).
+ *
+ * The mailbox action (`deliverRemoteCrumbs`) drives the same cell
+ * discipline through the cross-chain path: one registered remote
+ * vault delivers single-crumb envelopes via a pranked router
+ * `ccipReceive` followed immediately by the permissionless
+ * `applyFlush`, alternating the stamped deliverer between a fixed
+ * courier (bot-share split) and the referrer itself (own-book, no
+ * split). Remote cursors live under the hashed source key the
+ * address-derived `paidCursorAt` view cannot reach, so the handler
+ * keeps a PURE ghost cursor for remote cells (it is the sole writer
+ * of that source — the ghost is the truth) and the per-cell
+ * hub-cursor assert skips them; the `totalAccrued` equality still
+ * cross-checks their pricing exactly, and the split can never change
+ * the accounting identity because deliverer share plus referrer
+ * remainder always equals the priced amount. Remote envelope scores
+ * are grow-only ghosts mirrored into `ghostRemoteReferred/Self` so
+ * the I3 aggregate identity extends to the hashed source.
  *
  * Ghost state: `ghostCrumbWord` (per cell, last word this handler
  * chose to send, grow-or-replay only); `ghostCursorY1/Y2/M` and
@@ -66,6 +115,16 @@ contract ReferralHubInvariantHandler is Test {
 
     uint256 internal constant MAX_LANE_DELTA = 5_000_000 * 1e6;
 
+    address public constant REMOTE_VAULT = address(0xE1);
+
+    uint64 public constant REMOTE_SELECTOR = 7_777;
+
+    uint256 public constant REMOTE_CHAIN_ID = 8_453;
+
+    address public constant COURIER = address(0xE7);
+
+    address public constant ROUTER = address(0xF1);
+
     ReferralHub internal immutable hub;
 
     address[3] internal reporters;
@@ -99,6 +158,46 @@ contract ReferralHubInvariantHandler is Test {
     mapping(bytes32 => uint256) public ghostCursorM;
 
     uint256 public ghostTotalExpectedPaid;
+
+    mapping(address => uint256) public ghostRemoteReferred;
+
+    mapping(address => uint256) public ghostRemoteSelf;
+
+    uint256 public remoteNonce;
+
+    function claimUpTo(
+        uint256 _referrerSeed,
+        uint256 _amountSeed
+    )
+        external
+    {
+        address referrer = referrers[_referrerSeed % referrers.length];
+
+        uint256 entitled = hub.claimable(
+            block.chainid,
+            referrer
+        );
+
+        if (entitled == 0) {
+            return;
+        }
+
+        uint256 amount = bound(
+            _amountSeed,
+            1,
+            entitled
+        );
+
+        vm.prank(
+            referrer
+        );
+
+        hub.claimUpTo(
+            block.chainid,
+            referrer,
+            amount
+        );
+    }
 
     constructor(
         ReferralHub _hub,
@@ -289,6 +388,147 @@ contract ReferralHubInvariantHandler is Test {
         hub.deliverGap(referrer, record, fromWeek, span);
     }
 
+    function deliverRemoteCrumbs(
+        uint256 _referrerSeed,
+        uint256 _weekSeed,
+        uint256 _growSeed,
+        uint256 _y1DeltaSeed,
+        uint256 _y2DeltaSeed,
+        uint256 _mDeltaSeed,
+        uint256 _delivererSeed,
+        uint256 _scoreSeed
+    )
+        external
+    {
+        uint256 currentWeek = block.timestamp / CohortWeeks.WEEK;
+
+        if (currentWeek == 0) {
+            return;
+        }
+
+        address referrer = _pickReferrer(_referrerSeed);
+
+        uint256 lo = currentWeek > 8
+            ? currentWeek - 8
+            : 0;
+
+        uint256 week = bound(_weekSeed, lo, currentWeek - 1);
+
+        bytes32 key = cellKey(REMOTE_VAULT, referrer, week);
+
+        uint256 word = ghostCrumbWord[key];
+
+        if (bound(_growSeed, 0, 9) < 7) {
+
+            word = CohortWeeks.packLanes(
+                _growLane(
+                    CohortWeeks.laneY1(word),
+                    bound(_y1DeltaSeed, 0, MAX_LANE_DELTA)
+                ),
+                _growLane(
+                    CohortWeeks.laneY2(word),
+                    bound(_y2DeltaSeed, 0, MAX_LANE_DELTA)
+                ),
+                _growLane(
+                    CohortWeeks.laneM(word),
+                    bound(_mDeltaSeed, 0, MAX_LANE_DELTA)
+                )
+            );
+
+            ghostCrumbWord[key] = word;
+        }
+
+        if (word == 0) {
+            return;
+        }
+
+        _touchCell(REMOTE_VAULT, referrer, week);
+        _accrueExpectedRemote(referrer, week, word);
+
+        ghostRemoteReferred[referrer] += bound(_scoreSeed, 0, MAX_SCORE);
+        ghostRemoteSelf[referrer] += bound(_scoreSeed >> 8, 0, MAX_SCORE);
+
+        address deliverer = bound(_delivererSeed, 0, 1) == 0
+            ? COURIER
+            : referrer;
+
+        bytes memory payload = _packRemoteEnvelope(
+            deliverer,
+            referrer,
+            week,
+            word
+        );
+
+        bytes32 messageId = keccak256(
+            abi.encode(REMOTE_VAULT, remoteNonce)
+        );
+
+        remoteNonce += 1;
+
+        vm.prank(
+            ROUTER
+        );
+
+        hub.ccipReceive(
+            Client.Any2EVMMessage({
+                messageId: messageId,
+                sourceChainSelector: REMOTE_SELECTOR,
+                sender: abi.encode(REMOTE_VAULT),
+                data: payload,
+                destTokenAmounts: new Client.EVMTokenAmount[](0)
+            })
+        );
+
+        hub.applyFlush(
+            messageId,
+            REMOTE_CHAIN_ID,
+            REMOTE_VAULT,
+            payload
+        );
+    }
+
+    function claimRemoteUpTo(
+        uint256 _targetSeed,
+        uint256 _amountSeed
+    )
+        external
+    {
+        uint256 pick = bound(
+            _targetSeed,
+            0,
+            referrers.length
+        );
+
+        address target = pick == referrers.length
+            ? COURIER
+            : referrers[pick];
+
+        uint256 entitled = hub.claimable(
+            REMOTE_CHAIN_ID,
+            target
+        );
+
+        if (entitled == 0) {
+            return;
+        }
+
+        uint256 amount = bound(
+            _amountSeed,
+            1,
+            entitled
+        );
+
+        vm.prank(
+            target
+        );
+
+        hub.claimUpTo(
+            REMOTE_CHAIN_ID,
+            target,
+            amount
+        );
+    }
+
     function warpWeeks(
         uint256 _seed
     )
@@ -421,6 +661,77 @@ contract ReferralHubInvariantHandler is Test {
         ghostCursorM[key] = mIn > mCursor ? mIn : mCursor;
     }
 
+    function _accrueExpectedRemote(
+        address _referrer,
+        uint256 _week,
+        uint256 _word
+    )
+        internal
+    {
+        bytes32 key = cellKey(REMOTE_VAULT, _referrer, _week);
+
+        uint256 y1In = CohortWeeks.laneY1(_word);
+        uint256 y2In = CohortWeeks.laneY2(_word);
+        uint256 mIn = CohortWeeks.laneM(_word);
+
+        uint256 y1Cursor = ghostCursorY1[key];
+        uint256 y2Cursor = ghostCursorY2[key];
+        uint256 mCursor = ghostCursorM[key];
+
+        uint256 y1Inc = y1In > y1Cursor ? y1In - y1Cursor : 0;
+        uint256 y2Inc = y2In > y2Cursor ? y2In - y2Cursor : 0;
+        uint256 mInc = mIn > mCursor ? mIn - mCursor : 0;
+
+        ghostCursorY1[key] = y1In > y1Cursor ? y1In : y1Cursor;
+        ghostCursorY2[key] = y2In > y2Cursor ? y2In : y2Cursor;
+        ghostCursorM[key] = mIn > mCursor ? mIn : mCursor;
+
+        if (y1Inc == 0 && y2Inc == 0 && mInc == 0) {
+            return;
+        }
+
+        ghostTotalExpectedPaid += _priceIncrements(_referrer, _week, y1Inc, y2Inc, mInc);
+    }
+
+    function _packRemoteEnvelope(
+        address _deliverer,
+        address _referrer,
+        uint256 _week,
+        uint256 _word
+    )
+        internal
+        view
+        returns (bytes memory)
+    {
+        uint256[] memory out = new uint256[](5);
+
+        out[0] = CohortWeeks.packFlushHeader(
+            _deliverer,
+            1,
+            block.timestamp
+        );
+
+        out[1] = CohortWeeks.packFlushEntry(
+            _referrer,
+            1,
+            0,
+            0
+        );
+
+        out[2] = CohortWeeks.packFlushScores(
+            ghostRemoteReferred[_referrer],
+            ghostRemoteSelf[_referrer]
+        );
+
+        out[3] = _week;
+
+        out[4] = _word | CohortWeeks.CRUMB_WRITTEN_BIT;
+
+        return abi.encodePacked(
+            out
+        );
+    }
+
     function _priceIncrements(
         address _referrer,
         uint256 _week,
@@ -498,13 +809,22 @@ contract ReferralHubInvariantHandler is Test {
  * referrer's uncapped ladder sum reaches a nonzero cap, recomputing
  * that sum from `ladderInputsAt` against the effective rate table
  * independently of `_weeklyRates`; the final invariant pins the
- * `claimable` / `totalAccrued`
- * accounting identity that will anchor the hub-to-vault payout
- * message once claims exist.
+ * `totalAccrued == totalClaimed + Σ claimable` accounting identity
+ * under randomly interleaved partial claims (the handler claims as
+ * the referrer against a pre-funded pot, so a claim never runs dry
+ * and never needs the payout vault). The mailbox action extends
+ * every one of these identities across the cross-chain path: remote
+ * envelopes price into per-source-chain claimable buckets, the
+ * courier's bot share moves money between buckets but never changes
+ * the accrued total, and the accounting identity closes over the
+ * remote referrer buckets and the courier bucket alongside the
+ * local ones.
  */
 contract ReferralHubInvariantTest is Test {
 
     uint256 internal constant BASE_TIME = 3_000 weeks + 1 hours;
+
+    MockUSD internal usdToken;
 
     ReferralHub internal hub;
 
@@ -517,7 +837,16 @@ contract ReferralHubInvariantTest is Test {
             BASE_TIME
         );
 
-        hub = new ReferralHub();
+        usdToken = new MockUSD();
+
+        hub = new ReferralHub(
+            address(usdToken)
+        );
+
+        usdToken.mint(
+            address(hub),
+            1e30
+        );
 
         address[3] memory reporters = [
             address(0xD1),
@@ -546,6 +875,16 @@ contract ReferralHubInvariantTest is Test {
             hub,
             reporters,
             referrers
+        );
+
+        hub.setCcipRouter(
+            handler.ROUTER()
+        );
+
+        hub.setFlushSource(
+            handler.REMOTE_SELECTOR(),
+            handler.REMOTE_VAULT(),
+            handler.REMOTE_CHAIN_ID()
         );
 
         targetContract(
@@ -594,6 +933,9 @@ contract ReferralHubInvariantTest is Test {
                 sumSelf += selfScore;
             }
 
+            sumReferred += handler.ghostRemoteReferred(referrer);
+            sumSelf += handler.ghostRemoteSelf(referrer);
+
             assertEq(
                 hub.globalReferredScore(referrer),
                 sumReferred,
@@ -623,6 +965,10 @@ contract ReferralHubInvariantTest is Test {
                 address referrer,
                 uint256 week
             ) = handler.touchedCells(i);
+
+            if (reporter == handler.REMOTE_VAULT()) {
+                continue;
+            }
 
             (
                 uint256 y1Cursor,
@@ -777,7 +1123,7 @@ contract ReferralHubInvariantTest is Test {
 
     /// forge-config: default.invariant.runs = 64
     /// forge-config: default.invariant.depth = 32
-    function invariant_totalAccrued_equalsSumClaimable()
+    function invariant_totalAccrued_equalsClaimedPlusClaimable()
         public
         view
     {
@@ -791,15 +1137,35 @@ contract ReferralHubInvariantTest is Test {
         ];
 
         uint256 sumClaimable;
+        uint256 sumPaidOut;
+
+        uint256 remoteChainId = handler.REMOTE_CHAIN_ID();
 
         for (uint256 i; i < referrers.length; ++i) {
-            sumClaimable += hub.claimable(referrers[i]);
+            sumClaimable += hub.claimable(block.chainid, referrers[i]);
+            sumClaimable += hub.claimable(remoteChainId, referrers[i]);
+            sumPaidOut += usdToken.balanceOf(referrers[i]);
         }
+
+        sumClaimable += hub.claimable(
+            remoteChainId,
+            handler.COURIER()
+        );
+
+        sumPaidOut += usdToken.balanceOf(
+            handler.COURIER()
+        );
 
         assertEq(
             hub.totalAccrued(),
-            sumClaimable,
-            "totalAccrued != sum(claimable)"
+            hub.totalClaimed() + sumClaimable,
+            "totalAccrued != totalClaimed + sum(claimable)"
+        );
+
+        assertEq(
+            hub.totalClaimed(),
+            sumPaidOut,
+            "totalClaimed != sum of USD actually paid out"
         );
     }
 

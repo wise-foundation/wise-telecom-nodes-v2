@@ -50,6 +50,7 @@ contract ReferralHubIntakeTest is Test {
     event GapPriced(
         bytes32 indexed source,
         address indexed referrer,
+        address deliverer,
         uint256 fromWeek,
         uint256 toWeekExclusive,
         uint256 paid
@@ -94,6 +95,8 @@ contract ReferralHubIntakeTest is Test {
 
     address internal stranger = address(0xC1);
 
+    address internal usdToken = address(0xF01);
+
     ReferralHub internal hub;
 
     function setUp()
@@ -103,7 +106,9 @@ contract ReferralHubIntakeTest is Test {
             BASE_TIME
         );
 
-        hub = new ReferralHub();
+        hub = new ReferralHub(
+            usdToken
+        );
 
         hub.setAllowedReporter(
             address(this),
@@ -323,7 +328,7 @@ contract ReferralHubIntakeTest is Test {
             _word(quantity, 0, 0)
         );
 
-        assertEq(hub.claimable(refA), expectedPaid);
+        assertEq(hub.claimable(block.chainid, refA), expectedPaid);
         assertEq(hub.totalAccrued(), expectedPaid);
     }
 
@@ -348,7 +353,7 @@ contract ReferralHubIntakeTest is Test {
 
         uint256 expectedFirst = q1 * TIER6_BPS / 10_000 / YEAR;
 
-        assertEq(hub.claimable(refA), expectedFirst);
+        assertEq(hub.claimable(block.chainid, refA), expectedFirst);
 
         _deliverCrumbAs(
             address(this),
@@ -359,7 +364,7 @@ contract ReferralHubIntakeTest is Test {
 
         uint256 expectedSecond = (q2 - q1) * TIER6_BPS / 10_000 / YEAR;
 
-        assertEq(hub.claimable(refA), expectedFirst + expectedSecond);
+        assertEq(hub.claimable(block.chainid, refA), expectedFirst + expectedSecond);
     }
 
     // ---- replay / idempotency ----
@@ -381,7 +386,7 @@ contract ReferralHubIntakeTest is Test {
             _word(quantity, 0, 0)
         );
 
-        uint256 claimableAfterFirst = hub.claimable(refA);
+        uint256 claimableAfterFirst = hub.claimable(block.chainid, refA);
 
         (uint256 y1CursorBefore, , ) = hub.paidCursorAt(
             address(this),
@@ -399,7 +404,7 @@ contract ReferralHubIntakeTest is Test {
         );
 
         assertEq(vm.getRecordedLogs().length, 0);
-        assertEq(hub.claimable(refA), claimableAfterFirst);
+        assertEq(hub.claimable(block.chainid, refA), claimableAfterFirst);
 
         (uint256 y1CursorAfter, , ) = hub.paidCursorAt(
             address(this),
@@ -432,7 +437,7 @@ contract ReferralHubIntakeTest is Test {
             word
         );
 
-        uint256 claimableAfterFirst = hub.claimable(refA);
+        uint256 claimableAfterFirst = hub.claimable(block.chainid, refA);
 
         (uint256 y1Before, uint256 y2Before, uint256 mBefore) = hub.paidCursorAt(
             address(this),
@@ -447,7 +452,7 @@ contract ReferralHubIntakeTest is Test {
             word
         );
 
-        assertEq(hub.claimable(refA), claimableAfterFirst);
+        assertEq(hub.claimable(block.chainid, refA), claimableAfterFirst);
 
         (uint256 y1After, uint256 y2After, uint256 mAfter) = hub.paidCursorAt(
             address(this),
@@ -514,7 +519,7 @@ contract ReferralHubIntakeTest is Test {
         }
 
         assertEq(cursor, q3);
-        assertEq(hub.claimable(refA), expected);
+        assertEq(hub.claimable(block.chainid, refA), expected);
     }
 
     // ---- regression ----
@@ -538,7 +543,7 @@ contract ReferralHubIntakeTest is Test {
             _word(q2, 0, 0)
         );
 
-        uint256 claimableAfterFirst = hub.claimable(refA);
+        uint256 claimableAfterFirst = hub.claimable(block.chainid, refA);
 
         bytes32 source = _sourceKeyOf(
             address(this)
@@ -568,7 +573,7 @@ contract ReferralHubIntakeTest is Test {
             _word(q1, 0, 0)
         );
 
-        assertEq(hub.claimable(refA), claimableAfterFirst);
+        assertEq(hub.claimable(block.chainid, refA), claimableAfterFirst);
 
         (uint256 y1Cursor, , ) = hub.paidCursorAt(
             address(this),
@@ -630,7 +635,7 @@ contract ReferralHubIntakeTest is Test {
         );
 
         assertEq(y1AfterEmpty, 0);
-        assertEq(hub.claimable(refA), 0);
+        assertEq(hub.claimable(block.chainid, refA), 0);
     }
 
     // ---- crumb validation reverts ----
@@ -839,7 +844,7 @@ contract ReferralHubIntakeTest is Test {
 
         uint256 expected2 = q2 * TIER6_BPS / 10_000 / YEAR;
 
-        assertEq(hub.claimable(refA), expected1 + expected2);
+        assertEq(hub.claimable(block.chainid, refA), expected1 + expected2);
 
         (uint256 y1Reporter1, , ) = hub.paidCursorAt(reporter1, refA, week);
         (uint256 y1Reporter2, , ) = hub.paidCursorAt(reporter2, refA, week);
@@ -892,6 +897,7 @@ contract ReferralHubIntakeTest is Test {
         emit GapPriced(
             source,
             refA,
+            address(this),
             fromWeek,
             toWeekExclusive,
             0
@@ -914,7 +920,7 @@ contract ReferralHubIntakeTest is Test {
         assertEq(mCursorMid, expectedMCursor);
         assertEq(mCursorLast, expectedMCursor);
 
-        assertEq(hub.claimable(refA), 0);
+        assertEq(hub.claimable(block.chainid, refA), 0);
     }
 
     function test_deliverGap_windowedResume_coversFullSpanAndOverlapIsNoop()
@@ -1027,7 +1033,7 @@ contract ReferralHubIntakeTest is Test {
             _word(qY1, qY2, qM)
         );
 
-        assertEq(hub.claimable(refA), expectedPaid);
+        assertEq(hub.claimable(block.chainid, refA), expectedPaid);
         assertEq(hub.totalAccrued(), expectedPaid);
     }
 
@@ -1071,6 +1077,7 @@ contract ReferralHubIntakeTest is Test {
         emit GapPriced(
             source,
             refA,
+            address(this),
             fromWeek,
             toWeekExclusive,
             expectedPaid
@@ -1083,7 +1090,7 @@ contract ReferralHubIntakeTest is Test {
             6
         );
 
-        assertEq(hub.claimable(refA), expectedPaid);
+        assertEq(hub.claimable(block.chainid, refA), expectedPaid);
         assertEq(hub.totalAccrued(), expectedPaid);
     }
 
@@ -1129,6 +1136,7 @@ contract ReferralHubIntakeTest is Test {
         emit GapPriced(
             source,
             refA,
+            address(this),
             fromWeek,
             toWeekExclusive,
             expectedPaid
@@ -1141,7 +1149,7 @@ contract ReferralHubIntakeTest is Test {
             4
         );
 
-        assertEq(hub.claimable(refA), expectedPaid);
+        assertEq(hub.claimable(block.chainid, refA), expectedPaid);
         assertEq(hub.totalAccrued(), expectedPaid);
     }
 
@@ -1306,7 +1314,7 @@ contract ReferralHubIntakeTest is Test {
         );
 
         assertLe(
-            hub.claimable(refA) * 10_000 * YEAR,
+            hub.claimable(block.chainid, refA) * 10_000 * YEAR,
             total * TIER6_BPS
         );
     }
