@@ -20,6 +20,17 @@ import {ReferralRegistry} from "../../src/registry/pending/ReferralRegistry.sol"
 ///                product whose `config/vault.<product>.<network>.json` exists on this
 ///                chain, and records the address in `config/registry.<network>.json`.
 ///   `allow()`  — idempotent allowlist top-up for a later product on the same chain.
+///   `wirePayoutRoute()` — SPOKE chains only: points the registry's caller-paid
+///                `pushPayoutAddress` at the mainnet hub (`proposePayoutHub(hub,
+///                mainnetSelector)` + `executePayoutHubChange` — instant while the sync
+///                setup is unfinalized, a second run after the 3-day window otherwise),
+///                reading the hub from `config/hub.mainnet.json`. On the hub chain the
+///                route deliberately stays detached — referrers there designate at the
+///                hub directly. Requires `setCcipRouter` to have been run as part of the
+///                sync wiring (the push shares the sync gas limit and router).
+///   `latch()`   — fires the registry's ONE-WAY correction latch (idempotent — skips when
+///                already latched). Runbook: run on EVERY chain's registry before payouts
+///                arm at the hub; there is no unlatch, on purpose.
 ///   `status()` — read-only sanity print (no broadcast).
 ///
 ///   forge script script/registry/DeployReferralRegistry.s.sol --sig "deploy()" --rpc-url mainnet --broadcast
@@ -118,6 +129,113 @@ contract DeployReferralRegistry is VaultConfig {
         vm.stopBroadcast();
     }
 
+    function wirePayoutRoute()
+        external
+    {
+        uint256 privKey = vm.envUint(
+            "PRIVATE_KEY"
+        );
+
+        string memory network = _networkName();
+
+        require(
+            _sameString(network, "mainnet") == false,
+            "DeployReferralRegistry: the hub chain's registry keeps its payout route detached"
+        );
+
+        ReferralRegistry registry = ReferralRegistry(
+            _loadRegistry(
+                network
+            )
+        );
+
+        require(
+            address(registry).code.length > 0,
+            "DeployReferralRegistry: recorded registry has no code"
+        );
+
+        address hub = _loadHub(
+            "mainnet"
+        );
+
+        uint64 chainSelector = _loadCcipChainSelector(
+            "mainnet"
+        );
+
+        if (
+            registry.payoutHub() == hub
+                && registry.payoutHubChainSelector() == chainSelector
+        ) {
+            console2.log("payout route already wired", hub);
+            return;
+        }
+
+        vm.startBroadcast(
+            privKey
+        );
+
+        if (registry.payoutHubChangeQueuedAt() == 0) {
+            registry.proposePayoutHub(
+                hub,
+                chainSelector
+            );
+        }
+
+        if (
+            registry.syncInitialized() == false
+                || block.timestamp >= registry.payoutHubChangeQueuedAt() + 3 days
+        ) {
+            registry.executePayoutHubChange();
+        }
+
+        vm.stopBroadcast();
+
+        if (registry.payoutHub() == hub) {
+            console2.log("payout route wired on registry", address(registry));
+        } else {
+            console2.log("payout route proposed; re-run wirePayoutRoute() after the 3-day window");
+        }
+
+        console2.log("  hub          ", hub);
+        console2.log("  chainSelector", chainSelector);
+    }
+
+    function latch()
+        external
+    {
+        uint256 privKey = vm.envUint(
+            "PRIVATE_KEY"
+        );
+
+        string memory network = _networkName();
+
+        ReferralRegistry registry = ReferralRegistry(
+            _loadRegistry(
+                network
+            )
+        );
+
+        require(
+            address(registry).code.length > 0,
+            "DeployReferralRegistry: recorded registry has no code"
+        );
+
+        if (registry.correctionsLatched()) {
+            console2.log("corrections already latched on registry", address(registry));
+            return;
+        }
+
+        vm.startBroadcast(
+            privKey
+        );
+
+        registry.latchCorrections();
+
+        vm.stopBroadcast();
+
+        console2.log("corrections latched on registry", address(registry));
+    }
+
     function status()
         external
     {
@@ -142,6 +260,7 @@ contract DeployReferralRegistry is VaultConfig {
         }
 
         console2.log("  master", registry.master());
+        console2.log("  correctionsLatched", registry.correctionsLatched());
 
         string[3] memory products = _products();
 
