@@ -22,10 +22,11 @@ import {OwnableMaster} from "../../diamond/shared/OwnableMaster.sol";
  * no vault — however
  * buggy — can ever displace or clear an existing assignment, and two
  * vaults racing in one block resolve first-write-wins with the loser
- * silently ignored. The ONLY path that may ever change an existing
- * assignment is the cross-chain min-merge below, which is
- * algorithmic, strictly key-decreasing and equally immutable against
- * master. Reads are permissionless and the
+ * silently ignored. Exactly two paths may ever change an existing
+ * assignment: the cross-chain min-merge below — algorithmic, strictly
+ * key-decreasing and immutable against master — and, only until the
+ * one-way correction latch fires, the dual-consent correction lane
+ * described further down. Reads are permissionless and the
  * `referrerOf` auto-getter must remain a plain mapping read forever —
  * the vaults' cohort recorder staticcalls the read path inside the
  * transfer hook's revert-free budget; never add logic,
@@ -97,6 +98,51 @@ import {OwnableMaster} from "../../diamond/shared/OwnableMaster.sol";
  * CALLs, so a revoked vault's moves still succeed and only the
  * attribution degrades (anomaly event vault-side). The registry is
  * NEVER repointed once a vault's cohort recorder is armed against it.
+ *
+ * Payout designation: `setPayoutAddress` lets any address name — on
+ * ITS OWN chain — where the commissions it earned on this chain pay
+ * out at the mainnet hub. `msg.sender` is the entire proof; nothing
+ * signature-like exists or ever travels, which is what makes the
+ * designation immune to the same-address-different-owner drift of
+ * contract wallets across chains. The designation stores with a
+ * freshness stamp `(block.timestamp << KEY_RANK_SHIFT) |
+ * LOCAL_CHAIN_RANK` and is transported storage-derived on the
+ * authenticated rails to the hub, which applies latest-wins by stamp
+ * per (source chain, owner): the vaults' flush facet piggybacks the
+ * stored pair into every flush envelope, and the caller-paid
+ * `pushPayoutAddress` sends it alone over the payout-hub route —
+ * a (chain selector, hub address) pair proposed and executed like a
+ * sync peer, instant while wiring, 3-day timelocked after
+ * `finalizeSyncSetup`, all-zero = detached. On the hub's own chain
+ * the route stays detached and referrers designate at the hub
+ * directly. Redesignation always overwrites and re-stamps — control
+ * of the address is re-proven on every call, and a zero payout
+ * address is a valid designation meaning "pay the owner itself
+ * again".
+ *
+ * Referrer correction (pre-payout only): a mis-assigned
+ * `(user, referrer)` pair can be rewritten through a dual-consent
+ * lane — master proposes via `proposeCorrectReferrer`, a 3-day window
+ * follows during which the USER may unilaterally cancel (master can
+ * abandon its own proposal too), and only then may master execute.
+ * Execution reuses the EXISTING flip closure — same pending-flip
+ * markers with keep-if-set, same `pokeMigration` relocation, same
+ * book-holder semantics — so no second migration path exists. The
+ * sync key deliberately does NOT change: a correction fixes the
+ * referrer VALUE of the original assignment event, so the corrected
+ * pair wins and loses merges exactly as the original did — an
+ * equal-key echo of the old pair from a peer is ignored and flagged
+ * via {SyncKeyCollision}, while a strictly earlier assignment on
+ * another chain still outranks the correction and flips it like any
+ * other pair. Corrections are therefore chain-local: correcting the
+ * mesh means proposing on every chain's registry, each with its own
+ * user-veto window. The whole lane sits behind `correctionsLatched`,
+ * a ONE-WAY latch (no unlatch function exists) that master fires the
+ * moment payouts arm; from then on the write-once book is immutable
+ * against master forever — the latch restores the absolute
+ * immutability that the pre-payout correction window deliberately
+ * narrows. Cancel stays callable after the latch so a stranded
+ * proposal can always be cleaned up.
  */
 abstract contract ReferralRegistryDeclarations is OwnableMaster {
 
@@ -121,6 +167,14 @@ abstract contract ReferralRegistryDeclarations is OwnableMaster {
     uint256 internal constant MAX_SYNC_LANES = 8;
 
     uint256 internal constant MAX_TRACKED_VAULTS = 8;
+
+    uint256 internal constant PAYOUT_PUSH_VERSION = 1;
+
+    uint256 internal constant PAYOUT_PUSH_PAYLOAD_LENGTH = 160;
+
+    uint256 internal constant PAYOUT_HUB_CHANGE_DELAY = 3 days;
+
+    uint256 internal constant REFERRER_CORRECTION_DELAY = 3 days;
 
     // ---- Referrer book ----
 
@@ -167,6 +221,32 @@ abstract contract ReferralRegistryDeclarations is OwnableMaster {
     mapping(address => mapping(address => address)) public pendingFlip;
 
     address[] internal trackedVaults;
+
+    // ---- Payout designation ----
+
+    mapping(address => address) public payoutAddress;
+
+    mapping(address => uint256) public payoutStamp;
+
+    // ---- Payout hub route ----
+
+    address public payoutHub;
+
+    uint64 public payoutHubChainSelector;
+
+    address public proposedPayoutHub;
+
+    uint64 public proposedPayoutHubChainSelector;
+
+    uint256 public payoutHubChangeQueuedAt;
+
+    // ---- Referrer correction ----
+
+    mapping(address => address) public proposedCorrection;
+
+    mapping(address => uint256) public correctionQueuedAt;
+
+    bool public correctionsLatched;
 
     // ---- Events ----
 
@@ -293,6 +373,56 @@ abstract contract ReferralRegistryDeclarations is OwnableMaster {
 
     event SyncSetupFinalized();
 
+    event PayoutAddressSet(
+        address indexed owner,
+        address indexed payout,
+        uint256 stamp
+    );
+
+    event PayoutPushed(
+        address indexed owner,
+        uint64 indexed destChainSelector,
+        address payout,
+        uint256 stamp,
+        bytes32 messageId
+    );
+
+    event PayoutHubProposed(
+        address indexed hub,
+        uint64 chainSelector,
+        uint256 queuedAt
+    );
+
+    event PayoutHubSet(
+        address indexed hub,
+        uint64 chainSelector
+    );
+
+    event PayoutHubProposalCancelled(
+        address indexed hub
+    );
+
+    event ReferralCorrectionProposed(
+        address indexed user,
+        address indexed oldReferrer,
+        address indexed newReferrer,
+        uint256 queuedAt
+    );
+
+    event ReferralCorrectionCancelled(
+        address indexed user,
+        address indexed newReferrer,
+        address indexed cancelledBy
+    );
+
+    event ReferralCorrectionExecuted(
+        address indexed user,
+        address indexed oldReferrer,
+        address indexed newReferrer
+    );
+
+    event CorrectionsLatched();
+
     // ---- Errors ----
 
     error NotAllowedVault();
@@ -340,4 +470,30 @@ abstract contract ReferralRegistryDeclarations is OwnableMaster {
     error TooManyTrackedVaults();
 
     error SyncRefundFailed();
+
+    error NothingToPush();
+
+    error PayoutHubNotSet();
+
+    error NoPayoutHubProposed();
+
+    error PayoutHubTimelockNotElapsed();
+
+    error InvalidPayoutHub();
+
+    error InsufficientPushFee();
+
+    error PushRefundFailed();
+
+    error CorrectionsDisabled();
+
+    error CorrectionsAlreadyLatched();
+
+    error NothingToCorrect();
+
+    error NoCorrectionProposed();
+
+    error CorrectionTimelockNotElapsed();
+
+    error NotCorrectionParty();
 }
