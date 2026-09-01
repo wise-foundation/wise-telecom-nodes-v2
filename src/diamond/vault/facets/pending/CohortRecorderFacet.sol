@@ -4,11 +4,13 @@ pragma solidity =0.8.36;
 
 import {FacetBase} from "../FacetBase.sol";
 import {CohortWeeks} from "../../../shared/pending/CohortWeeks.sol";
+import {IReferralRegistry} from "../../interfaces/pending/IReferralRegistry.sol";
 
 /**
  * @dev CohortRecorderFacet — the routed public surface of the cohort
  * recorder: two permissionless mutations, the registry-only flip
- * entrance, and the view set the cohort test suites, keepers and
+ * entrance, the master-only retroactive seed, and the view set the
+ * cohort test suites, keepers and
  * offchain monitoring read. The mutations do NOT carry engine code:
  * they bounce through the helper-chain stubs into an engine slice
  * ({CohortHookFacet} via the `transferHookFacet` pointer for
@@ -41,6 +43,37 @@ import {CohortWeeks} from "../../../shared/pending/CohortWeeks.sol";
  * identical ring coordinates in one transaction, clamping against the
  * OLD referrer first so a lazy deficit is destroyed sale-like and can
  * never launder into new-referrer credit.
+ *
+ * `seedCohortContribution` is the master-only retroactive
+ * attribution entrance: it credits a user's pre-existing,
+ * not-yet-tracked balance exactly as if that amount were deposited
+ * in this instant — the SAME engine slice through the SAME credit
+ * stub, so the credit lands in the current-week ring slot, ages from
+ * now, and earns no retroactive crumb time. The clamp stub runs
+ * FIRST and the credit is bounded by `min(amount, balance −
+ * tracked)`, so a seed can never push tracked contribution above the
+ * held balance and every recorder invariant survives structurally
+ * (`type(uint256).max` means "seed the full headroom"). A degraded
+ * clamp — the registry lookup failing inside the sync while a lazy
+ * deficit stands — leaves tracked above held and the seed reverts
+ * {NothingToSeed} instead of mis-crediting. There is deliberately NO
+ * assignment carve-out: the referrer is resolved through the normal
+ * flip-aware seam inside the engine credit, write-once assignment
+ * stays with the deposit entrypoints, and seeding an unreferred user
+ * backfills only their own self-stake ladder input (assign first via
+ * a normal referred deposit, then seed, to credit a referrer). The
+ * whole entrance dies with the registry's one-way correction latch —
+ * a single per-chain switch ends every master attribution power
+ * (corrections AND seeds) the moment payouts arm — and reverts
+ * loudly while the recorder is disarmed, the slot-45 hook pointer is
+ * zeroed (the armed-but-hookless state the timelock permits — the
+ * stubs would silently skip there), or the registry pointer is
+ * unset, never a silent no-op. Headroom is ANY untracked balance:
+ * the recorder cannot distinguish a pre-arming deposit from a
+ * balance received by transfer after a sender's one-way credit
+ * destroy, so which headroom deserves seeding is master POLICY —
+ * the permissionless flows keep the destroy-never-recredit rule
+ * intact, and the latch bounds the discretion window.
  */
 contract CohortRecorderFacet is FacetBase {
 
@@ -93,6 +126,67 @@ contract CohortRecorderFacet is FacetBase {
         _cohortAdvance(
             _referrer,
             _maxBoundaries
+        );
+    }
+
+    function seedCohortContribution(
+        address _user,
+        uint256 _amount
+    )
+        external
+        onlyDelegateCall
+        onlyMaster
+        nonReentrant
+    {
+        require(
+            cohortSyncEnabled,
+            CohortSyncDisabled()
+        );
+
+        require(
+            transferHookFacet != ZERO_ADDRESS,
+            CohortHookNotInstalled()
+        );
+
+        require(
+            IReferralRegistry(referralRegistry).correctionsLatched() == false,
+            SeedingLatched()
+        );
+
+        _cohortSync(
+            _user
+        );
+
+        uint256 tracked = trackedContribution[_user];
+
+        uint256 held = balanceOf(
+            _user
+        );
+
+        require(
+            held > tracked,
+            NothingToSeed()
+        );
+
+        uint256 delta = held - tracked;
+
+        if (_amount < delta) {
+            delta = _amount;
+        }
+
+        require(
+            delta > 0,
+            NothingToSeed()
+        );
+
+        _cohortCredit(
+            _user,
+            delta
+        );
+
+        emit CohortContributionSeeded(
+            _user,
+            delta
         );
     }
 
