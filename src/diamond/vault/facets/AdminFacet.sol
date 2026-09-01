@@ -224,6 +224,130 @@ contract AdminFacet is FacetBase {
         return referralRegistryChangeQueuedAt;
     }
 
+    function proposePayoutHub(
+        address _hub
+    )
+        external
+        onlyDelegateCall
+        onlyMaster
+        nonReentrant
+    {
+        _proposePayoutHub(
+            _hub
+        );
+    }
+
+    function executePayoutHubChange()
+        external
+        onlyDelegateCall
+        onlyMaster
+        nonReentrant
+    {
+        _applyPayoutHubChange();
+    }
+
+    function cancelPayoutHubChange()
+        external
+        onlyDelegateCall
+        onlyMaster
+        nonReentrant
+    {
+        _cancelPayoutHubChange();
+    }
+
+    function getPayoutHub()
+        external
+        view
+        returns (address)
+    {
+        return payoutHub;
+    }
+
+    function getProposedPayoutHub()
+        external
+        view
+        returns (address)
+    {
+        return proposedPayoutHub;
+    }
+
+    function getPayoutHubChangeQueuedAt()
+        external
+        view
+        returns (uint256)
+    {
+        return payoutHubChangeQueuedAt;
+    }
+
+    function proposeFlushHub(
+        address _hub,
+        uint64 _chainSelector
+    )
+        external
+        onlyDelegateCall
+        onlyMaster
+        nonReentrant
+    {
+        _proposeFlushHub(
+            _hub,
+            _chainSelector
+        );
+    }
+
+    function executeFlushHubChange()
+        external
+        onlyDelegateCall
+        onlyMaster
+        nonReentrant
+    {
+        _applyFlushHubChange();
+    }
+
+    function cancelFlushHubChange()
+        external
+        onlyDelegateCall
+        onlyMaster
+        nonReentrant
+    {
+        _cancelFlushHubChange();
+    }
+
+    function getFlushHub()
+        external
+        view
+        returns (
+            address,
+            uint64
+        )
+    {
+        return (
+            flushHub,
+            flushHubChainSelector
+        );
+    }
+
+    function getProposedFlushHub()
+        external
+        view
+        returns (
+            address,
+            uint64
+        )
+    {
+        return (
+            proposedFlushHub,
+            proposedFlushHubChainSelector
+        );
+    }
+
+    function getFlushHubChangeQueuedAt()
+        external
+        view
+        returns (uint256)
+    {
+        return flushHubChangeQueuedAt;
+    }
+
     function proposeWorkerAddress(
         address _worker
     )
