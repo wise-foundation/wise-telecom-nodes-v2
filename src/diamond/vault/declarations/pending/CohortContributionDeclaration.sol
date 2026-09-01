@@ -27,7 +27,11 @@ pragma solidity =0.8.36;
  * `COHORT_MOVE_IN_SELECTOR`) extends the same pointer-only register:
  * like the original three these are deliberately absent from the
  * dispatcher and reachable solely through the transient
- * `hookExecuting` bracket. The cross-chain trio
+ * `hookExecuting` bracket. `COHORT_SETTLE_SELECTOR` extends it once
+ * more for the flush transport's build-time settle: the
+ * {CohortFlushFacet} freshens a referrer's book to the second
+ * through the same engine slice instead of compiling its own walk,
+ * so the routed flush path and the hook path can never diverge. The cross-chain trio
  * (`COHORT_FLIP_SELECTOR` and the bridge-carry pair) lives in a
  * SECOND engine deployment ({CohortBridgeHookFacet}) because the full
  * engine outgrew one contract: those three are DISPATCHER-routed and
@@ -59,6 +63,12 @@ abstract contract CohortContributionDeclaration {
     bytes4 internal constant COHORT_ADVANCE_SELECTOR = bytes4(
         keccak256(
             "applyCohortAdvance(address,uint256)"
+        )
+    );
+
+    bytes4 internal constant COHORT_SETTLE_SELECTOR = bytes4(
+        keccak256(
+            "applyCohortSettle(address)"
         )
     );
 
