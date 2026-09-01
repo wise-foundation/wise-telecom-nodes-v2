@@ -77,6 +77,37 @@ pragma solidity =0.8.36;
  * most one week to the next graduation on each carried lane, so
  * relocation only ever accelerates the year-1 to year-2 to mature
  * walk and a round trip can never refresh a cohort's age.
+ *
+ * Flush envelope codec (spoke book to mainnet hub, info-only): the
+ * envelope is a tightly packed sequence of 32-byte words
+ * (`abi.encodePacked` of uint256 values, no ABI framing). Word 0 is
+ * the header `deliverer(160) | flushVersion(8 at 160) |
+ * crumbVersion(8 at 168) | entryCount(8 at 176) | flushStamp(64 at
+ * 184)` with bits 248+ zero; the deliverer is the spoke-side
+ * `msg.sender` stamped by the flush facet (the courier the hub's
+ * bot share pays), and the stamp is the source chain's
+ * `block.timestamp` at build time (the hub's per-referrer score
+ * staleness gate — envelopes may be stored and applied lazily in
+ * any order, so absolute score reports need a freshness order that
+ * message transport cannot provide). Each entry is, in order: the
+ * entry word `referrer(160) | crumbCount(8 at 160) | gapCount(8 at
+ * 168) | flags(8 at 176)` with bits 184+ zero and flag bit 0 =
+ * designation word present; the scores word `selfScore(112) |
+ * referredScore(112 at 112)` with bits 224+ zero (absolute
+ * per-source scores — the hub diffs internally, so re-sends are
+ * idempotent); the optional designation word `payout(160) |
+ * setAt(64 at 160) | chainRank(8 at 224)` with bits 232+ zero
+ * (read from the chain registry at build time, applied latest-wins
+ * at the hub); `crumbCount` pairs of (absolute week word, RAW
+ * stored crumb word including the written bit); and `gapCount` raw
+ * gap-record words, each pre-sliced by the builder to span at most
+ * MAX_SETTLE_BOUNDARIES weeks so every record fully applies in one
+ * pass. Caps: 1 to MAX_FLUSH_ENTRIES entries, and total work —
+ * crumb words plus gap-record spanned weeks — at most
+ * MAX_FLUSH_WORK per envelope, enforced by the builder and
+ * re-validated wholesale by the hub mailbox. `FLUSH_VERSION` and
+ * `CRUMB_VERSION` both travel in the header; the hub accepts
+ * version 1 of each forever.
  */
 library CohortWeeks {
 
@@ -141,6 +172,46 @@ library CohortWeeks {
     uint256 internal constant BRIDGE_CARRY_ENVELOPE_RESERVED_SHIFT = 168;
 
     uint256 internal constant BRIDGE_CARRY_TRACKED_RESERVED_SHIFT = 200;
+
+    uint256 internal constant FLUSH_VERSION = 1;
+
+    uint256 internal constant FLUSH_VERSION_SHIFT = 160;
+
+    uint256 internal constant FLUSH_CRUMB_VERSION_SHIFT = 168;
+
+    uint256 internal constant FLUSH_ENTRY_COUNT_SHIFT = 176;
+
+    uint256 internal constant FLUSH_STAMP_SHIFT = 184;
+
+    uint256 internal constant FLUSH_HEADER_RESERVED_SHIFT = 248;
+
+    uint256 internal constant FLUSH_ENTRY_CRUMBS_SHIFT = 160;
+
+    uint256 internal constant FLUSH_ENTRY_GAPS_SHIFT = 168;
+
+    uint256 internal constant FLUSH_ENTRY_FLAGS_SHIFT = 176;
+
+    uint256 internal constant FLUSH_ENTRY_RESERVED_SHIFT = 184;
+
+    uint256 internal constant FLUSH_FLAG_DESIGNATION = 1;
+
+    uint256 internal constant FLUSH_SCORE_REFERRED_SHIFT = 112;
+
+    uint256 internal constant FLUSH_SCORE_RESERVED_SHIFT = 224;
+
+    uint256 internal constant FLUSH_SCORE_MASK = (1 << 112) - 1;
+
+    uint256 internal constant FLUSH_DESIGNATION_SET_AT_SHIFT = 160;
+
+    uint256 internal constant FLUSH_DESIGNATION_RANK_SHIFT = 224;
+
+    uint256 internal constant FLUSH_DESIGNATION_RESERVED_SHIFT = 232;
+
+    uint256 internal constant DESIGNATION_STAMP_SHIFT = 8;
+
+    uint256 internal constant MAX_FLUSH_ENTRIES = 16;
+
+    uint256 internal constant MAX_FLUSH_WORK = 208;
 
     function packCarryEnvelope(
         address _referrer,
@@ -444,6 +515,254 @@ library CohortWeeks {
         }
 
         return true;
+    }
+
+    function packFlushHeader(
+        address _deliverer,
+        uint256 _entryCount,
+        uint256 _stamp
+    )
+        internal
+        pure
+        returns (uint256)
+    {
+        return uint256(uint160(_deliverer))
+            | (FLUSH_VERSION << FLUSH_VERSION_SHIFT)
+            | (CRUMB_VERSION << FLUSH_CRUMB_VERSION_SHIFT)
+            | (_entryCount << FLUSH_ENTRY_COUNT_SHIFT)
+            | (_stamp << FLUSH_STAMP_SHIFT);
+    }
+
+    function flushHeaderDeliverer(
+        uint256 _word
+    )
+        internal
+        pure
+        returns (address)
+    {
+        return address(
+            uint160(_word)
+        );
+    }
+
+    function flushHeaderVersion(
+        uint256 _word
+    )
+        internal
+        pure
+        returns (uint256)
+    {
+        return (_word >> FLUSH_VERSION_SHIFT) & CARRY_BYTE_MASK;
+    }
+
+    function flushHeaderCrumbVersion(
+        uint256 _word
+    )
+        internal
+        pure
+        returns (uint256)
+    {
+        return (_word >> FLUSH_CRUMB_VERSION_SHIFT) & CARRY_BYTE_MASK;
+    }
+
+    function flushHeaderEntryCount(
+        uint256 _word
+    )
+        internal
+        pure
+        returns (uint256)
+    {
+        return (_word >> FLUSH_ENTRY_COUNT_SHIFT) & CARRY_BYTE_MASK;
+    }
+
+    function flushHeaderStamp(
+        uint256 _word
+    )
+        internal
+        pure
+        returns (uint256)
+    {
+        return (_word >> FLUSH_STAMP_SHIFT) & RING_LANE_MAX;
+    }
+
+    function packFlushEntry(
+        address _referrer,
+        uint256 _crumbCount,
+        uint256 _gapCount,
+        uint256 _flags
+    )
+        internal
+        pure
+        returns (uint256)
+    {
+        return uint256(uint160(_referrer))
+            | (_crumbCount << FLUSH_ENTRY_CRUMBS_SHIFT)
+            | (_gapCount << FLUSH_ENTRY_GAPS_SHIFT)
+            | (_flags << FLUSH_ENTRY_FLAGS_SHIFT);
+    }
+
+    function flushEntryReferrer(
+        uint256 _word
+    )
+        internal
+        pure
+        returns (address)
+    {
+        return address(
+            uint160(_word)
+        );
+    }
+
+    function flushEntryCrumbCount(
+        uint256 _word
+    )
+        internal
+        pure
+        returns (uint256)
+    {
+        return (_word >> FLUSH_ENTRY_CRUMBS_SHIFT) & CARRY_BYTE_MASK;
+    }
+
+    function flushEntryGapCount(
+        uint256 _word
+    )
+        internal
+        pure
+        returns (uint256)
+    {
+        return (_word >> FLUSH_ENTRY_GAPS_SHIFT) & CARRY_BYTE_MASK;
+    }
+
+    function flushEntryFlags(
+        uint256 _word
+    )
+        internal
+        pure
+        returns (uint256)
+    {
+        return (_word >> FLUSH_ENTRY_FLAGS_SHIFT) & CARRY_BYTE_MASK;
+    }
+
+    function packFlushScores(
+        uint256 _referredScore,
+        uint256 _selfScore
+    )
+        internal
+        pure
+        returns (uint256)
+    {
+        return _selfScore
+            | (_referredScore << FLUSH_SCORE_REFERRED_SHIFT);
+    }
+
+    function flushScoreReferred(
+        uint256 _word
+    )
+        internal
+        pure
+        returns (uint256)
+    {
+        return (_word >> FLUSH_SCORE_REFERRED_SHIFT) & FLUSH_SCORE_MASK;
+    }
+
+    function flushScoreSelf(
+        uint256 _word
+    )
+        internal
+        pure
+        returns (uint256)
+    {
+        return _word & FLUSH_SCORE_MASK;
+    }
+
+    function packFlushDesignation(
+        address _payout,
+        uint256 _setAt,
+        uint256 _rank
+    )
+        internal
+        pure
+        returns (uint256)
+    {
+        return uint256(uint160(_payout))
+            | (_setAt << FLUSH_DESIGNATION_SET_AT_SHIFT)
+            | (_rank << FLUSH_DESIGNATION_RANK_SHIFT);
+    }
+
+    function flushDesignationPayout(
+        uint256 _word
+    )
+        internal
+        pure
+        returns (address)
+    {
+        return address(
+            uint160(_word)
+        );
+    }
+
+    function flushDesignationSetAt(
+        uint256 _word
+    )
+        internal
+        pure
+        returns (uint256)
+    {
+        return (_word >> FLUSH_DESIGNATION_SET_AT_SHIFT) & RING_LANE_MAX;
+    }
+
+    function flushDesignationRank(
+        uint256 _word
+    )
+        internal
+        pure
+        returns (uint256)
+    {
+        return (_word >> FLUSH_DESIGNATION_RANK_SHIFT) & CARRY_BYTE_MASK;
+    }
+
+    function packGapRecord(
+        uint256 _fromWeek,
+        uint256 _toWeekExclusive,
+        uint256 _mature
+    )
+        internal
+        pure
+        returns (uint256)
+    {
+        return _fromWeek
+            | (_toWeekExclusive << GAP_TO_SHIFT)
+            | (_mature << GAP_MATURE_SHIFT);
+    }
+
+    function gapRecordFromWeek(
+        uint256 _record
+    )
+        internal
+        pure
+        returns (uint256)
+    {
+        return _record & ((1 << GAP_TO_SHIFT) - 1);
+    }
+
+    function gapRecordToWeek(
+        uint256 _record
+    )
+        internal
+        pure
+        returns (uint256)
+    {
+        return (_record >> GAP_TO_SHIFT) & ((1 << GAP_TO_SHIFT) - 1);
+    }
+
+    function gapRecordMature(
+        uint256 _record
+    )
+        internal
+        pure
+        returns (uint256)
+    {
+        return (_record >> GAP_MATURE_SHIFT) & LANE_MASK_80;
     }
 
     function laneY1(
