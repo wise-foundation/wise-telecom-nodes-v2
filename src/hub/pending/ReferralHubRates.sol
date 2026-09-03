@@ -35,6 +35,9 @@ import {CohortWeeks} from "../../diamond/shared/pending/CohortWeeks.sol";
  * effectively uncapped, tail rates off": the gate can then never
  * open for that table, deliberately. Both loops here are fixed-bound
  * (8-rung tier walk) or log-bounded (table binary search).
+ * `weeklyRatesRange` evaluates the same rate function over a window
+ * of weeks in one call for offchain pricing estimates; that loop is
+ * bounded only by the caller-chosen count, which a view can afford.
  */
 abstract contract ReferralHubRates is ReferralHubCheckpoints {
 
@@ -54,6 +57,43 @@ abstract contract ReferralHubRates is ReferralHubCheckpoints {
             _referrer,
             _week
         );
+    }
+
+    function weeklyRatesRange(
+        address _referrer,
+        uint256 _fromWeek,
+        uint256 _count
+    )
+        external
+        view
+        returns (
+            uint256[] memory y1Bps,
+            uint256[] memory y2Bps,
+            uint256[] memory mBps
+        )
+    {
+        y1Bps = new uint256[](
+            _count
+        );
+
+        y2Bps = new uint256[](
+            _count
+        );
+
+        mBps = new uint256[](
+            _count
+        );
+
+        for (uint256 i; i < _count; ++i) {
+            (
+                y1Bps[i],
+                y2Bps[i],
+                mBps[i]
+            ) = _weeklyRates(
+                _referrer,
+                _fromWeek + i
+            );
+        }
     }
 
     function rateTableCount()
