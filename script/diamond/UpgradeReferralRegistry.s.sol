@@ -51,8 +51,21 @@ import {WiseTelecomNodesDiamondSelectors} from "./WiseTelecomNodesDiamondSelecto
 ///                        `setCohortSyncEnabled(true)` (which itself requires the pointer
 ///                        onchain) and `bridgeGasLimit = 4M` (headroom for the atomic
 ///                        cross-chain carry apply on `ccipReceive`).
+///   `proposeRetireLegacyReferralBridge()` : OPTIONAL, a rollout parameter decision, any
+///                        day after execute(): proposes the genesis passthrough pair
+///                        `bridgeToVaultWithReferral` / `quoteBridgeFeeWithReferral` to the
+///                        zero facet. The armed carry never needs caller bytes (both bridge
+///                        entrypoints send identical wires once armed) and the name misleads
+///                        about the referral system, so the pair is pure surface. Its own
+///                        3-day clock, independent of the pointer clock; guarded on the
+///                        round being executed and no bridge-group proposal pending.
+///   `executeRetireLegacyReferralBridge()` : after 3 days: the pair routes to zero and the
+///                        live fallback reverts {FacetNotFound} for both; `bridgeToVault`
+///                        and `quoteBridgeFee` are post-asserted untouched. Reversible by a
+///                        normal proposal of the pair back to the round's BridgeFacet.
 ///   `abort()`          : cancels every pending selector batch, the hook proposal and the
-///                        pointer proposal (each pre-execute only).
+///                        pointer proposal (each pre-execute only); a pending legacy
+///                        retirement is part of the bridge batch and cancels with it.
 ///   `status()`         : read-only sanity print for the runbook (no broadcast).
 ///
 /// Ordering law the steps encode: registry deployed → diamond
@@ -425,6 +438,111 @@ contract UpgradeReferralRegistry is VaultConfig {
         console2.log("armed cohort recorder on diamond", diamond);
     }
 
+    function proposeRetireLegacyReferralBridge()
+        external
+    {
+        uint256 privKey = vm.envUint(
+            "PRIVATE_KEY"
+        );
+
+        (
+            address diamond,
+        ) = _loadVault(
+            _networkName()
+        );
+
+        WiseTelecomNodesDiamond d = WiseTelecomNodesDiamond(
+            payable(diamond)
+        );
+
+        bytes4[] memory pair = WiseTelecomNodesDiamondSelectors.legacyReferralBridgeSelectors();
+
+        require(
+            d.selectorToFacet(WiseTelecomNodesDiamondSelectors.cohortRecorderSelectors()[0]) != address(0),
+            "UpgradeReferralRegistry: registry round not executed yet (run execute() first)"
+        );
+
+        address bridgeFacet = d.selectorToFacet(
+            BridgeFacet.bridgeToVault.selector
+        );
+
+        require(
+            bridgeFacet != address(0)
+                && d.selectorToFacet(pair[0]) == bridgeFacet
+                && d.selectorToFacet(pair[1]) == bridgeFacet,
+            "UpgradeReferralRegistry: legacy pair not on the round's BridgeFacet"
+        );
+
+        require(
+            d.selectorChangeQueuedAt(BridgeFacet.bridgeToVault.selector) == 0,
+            "UpgradeReferralRegistry: bridge group proposal still pending (execute() first)"
+        );
+
+        if (d.selectorChangeQueuedAt(pair[0]) > 0) {
+            console2.log("legacy referral bridge retirement already pending on diamond", diamond);
+            return;
+        }
+
+        vm.startBroadcast(
+            privKey
+        );
+
+        _proposeGroup(
+            diamond,
+            pair,
+            address(0)
+        );
+
+        vm.stopBroadcast();
+
+        console2.log("proposed legacy referral bridge retirement on diamond", diamond);
+        console2.log("earliest executeRetireLegacyReferralBridge()", block.timestamp + 3 days);
+    }
+
+    function executeRetireLegacyReferralBridge()
+        external
+    {
+        uint256 privKey = vm.envUint(
+            "PRIVATE_KEY"
+        );
+
+        (
+            address diamond,
+        ) = _loadVault(
+            _networkName()
+        );
+
+        WiseTelecomNodesDiamond d = WiseTelecomNodesDiamond(
+            payable(diamond)
+        );
+
+        bytes4[] memory pair = WiseTelecomNodesDiamondSelectors.legacyReferralBridgeSelectors();
+
+        vm.startBroadcast(
+            privKey
+        );
+
+        _executeGroup(
+            diamond,
+            pair
+        );
+
+        vm.stopBroadcast();
+
+        require(
+            d.selectorToFacet(pair[0]) == address(0)
+                && d.selectorToFacet(pair[1]) == address(0),
+            "UpgradeReferralRegistry: legacy pair still routed (propose the retirement first)"
+        );
+
+        require(
+            d.selectorToFacet(BridgeFacet.bridgeToVault.selector) != address(0),
+            "UpgradeReferralRegistry: bridgeToVault lost its route"
+        );
+
+        console2.log("retired legacy referral bridge on diamond", diamond);
+    }
+
     function abort()
         external
     {
@@ -593,6 +711,18 @@ contract UpgradeReferralRegistry is VaultConfig {
                 CohortRecorderFacet(diamond).getCohortSyncEnabled()
             );
         }
+
+        bytes4[] memory pair = WiseTelecomNodesDiamondSelectors.legacyReferralBridgeSelectors();
+
+        console2.log(
+            "legacy bridgeToVaultWithReferral facet",
+            d.selectorToFacet(pair[0])
+        );
+
+        console2.log(
+            "legacy retirement queuedAt",
+            d.selectorChangeQueuedAt(pair[0])
+        );
     }
 
     function _proposeGroup(
