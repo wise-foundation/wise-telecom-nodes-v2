@@ -35,7 +35,11 @@ import {TwoVaultCohortHarness, TwoVaultMockUSD} from "../utils/TwoVaultCohortHar
  * `ghostCreditedTotal` accumulates every referred credit ever
  * granted, bounding the global book from above; per-vault ghost crumb
  * snapshots freeze each finalized week's crumb word the moment its
- * settle cursor passes it.
+ * settle cursor passes it. The move step also checks the tracked twin
+ * of the netting equality for EVERY actor, the unreferred one
+ * included: the mover's combined tracked across both vaults must drop
+ * by exactly those pre-existing deficits, counted in the sticky
+ * `ghostTrackedViolations`.
  */
 contract CohortCrossVaultHandler is Test {
 
@@ -68,6 +72,8 @@ contract CohortCrossVaultHandler is Test {
     uint256 public ghostCreditedTotal;
 
     uint256 public ghostMoveViolations;
+
+    uint256 public ghostTrackedViolations;
 
     uint256 public ghostStartWeek;
 
@@ -442,6 +448,12 @@ contract CohortCrossVaultHandler is Test {
 
         uint256 scoreBefore = _globalScore();
 
+        uint256 trackedBefore = _combinedTracked(
+            _src,
+            _dst,
+            actor
+        );
+
         vm.prank(
             actor
         );
@@ -457,6 +469,16 @@ contract CohortCrossVaultHandler is Test {
 
         if (_globalScore() != expected) {
             ++ghostMoveViolations;
+        }
+
+        uint256 trackedAfter = _combinedTracked(
+            _src,
+            _dst,
+            actor
+        );
+
+        if (trackedAfter != trackedBefore - preDeficit) {
+            ++ghostTrackedViolations;
         }
     }
 
@@ -479,6 +501,22 @@ contract CohortCrossVaultHandler is Test {
         return tracked > bal
             ? tracked - bal
             : 0;
+    }
+
+    function _combinedTracked(
+        WiseTelecomNodesDiamond _src,
+        WiseTelecomNodesDiamond _dst,
+        address _actor
+    )
+        internal
+        view
+        returns (uint256)
+    {
+        return CohortRecorderFacet(address(_src)).getTrackedContribution(
+            _actor
+        ) + CohortRecorderFacet(address(_dst)).getTrackedContribution(
+            _actor
+        );
     }
 
     function moveAToB(
@@ -753,7 +791,9 @@ contract CohortCrossVaultHandler is Test {
  * pins registry write-once under two vaults writing concurrently.
  * The per-move netting equality itself is asserted step-level inside
  * the handler's move actions, where the pre-existing deficit is
- * observable.
+ * observable; XC7 additionally requires the handler's tracked-netting
+ * counter to stay zero, the only place the unreferred mover's
+ * self-stake netting across a move is checked.
  */
 contract CohortCrossVaultInvariantTest is TwoVaultCohortHarness {
 
@@ -1000,6 +1040,19 @@ contract CohortCrossVaultInvariantTest is TwoVaultCohortHarness {
             handler.ghostMoveViolations(),
             0,
             "XC6: a move failed the netting equality"
+        );
+    }
+
+    /// forge-config: default.invariant.runs = 128
+    /// forge-config: default.invariant.depth = 64
+    function invariant_XC7_moveTrackedNettingNeverViolated()
+        public
+        view
+    {
+        assertEq(
+            handler.ghostTrackedViolations(),
+            0,
+            "XC7: a move failed the tracked netting equality"
         );
     }
 
