@@ -117,6 +117,16 @@ contract MockPayoutVault {
  * envelope at exactly the total work cap, and the courier claimable
  * bucket lifecycle across two source chains (independent buckets,
  * partial claims, courier-own designations, stranger lockout).
+ * The source-keyed views are pinned as well: `sourceKeyOf` returns
+ * the mailbox key for a remote source (matching the source topic of
+ * the `FlushApplied` log) and the address-padded key for a local
+ * reporter (under which `paidCursorAtSource` agrees with
+ * `paidCursorAt` after a local crumb delivery); `paidCursorAtSource`
+ * exposes a remote source's advanced cursor lanes, unchanged by
+ * re-application; `lastReportOfSource` exposes the absolute score
+ * pair a remote envelope carried (zero before any apply, the local
+ * reporter's own report untouched); and `DelivererSharePaid` carries
+ * the applied envelope's message id in its data words.
  * Rates come from the genesis table via locally reported scores
  * under the dwell-min boundary recipe; `address(this)` is master
  * and the local reporter.
@@ -179,6 +189,7 @@ contract ReferralHubMailboxTest is Test {
         uint256 indexed chainId,
         address indexed deliverer,
         address indexed referrer,
+        bytes32 messageId,
         uint256 amount
     );
 
@@ -668,6 +679,52 @@ contract ReferralHubMailboxTest is Test {
 
         revert(
             "FlushReceived log not found"
+        );
+    }
+
+    function _findLogByTopic(
+        bytes32 _topic
+    )
+        internal
+        returns (Vm.Log memory)
+    {
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        for (uint256 i; i < logs.length; ++i) {
+
+            if (logs[i].topics[0] == _topic) {
+                return logs[i];
+            }
+        }
+
+        revert(
+            "log not found"
+        );
+    }
+
+    function _cursorWordAtSource(
+        bytes32 _source,
+        address _referrer,
+        uint256 _week
+    )
+        internal
+        view
+        returns (uint256)
+    {
+        (
+            uint256 y1,
+            uint256 y2,
+            uint256 m
+        ) = hub.paidCursorAtSource(
+            _source,
+            _referrer,
+            _week
+        );
+
+        return CohortWeeks.packLanes(
+            y1,
+            y2,
+            m
         );
     }
 
@@ -2097,6 +2154,7 @@ contract ReferralHubMailboxTest is Test {
             CHAIN_BASE,
             courier,
             refA,
+            messageId,
             expectedShare
         );
 
@@ -2885,6 +2943,7 @@ contract ReferralHubMailboxTest is Test {
             CHAIN_BASE,
             courier2,
             refA,
+            bytes32(uint256(0xC6)),
             expectedShare
         );
 
@@ -3117,5 +3176,336 @@ contract ReferralHubMailboxTest is Test {
             CHAIN_BASE,
             courier
         );
+    }
+
+    // ---- source keys and source-keyed views ----
+
+    function test_sourceKeyOf_remoteMatchesMailboxKey()
+        public
+    {
+        bytes memory payload = _scoresPayload(
+            refA,
+            block.timestamp,
+            refA,
+            6_000 * 1e6,
+            0
+        );
+
+        bytes32 messageId = bytes32(
+            uint256(0xE1)
+        );
+
+        _receiveFlushAs(
+            messageId,
+            payload
+        );
+
+        bytes32 viewKey = hub.sourceKeyOf(
+            CHAIN_BASE,
+            spokeVault
+        );
+
+        vm.recordLogs();
+
+        hub.applyFlush(
+            messageId,
+            CHAIN_BASE,
+            spokeVault,
+            payload
+        );
+
+        Vm.Log memory applied = _findLogByTopic(
+            keccak256(
+                "FlushApplied(bytes32,bytes32,uint256)"
+            )
+        );
+
+        assertEq(
+            viewKey,
+            keccak256(
+                abi.encode(
+                    CHAIN_BASE,
+                    spokeVault
+                )
+            )
+        );
+
+        assertEq(applied.topics[1], messageId);
+        assertEq(applied.topics[2], viewKey);
+    }
+
+    function test_sourceKeyOf_localMatchesReporterKey()
+        public
+    {
+        uint256 week = _establishTier6(
+            refA
+        );
+
+        uint256[] memory weeks_ = new uint256[](1);
+
+        uint256[] memory words_ = new uint256[](1);
+
+        weeks_[0] = week;
+        words_[0] = _word(TIER6_QUANTITY, 0, 0);
+
+        hub.deliverCrumbs(
+            refA,
+            weeks_,
+            words_
+        );
+
+        bytes32 localKey = hub.sourceKeyOf(
+            block.chainid,
+            address(this)
+        );
+
+        (
+            uint256 y1ByReporter,
+            uint256 y2ByReporter,
+            uint256 mByReporter
+        ) = hub.paidCursorAt(
+            address(this),
+            refA,
+            week
+        );
+
+        uint256 sourceWord = _cursorWordAtSource(
+            localKey,
+            refA,
+            week
+        );
+
+        assertEq(localKey, bytes32(uint256(uint160(address(this)))));
+        assertEq(y1ByReporter, TIER6_QUANTITY);
+
+        assertEq(
+            sourceWord,
+            CohortWeeks.packLanes(
+                y1ByReporter,
+                y2ByReporter,
+                mByReporter
+            )
+        );
+    }
+
+    function test_paidCursorAtSource_remoteSourceReadable()
+        public
+    {
+        uint256 week = _establishTier6(
+            refA
+        );
+
+        uint256 crumbWord = _word(
+            TIER6_QUANTITY,
+            40 * 1e6 * YEAR,
+            20 * 1e6 * YEAR
+        );
+
+        bytes memory payload = _crumbPayload(
+            courier,
+            block.timestamp,
+            refA,
+            6_000 * 1e6,
+            250 * 1e6,
+            week,
+            crumbWord
+        );
+
+        bytes32 messageId = bytes32(
+            uint256(0xE2)
+        );
+
+        _receiveFlushAs(
+            messageId,
+            payload
+        );
+
+        bytes32 sourceKey = hub.sourceKeyOf(
+            CHAIN_BASE,
+            spokeVault
+        );
+
+        uint256 cursorBefore = _cursorWordAtSource(
+            sourceKey,
+            refA,
+            week
+        );
+
+        hub.applyFlush(
+            messageId,
+            CHAIN_BASE,
+            spokeVault,
+            payload
+        );
+
+        uint256 cursorAfter = _cursorWordAtSource(
+            sourceKey,
+            refA,
+            week
+        );
+
+        hub.applyFlush(
+            messageId,
+            CHAIN_BASE,
+            spokeVault,
+            payload
+        );
+
+        uint256 cursorAgain = _cursorWordAtSource(
+            sourceKey,
+            refA,
+            week
+        );
+
+        assertEq(cursorBefore, 0);
+        assertEq(cursorAfter, crumbWord & ~WRITTEN_BIT);
+        assertEq(CohortWeeks.laneY1(cursorAfter), TIER6_QUANTITY);
+        assertEq(CohortWeeks.laneY2(cursorAfter), 40 * 1e6 * YEAR);
+        assertEq(CohortWeeks.laneM(cursorAfter), 20 * 1e6 * YEAR);
+        assertEq(cursorAgain, cursorAfter);
+    }
+
+    function test_lastReportOfSource_remoteSourceReadable()
+        public
+    {
+        uint256 week = _establishTier6(
+            refA
+        );
+
+        bytes memory payload = _crumbPayload(
+            courier,
+            block.timestamp,
+            refA,
+            6_000 * 1e6,
+            250 * 1e6,
+            week,
+            _word(TIER6_QUANTITY, 0, 0)
+        );
+
+        bytes32 messageId = bytes32(
+            uint256(0xE3)
+        );
+
+        _receiveFlushAs(
+            messageId,
+            payload
+        );
+
+        bytes32 sourceKey = hub.sourceKeyOf(
+            CHAIN_BASE,
+            spokeVault
+        );
+
+        (
+            uint256 referredBefore,
+            uint256 selfBefore
+        ) = hub.lastReportOfSource(
+            sourceKey,
+            refA
+        );
+
+        hub.applyFlush(
+            messageId,
+            CHAIN_BASE,
+            spokeVault,
+            payload
+        );
+
+        (
+            uint256 referredAfter,
+            uint256 selfAfter
+        ) = hub.lastReportOfSource(
+            sourceKey,
+            refA
+        );
+
+        (
+            uint256 localReferred,
+        ) = hub.lastReportOf(
+            address(this),
+            refA
+        );
+
+        assertEq(referredBefore, 0);
+        assertEq(selfBefore, 0);
+        assertEq(referredAfter, 6_000 * 1e6);
+        assertEq(selfAfter, 250 * 1e6);
+        assertEq(localReferred, HIGH_SCORE);
+    }
+
+    // ---- courier share message id ----
+
+    function test_delivererSharePaid_carriesMessageId()
+        public
+    {
+        uint256 week = _establishTier6(
+            refA
+        );
+
+        bytes memory payload = _crumbPayload(
+            courier,
+            block.timestamp,
+            refA,
+            0,
+            0,
+            week,
+            _word(TIER6_QUANTITY, 0, 0)
+        );
+
+        bytes32 messageId = bytes32(
+            uint256(0xE4)
+        );
+
+        _receiveFlushAs(
+            messageId,
+            payload
+        );
+
+        uint256 expectedShare = TIER6_PAID * GENESIS_BOT_SHARE_BPS / 10_000;
+
+        vm.expectEmit(
+            true,
+            true,
+            true,
+            true,
+            address(hub)
+        );
+
+        emit DelivererSharePaid(
+            CHAIN_BASE,
+            courier,
+            refA,
+            messageId,
+            expectedShare
+        );
+
+        vm.recordLogs();
+
+        hub.applyFlush(
+            messageId,
+            CHAIN_BASE,
+            spokeVault,
+            payload
+        );
+
+        Vm.Log memory shareLog = _findLogByTopic(
+            keccak256(
+                "DelivererSharePaid(uint256,address,address,bytes32,uint256)"
+            )
+        );
+
+        (
+            bytes32 loggedMessageId,
+            uint256 loggedAmount
+        ) = abi.decode(
+            shareLog.data,
+            (bytes32, uint256)
+        );
+
+        assertEq(shareLog.topics[1], bytes32(CHAIN_BASE));
+        assertEq(shareLog.topics[2], bytes32(uint256(uint160(courier))));
+        assertEq(shareLog.topics[3], bytes32(uint256(uint160(refA))));
+        assertEq(loggedMessageId, messageId);
+        assertEq(loggedAmount, expectedShare);
     }
 }
