@@ -60,7 +60,13 @@ import {IReferralFlushHub} from "../../interfaces/pending/IReferralFlushHub.sol"
  * push is the recovery rail, so a skipped piggyback loses nothing).
  * `quoteFlushFee` plans on current storage without settling, so it
  * is a close lower-bound estimate; callers send margin and the
- * excess refunds.
+ * excess refunds. `previewFlushEnvelope` returns, for the caller as
+ * deliverer, the exact envelope bytes that plan would send (local
+ * mode delivers the same entries by direct call), so a bot can
+ * simulate the hub apply before paying for a flush; it shares the
+ * same no-settle lower-bound planning. `getFlushCursors` returns the
+ * send cursors of a whole batch in one call, the pair a bot needs to
+ * size its next envelope.
  */
 contract CohortFlushFacet is FacetBase {
 
@@ -87,19 +93,8 @@ contract CohortFlushFacet is FacetBase {
         whenNotPaused
         nonReentrant
     {
-        require(
-            flushHub != ZERO_ADDRESS,
-            FlushHubNotSet()
-        );
-
-        require(
-            _referrers.length > 0,
-            NothingToFlush()
-        );
-
-        require(
-            _referrers.length <= CohortWeeks.MAX_FLUSH_ENTRIES,
-            FlushBatchTooLarge()
+        _checkFlushBatch(
+            _referrers.length
         );
 
         for (uint256 i; i < _referrers.length; ++i) {
@@ -192,19 +187,8 @@ contract CohortFlushFacet is FacetBase {
         view
         returns (uint256)
     {
-        require(
-            flushHub != ZERO_ADDRESS,
-            FlushHubNotSet()
-        );
-
-        require(
-            _referrers.length > 0,
-            NothingToFlush()
-        );
-
-        require(
-            _referrers.length <= CohortWeeks.MAX_FLUSH_ENTRIES,
-            FlushBatchTooLarge()
+        _checkFlushBatch(
+            _referrers.length
         );
 
         if (flushHubChainSelector == 0) {
@@ -227,6 +211,24 @@ contract CohortFlushFacet is FacetBase {
                 _packFlushEnvelope(
                     entries
                 )
+            )
+        );
+    }
+
+    function previewFlushEnvelope(
+        address[] calldata _referrers
+    )
+        external
+        view
+        returns (bytes memory)
+    {
+        _checkFlushBatch(
+            _referrers.length
+        );
+
+        return _packFlushEnvelope(
+            _planFlushBatch(
+                _referrers
             )
         );
     }
@@ -317,6 +319,43 @@ contract CohortFlushFacet is FacetBase {
         );
     }
 
+    function getFlushCursors(
+        address[] calldata _referrers
+    )
+        external
+        view
+        returns (
+            uint256[] memory throughWeeks,
+            uint256[] memory gapIndexes,
+            uint256[] memory gapResumeWeeks
+        )
+    {
+        uint256 count = _referrers.length;
+
+        throughWeeks = new uint256[](
+            count
+        );
+
+        gapIndexes = new uint256[](
+            count
+        );
+
+        gapResumeWeeks = new uint256[](
+            count
+        );
+
+        for (uint256 i; i < count; ++i) {
+
+            uint256 cursor = flushGapCursor[_referrers[i]];
+
+            throughWeeks[i] = flushedThroughWeek[_referrers[i]];
+
+            gapIndexes[i] = cursor & CohortWeeks.CARRY_HALF_MASK;
+
+            gapResumeWeeks[i] = cursor >> FLUSH_GAP_CURSOR_WEEK_SHIFT;
+        }
+    }
+
     function getAllowedFlushBot(
         address _bot
     )
@@ -341,6 +380,28 @@ contract CohortFlushFacet is FacetBase {
         returns (uint64)
     {
         return flushGasLimit;
+    }
+
+    function _checkFlushBatch(
+        uint256 _count
+    )
+        internal
+        view
+    {
+        require(
+            flushHub != ZERO_ADDRESS,
+            FlushHubNotSet()
+        );
+
+        require(
+            _count > 0,
+            NothingToFlush()
+        );
+
+        require(
+            _count <= CohortWeeks.MAX_FLUSH_ENTRIES,
+            FlushBatchTooLarge()
+        );
     }
 
     function _checkFlushCaller(
