@@ -248,6 +248,7 @@ abstract contract CcipCarryUpgradeRehearsalForkBase is CcipForkHarness {
 
     function test_carryBridge_referredUserEndToEnd()
         public
+        virtual
     {
         if (_laneReady() == false) {
 
@@ -315,6 +316,7 @@ abstract contract CcipCarryUpgradeRehearsalForkBase is CcipForkHarness {
 
     function test_carryBridge_unreferredUser_trackedOnly()
         public
+        virtual
     {
         if (_laneReady() == false) {
 
@@ -422,6 +424,7 @@ abstract contract CcipCarryUpgradeRehearsalForkBase is CcipForkHarness {
 
     function test_carryBridge_gasUnderArmedBudget()
         public
+        virtual
     {
         if (_laneReady() == false) {
 
