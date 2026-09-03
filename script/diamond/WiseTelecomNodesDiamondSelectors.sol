@@ -63,14 +63,15 @@ interface IAutoCompoundGetters {
  *
  * Counts: admin=46, proxy=3, user=8, sweep=2, cashedInterest=1,
  * burnWise=3, move=7, bridge=14, permit2=3, referral=4,
- * permit2Referral=3, cohortRecorder=12, cohortBridgeHook=3,
- * cohortFlush=11, multicall=1, queueAdmin=2,
+ * permit2Referral=3, cohortRecorder=13, cohortBridgeHook=3,
+ * cohortFlush=13, multicall=1, queueAdmin=2,
  * queueJoinLeave=5, queueFulfill=4, queueView=10, queueForecast=1,
  * interestAdmin=1, rescue=1, autoCompound=7 (4 functions + the 3
  * shard getters, which the frozen live dispatchers cannot serve),
  * referralPayout=3 (cohortRecorder grew 11→12 with the master-only
- * retroactive seed, shipping wholesale inside the registry round's
- * recorder group); total 155, of which
+ * retroactive seed and to 13 with the batched crumb reader, shipping
+ * wholesale inside the registry round's recorder group); total 158,
+ * of which
  * 90 are wired at genesis (the genesis-era admin group had 27;
  * `setCohortSyncEnabled` ships with the cohort upgrade's AdminFacet
  * redeploy, the referral-registry pointer six
@@ -95,7 +96,8 @@ interface IAutoCompoundGetters {
  * (`raisePendingReferralPayout`, `fundReferralPayout`) behind the
  * timelocked payout-hub pointer. The cohortFlush group is likewise
  * post-launch and not yet installed: the flush transport's two
- * payable entrypoints, the fee quote, the three policy setters
+ * payable entrypoints, the fee quote, the envelope preview, the
+ * batched cursor reader, the three policy setters
  * behind master, and the five routed views backing the slot-83
  * shard's `internal` fields, shipped by {UpgradeCohortFlush}
  * together with the grown AdminFacet and the settle-aware
@@ -121,6 +123,15 @@ interface IAutoCompoundGetters {
  * auto-getter): the live diamond keeps its genesis bytecode, so every
  * post-genesis read surface must be routed to a facet explicitly;
  * same story as the six pointer selectors in the admin group.
+ *
+ * `legacyReferralBridgeSelectors` is not a routed group but the
+ * genesis passthrough pair inside `bridgeSelectors`
+ * (`bridgeToVaultWithReferral`, `quoteBridgeFeeWithReferral`): once
+ * the recorder is armed the vault authors the bridge attachment
+ * itself and both bridge entrypoints send identical wires, so
+ * {UpgradeReferralRegistry} can retire the pair to the zero facet
+ * after its round through the same timelock; the counts above still
+ * include them.
  */
 library WiseTelecomNodesDiamondSelectors {
 
@@ -183,7 +194,7 @@ library WiseTelecomNodesDiamondSelectors {
         pure
         returns (bytes4[] memory sels)
     {
-        sels = new bytes4[](12);
+        sels = new bytes4[](13);
         sels[0] = CohortRecorderFacet.syncReferee.selector;
         sels[1] = CohortRecorderFacet.advanceBook.selector;
         sels[2] = CohortRecorderFacet.getTrackedContribution.selector;
@@ -196,6 +207,7 @@ library WiseTelecomNodesDiamondSelectors {
         sels[9] = CohortRecorderFacet.getCohortSyncEnabled.selector;
         sels[10] = CohortRecorderFacet.receiveReferrerFlip.selector;
         sels[11] = CohortRecorderFacet.seedCohortContribution.selector;
+        sels[12] = CohortRecorderFacet.getCohortWeekCrumbs.selector;
     }
 
     function cohortBridgeHookSelectors()
@@ -214,7 +226,7 @@ library WiseTelecomNodesDiamondSelectors {
         pure
         returns (bytes4[] memory sels)
     {
-        sels = new bytes4[](11);
+        sels = new bytes4[](13);
         sels[0] = CohortFlushFacet.flushReferrals.selector;
         sels[1] = CohortFlushFacet.flushReferralWindow.selector;
         sels[2] = CohortFlushFacet.quoteFlushFee.selector;
@@ -226,6 +238,8 @@ library WiseTelecomNodesDiamondSelectors {
         sels[8] = CohortFlushFacet.getAllowedFlushBot.selector;
         sels[9] = CohortFlushFacet.getPublicFlushEnabled.selector;
         sels[10] = CohortFlushFacet.getFlushGasLimit.selector;
+        sels[11] = CohortFlushFacet.previewFlushEnvelope.selector;
+        sels[12] = CohortFlushFacet.getFlushCursors.selector;
     }
 
     function proxySelectors()
@@ -373,6 +387,16 @@ library WiseTelecomNodesDiamondSelectors {
         sels[11] = BridgeFacet.quoteBridgeFeeWithReferral.selector;
         sels[12] = BridgeFacet.setReferralEnabled.selector;
         sels[13] = BridgeFacet.setBridgeGasLimit.selector;
+    }
+
+    function legacyReferralBridgeSelectors()
+        internal
+        pure
+        returns (bytes4[] memory sels)
+    {
+        sels = new bytes4[](2);
+        sels[0] = BridgeFacet.bridgeToVaultWithReferral.selector;
+        sels[1] = BridgeFacet.quoteBridgeFeeWithReferral.selector;
     }
 
     function permit2Selectors()
