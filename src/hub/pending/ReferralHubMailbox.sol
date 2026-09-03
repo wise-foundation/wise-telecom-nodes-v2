@@ -60,6 +60,7 @@ abstract contract ReferralHubMailbox is ReferralHubIntake {
         uint256 stamp;
         uint256 cursor;
         uint256 work;
+        bytes32 messageId;
     }
 
     function _receiveFlush(
@@ -149,7 +150,8 @@ abstract contract ReferralHubMailbox is ReferralHubIntake {
                 header
             ),
             cursor: 1,
-            work: 0
+            work: 0,
+            messageId: _messageId
         });
 
         for (uint256 i; i < entryCount; ++i) {
@@ -313,8 +315,9 @@ abstract contract ReferralHubMailbox is ReferralHubIntake {
                 _referrer,
                 week,
                 word,
-                _context.chainId,
-                _context.deliverer
+                _deliveryOrigin(
+                    _context
+                )
             );
 
             _context.cursor += 2;
@@ -375,8 +378,9 @@ abstract contract ReferralHubMailbox is ReferralHubIntake {
             _record,
             fromWeek,
             toWeek - fromWeek,
-            _context.chainId,
-            _context.deliverer
+            _deliveryOrigin(
+                _context
+            )
         );
 
         _context.work += toWeek - fromWeek;
@@ -469,6 +473,20 @@ abstract contract ReferralHubMailbox is ReferralHubIntake {
             _owner,
             _payout
         );
+    }
+
+    function _deliveryOrigin(
+        FlushApplyContext memory _context
+    )
+        internal
+        pure
+        returns (DeliveryOrigin memory)
+    {
+        return DeliveryOrigin({
+            chainId: _context.chainId,
+            deliverer: _context.deliverer,
+            messageId: _context.messageId
+        });
     }
 
     function _flushWordAt(
