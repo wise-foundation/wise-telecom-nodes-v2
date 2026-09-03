@@ -12,11 +12,14 @@ import {WiseTelecomNodesDiamond} from "../../src/diamond/vault/WiseTelecomNodesD
 import {AdminFacet} from "../../src/diamond/vault/facets/AdminFacet.sol";
 import {UserFacet} from "../../src/diamond/vault/facets/UserFacet.sol";
 import {BridgeFacet} from "../../src/diamond/vault/facets/BridgeFacet.sol";
+import {QueueJoinLeaveFacet} from "../../src/diamond/vault/facets/QueueJoinLeaveFacet.sol";
+import {QueueFulfillFacet} from "../../src/diamond/vault/facets/QueueFulfillFacet.sol";
 import {ReferralFacet} from "../../src/diamond/vault/facets/pending/ReferralFacet.sol";
 import {CohortHookFacet} from "../../src/diamond/vault/facets/pending/CohortHookFacet.sol";
 import {CohortBridgeHookFacet} from "../../src/diamond/vault/facets/pending/CohortBridgeHookFacet.sol";
 import {CohortRecorderFacet} from "../../src/diamond/vault/facets/pending/CohortRecorderFacet.sol";
 import {ReferralRegistry} from "../../src/registry/pending/ReferralRegistry.sol";
+import {CohortWeeks} from "../../src/diamond/shared/pending/CohortWeeks.sol";
 
 import {WiseTelecomNodesDiamondErrors} from "../../src/diamond/vault/WiseTelecomNodesDiamondErrors.sol";
 
@@ -218,7 +221,28 @@ contract CarryMockRouter {
  * arrival landing at the ARRIVAL week; ring-lane saturation clipping
  * softly while the book keeps the full pre-clip aggregates; and the
  * applied carry suppressing the legacy `BridgeReferral` fallback even
- * with `referralEnabled` on.
+ * with `referralEnabled` on. A partial bridge over a book that already
+ * spans the year-one and year-two ring lanes is asserted lane by lane:
+ * what the source rings and book lose equals what the destination
+ * lands at its arrival slot, with tracked and score conserved across
+ * both chains.
+ *
+ * Further pins: the armed source's wire is byte-identical between
+ * `bridgeToVault` and `bridgeToVaultWithReferral` whatever the caller
+ * bytes are, up to the 256-byte cap; a referred holder whose burned
+ * slice is entirely untracked headroom sends an empty carry and leaves
+ * every book on both chains untouched, a destination with prior
+ * tracked credit included, with the fallback silent even under
+ * `referralEnabled`; a queue-purchased slice bridged by its buyer sends
+ * an empty carry and leaves the seller's book untouched; a lazy deficit
+ * still pending from a transfer is destroyed newest lane first by the
+ * pre-burn sync and never rides the wire, the two-stage event sequence
+ * and the year1/year2 split of the wire pinning the order; a 52-week-old
+ * cohort lands in the year2 ring at the arrival slot with the year1 ring
+ * untouched; and a 104-week-old cohort lands in the mature lane with no
+ * ring write on either chain, a return hop unable to rejuvenate it. Both
+ * diamonds also route the queue facets so the purchase path can reach a
+ * bridge.
  */
 contract WiseTelecomNodesCohortBridgeCarryTest is DiamondTestHarness {
 
@@ -246,6 +270,18 @@ contract WiseTelecomNodesCohortBridgeCarryTest is DiamondTestHarness {
 
     bytes32 internal constant BRIDGE_REFERRAL_TOPIC = keccak256(
         "BridgeReferral(address,uint64,bytes32,bytes)"
+    );
+
+    bytes32 internal constant SENT_TOPIC = keccak256(
+        "CohortBridgeCarrySent(address,uint64,address,uint256,uint256,uint256,uint256)"
+    );
+
+    bytes32 internal constant SKIPPED_TOPIC = keccak256(
+        "CohortBridgeCarrySkipped(address,uint64)"
+    );
+
+    bytes32 internal constant SYNCED_TOPIC = keccak256(
+        "CohortContributionSynced(address,address,uint256,uint256)"
     );
 
     address internal user1 = address(0xA1);
@@ -305,6 +341,21 @@ contract WiseTelecomNodesCohortBridgeCarryTest is DiamondTestHarness {
         uint256 year2,
         uint256 mature,
         uint256 pairCount
+    );
+
+    event CohortContributionSynced(
+        address indexed user,
+        address indexed referrer,
+        uint256 oldContribution,
+        uint256 newContribution
+    );
+
+    event CohortBookReduced(
+        address indexed referrer,
+        uint256 amount,
+        uint256 fromYear1,
+        uint256 fromYear2,
+        uint256 fromMature
     );
 
     function setUp()
@@ -390,6 +441,10 @@ contract WiseTelecomNodesCohortBridgeCarryTest is DiamondTestHarness {
         );
 
         _wireAllFacets(
+            d
+        );
+
+        _wireQueueFacets(
             d
         );
 
@@ -703,6 +758,135 @@ contract WiseTelecomNodesCohortBridgeCarryTest is DiamondTestHarness {
         }
 
         return "";
+    }
+
+    function _assertRingSlotsOf(
+        WiseTelecomNodesDiamond d,
+        address _referrer,
+        uint256 _slot,
+        uint256 _year1,
+        uint256 _year2
+    )
+        internal
+        view
+    {
+        (
+            uint64[52] memory ring1,
+            uint64[52] memory ring2
+        ) = _recorderOf(d).getCohortRings(
+            _referrer
+        );
+
+        assertEq(
+            uint256(ring1[_slot]),
+            _year1
+        );
+
+        assertEq(
+            uint256(ring2[_slot]),
+            _year2
+        );
+    }
+
+    function _assertWireLanes(
+        uint256 _trackedDelta,
+        uint256 _year1,
+        uint256 _year2,
+        uint256 _mature
+    )
+        internal
+        view
+    {
+        (
+            ,
+            uint256 word1,
+            uint256 word2,
+            uint256 word3
+        ) = abi.decode(
+            _wireReferralBytes(),
+            (uint256, uint256, uint256, uint256)
+        );
+
+        assertEq(
+            word1 & ((uint256(1) << 128) - 1),
+            _trackedDelta
+        );
+
+        assertEq(
+            word2 & ((uint256(1) << 128) - 1),
+            _year1
+        );
+
+        assertEq(
+            word2 >> 128,
+            _year2
+        );
+
+        assertEq(
+            word3,
+            _mature
+        );
+    }
+
+    function _assertBookOn(
+        WiseTelecomNodesDiamond d,
+        address _referrer,
+        uint256 _year1,
+        uint256 _year2,
+        uint256 _mature
+    )
+        internal
+        view
+    {
+        (
+            uint256 year1,
+            uint256 year2,
+            uint256 mature,
+        ) = _recorderOf(d).getCohortBook(
+            _referrer
+        );
+
+        assertEq(
+            year1,
+            _year1
+        );
+
+        assertEq(
+            year2,
+            _year2
+        );
+
+        assertEq(
+            mature,
+            _mature
+        );
+    }
+
+    function _assertRingsZero(
+        WiseTelecomNodesDiamond d,
+        address _referrer
+    )
+        internal
+        view
+    {
+        (
+            uint64[52] memory ring1,
+            uint64[52] memory ring2
+        ) = _recorderOf(d).getCohortRings(
+            _referrer
+        );
+
+        for (uint256 i; i < 52; ++i) {
+            assertEq(
+                uint256(ring1[i]),
+                0
+            );
+
+            assertEq(
+                uint256(ring2[i]),
+                0
+            );
+        }
     }
 
     // ---- 1. referred partial bridge conserves the book per lane ----
@@ -2258,6 +2442,1309 @@ contract WiseTelecomNodesCohortBridgeCarryTest is DiamondTestHarness {
         assertEq(
             _recorderOf(vaultA).getCohortScore(refA),
             coverScoreBefore - BRIDGE_AMOUNT
+        );
+    }
+
+    // ---- 20. a partial bridge over a two-lane book conserves every
+    // lane across the chains ----
+
+    function test_bridgeToVault_partialMultiLane_conservesPerLaneAcrossChains()
+        public
+    {
+        _armBoth();
+
+        _depositWithReferralOn(
+            vaultA,
+            user1,
+            1_000 * 1e6,
+            refA
+        );
+
+        vm.warp(
+            block.timestamp + 53 weeks
+        );
+
+        _depositWithReferralOn(
+            vaultA,
+            user1,
+            2_000 * 1e6,
+            refA
+        );
+
+        (
+            uint256 year1ABefore,
+            uint256 year2ABefore,
+            uint256 matureABefore,
+        ) = _recorderOf(vaultA).getCohortBook(
+            refA
+        );
+
+        assertEq(
+            year1ABefore,
+            2_000 * 1e6
+        );
+
+        assertEq(
+            year2ABefore,
+            1_000 * 1e6
+        );
+
+        assertEq(
+            matureABefore,
+            0
+        );
+
+        _assertRingSlotsOf(
+            vaultA,
+            refA,
+            37,
+            2_000 * 1e6,
+            0
+        );
+
+        _assertRingSlotsOf(
+            vaultA,
+            refA,
+            36,
+            0,
+            1_000 * 1e6
+        );
+
+        assertEq(
+            _recorderOf(vaultA).getTrackedContribution(user1),
+            3_000 * 1e6
+        );
+
+        uint256 landSlot = _landSlot();
+
+        assertEq(
+            landSlot,
+            38
+        );
+
+        vm.expectEmit(
+            true,
+            true,
+            true,
+            true,
+            address(vaultA)
+        );
+
+        emit CohortBridgeCarrySent(
+            user1,
+            SELECTOR_B,
+            refA,
+            2_500 * 1e6,
+            2_000 * 1e6,
+            500 * 1e6,
+            0
+        );
+
+        vm.expectEmit(
+            true,
+            true,
+            true,
+            true,
+            address(vaultB)
+        );
+
+        emit CohortBridgeCarryApplied(
+            user1,
+            SELECTOR_A,
+            refA,
+            refA,
+            2_500 * 1e6,
+            2_000 * 1e6,
+            500 * 1e6,
+            0
+        );
+
+        _bridgeAs(
+            user1,
+            vaultA,
+            SELECTOR_B,
+            2_500 * 1e6
+        );
+
+        assertEq(
+            _recorderOf(vaultA).getTrackedContribution(user1),
+            500 * 1e6
+        );
+
+        (
+            uint256 year1AAfter,
+            uint256 year2AAfter,
+            uint256 matureAAfter,
+        ) = _recorderOf(vaultA).getCohortBook(
+            refA
+        );
+
+        assertEq(
+            year1AAfter,
+            0
+        );
+
+        assertEq(
+            year2AAfter,
+            500 * 1e6
+        );
+
+        assertEq(
+            matureAAfter,
+            0
+        );
+
+        _assertRingSlotsOf(
+            vaultA,
+            refA,
+            37,
+            0,
+            0
+        );
+
+        _assertRingSlotsOf(
+            vaultA,
+            refA,
+            36,
+            0,
+            500 * 1e6
+        );
+
+        _assertWireLanes(
+            2_500 * 1e6,
+            2_000 * 1e6,
+            500 * 1e6,
+            0
+        );
+
+        assertEq(
+            vaultB.balanceOf(user1),
+            2_500 * 1e6
+        );
+
+        assertEq(
+            _recorderOf(vaultB).getTrackedContribution(user1),
+            2_500 * 1e6
+        );
+
+        (
+            uint256 year1B,
+            uint256 year2B,
+            uint256 matureB,
+        ) = _recorderOf(vaultB).getCohortBook(
+            refA
+        );
+
+        assertEq(
+            year1B,
+            2_000 * 1e6
+        );
+
+        assertEq(
+            year2B,
+            500 * 1e6
+        );
+
+        assertEq(
+            matureB,
+            0
+        );
+
+        _assertRingSlotsOf(
+            vaultB,
+            refA,
+            landSlot,
+            2_000 * 1e6,
+            500 * 1e6
+        );
+
+        _assertRingSlotsOf(
+            vaultB,
+            refA,
+            37,
+            0,
+            0
+        );
+
+        _assertRingSlotsOf(
+            vaultB,
+            refA,
+            36,
+            0,
+            0
+        );
+
+        assertEq(
+            registryB.referrerOf(user1),
+            refA
+        );
+
+        assertEq(
+            year1ABefore - year1AAfter,
+            year1B
+        );
+
+        assertEq(
+            year2ABefore - year2AAfter,
+            year2B
+        );
+
+        assertEq(
+            matureABefore - matureAAfter,
+            matureB
+        );
+
+        assertEq(
+            _recorderOf(vaultA).getCohortScore(refA)
+                + _recorderOf(vaultB).getCohortScore(refA),
+            3_000 * 1e6
+        );
+
+        assertEq(
+            _recorderOf(vaultA).getTrackedContribution(user1)
+                + _recorderOf(vaultB).getTrackedContribution(user1),
+            3_000 * 1e6
+        );
+    }
+
+    // ---- 21. armed source wire is byte-identical whatever the caller
+    // bytes are ----
+
+    function test_bridgeToVaultWithReferral_armedSource_wireByteIdenticalToBridgeToVault()
+        public
+    {
+        _armBoth();
+
+        _depositWithReferralOn(
+            vaultA,
+            user1,
+            DEPOSIT,
+            refA
+        );
+
+        uint256 snap = vm.snapshotState();
+
+        _bridgeAs(
+            user1,
+            vaultA,
+            SELECTOR_B,
+            BRIDGE_AMOUNT
+        );
+
+        bytes memory plainData = router.lastData();
+
+        bytes32 plainId = router.lastMessageId();
+
+        bytes memory plainRef = _wireReferralBytes();
+
+        assertEq(
+            plainRef.length,
+            128
+        );
+
+        vm.revertToState(
+            snap
+        );
+
+        vm.prank(
+            user1
+        );
+
+        BridgeFacet(address(vaultA)).bridgeToVaultWithReferral{value: FEE}(
+            SELECTOR_B,
+            BRIDGE_AMOUNT,
+            abi.encode(
+                uint256(42),
+                address(0xCAFE)
+            )
+        );
+
+        assertEq(
+            keccak256(router.lastData()),
+            keccak256(plainData)
+        );
+
+        assertEq(
+            router.lastMessageId(),
+            plainId
+        );
+
+        assertEq(
+            _recorderOf(vaultB).getTrackedContribution(user1),
+            BRIDGE_AMOUNT
+        );
+
+        assertEq(
+            _recorderOf(vaultB).getCohortScore(refA),
+            BRIDGE_AMOUNT
+        );
+
+        vm.revertToState(
+            snap
+        );
+
+        bytes memory junk = new bytes(256);
+
+        for (uint256 i; i < junk.length; ++i) {
+            junk[i] = bytes1(uint8(0xEE));
+        }
+
+        vm.prank(
+            user1
+        );
+
+        BridgeFacet(address(vaultA)).bridgeToVaultWithReferral{value: FEE}(
+            SELECTOR_B,
+            BRIDGE_AMOUNT,
+            junk
+        );
+
+        assertEq(
+            keccak256(router.lastData()),
+            keccak256(plainData)
+        );
+
+        (
+            address wireUser,
+            uint256 wireAmount,
+            bytes memory wireRef
+        ) = abi.decode(
+            router.lastData(),
+            (address, uint256, bytes)
+        );
+
+        assertEq(
+            wireUser,
+            user1
+        );
+
+        assertEq(
+            wireAmount,
+            BRIDGE_AMOUNT
+        );
+
+        assertEq(
+            keccak256(wireRef),
+            keccak256(plainRef)
+        );
+    }
+
+    // ---- 22. a referred holder's untracked headroom bridges with an
+    // empty carry and leaves every book untouched ----
+
+    function test_bridgeToVault_untrackedHeadroom_referredHolder_emptyCarryKeepsBooks()
+        public
+    {
+        _armBoth();
+
+        BridgeFacet(address(vaultB)).setReferralEnabled(
+            true
+        );
+
+        _depositWithReferralOn(
+            vaultB,
+            user1,
+            30 * 1e6,
+            refA
+        );
+
+        _depositWithReferralOn(
+            vaultA,
+            user1,
+            100 * 1e6,
+            refA
+        );
+
+        _depositOn(
+            vaultA,
+            buyer,
+            50 * 1e6
+        );
+
+        vm.prank(
+            buyer
+        );
+
+        vaultA.transfer(
+            user1,
+            50 * 1e6
+        );
+
+        uint256 creditSlot = _creditSlot();
+
+        uint256 landSlot = _landSlot();
+
+        assertEq(
+            _recorderOf(vaultA).getCohortScore(refA),
+            100 * 1e6
+        );
+
+        vm.recordLogs();
+
+        _bridgeAs(
+            user1,
+            vaultA,
+            SELECTOR_B,
+            50 * 1e6
+        );
+
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        assertEq(
+            _wireReferralBytes().length,
+            0
+        );
+
+        assertEq(
+            _recorderOf(vaultA).getTrackedContribution(user1),
+            100 * 1e6
+        );
+
+        assertEq(
+            _recorderOf(vaultA).getCohortScore(refA),
+            100 * 1e6
+        );
+
+        _assertRingSlotsOf(
+            vaultA,
+            refA,
+            creditSlot,
+            100 * 1e6,
+            0
+        );
+
+        assertEq(
+            vaultA.balanceOf(user1),
+            100 * 1e6
+        );
+
+        assertEq(
+            vaultB.balanceOf(user1),
+            80 * 1e6
+        );
+
+        assertEq(
+            _recorderOf(vaultB).getTrackedContribution(user1),
+            30 * 1e6
+        );
+
+        assertEq(
+            _recorderOf(vaultB).getCohortScore(refA),
+            30 * 1e6
+        );
+
+        _assertRingSlotsOf(
+            vaultB,
+            refA,
+            landSlot,
+            0,
+            0
+        );
+
+        assertEq(
+            _countTopic(
+                logs,
+                SENT_TOPIC
+            ),
+            0
+        );
+
+        assertEq(
+            _countTopic(
+                logs,
+                SKIPPED_TOPIC
+            ),
+            0
+        );
+
+        assertEq(
+            _countTopic(
+                logs,
+                SYNCED_TOPIC
+            ),
+            0
+        );
+
+        assertEq(
+            _countTopic(
+                logs,
+                APPLIED_TOPIC
+            ),
+            0
+        );
+
+        assertEq(
+            _countTopic(
+                logs,
+                DISCARDED_TOPIC
+            ),
+            0
+        );
+
+        assertEq(
+            _countTopic(
+                logs,
+                BRIDGE_REFERRAL_TOPIC
+            ),
+            0
+        );
+    }
+
+    // ---- 23. a queue-purchased slice bridged by its buyer sends an
+    // empty carry and leaves the seller's book untouched ----
+
+    function test_bridgeToVault_queuePurchasedSlice_emptyCarryKeepsSellerBook()
+        public
+    {
+        _armBoth();
+
+        _depositWithReferralOn(
+            vaultA,
+            user1,
+            DEPOSIT,
+            refA
+        );
+
+        vm.prank(
+            user1
+        );
+
+        (
+            ,
+            uint256 queId
+        ) = QueueJoinLeaveFacet(address(vaultA)).joinQue(
+            BRIDGE_AMOUNT,
+            0
+        );
+
+        assertEq(
+            _recorderOf(vaultA).getTrackedContribution(user1),
+            DEPOSIT - BRIDGE_AMOUNT
+        );
+
+        assertEq(
+            _recorderOf(vaultA).getCohortScore(refA),
+            DEPOSIT - BRIDGE_AMOUNT
+        );
+
+        _fundAndApproveOn(
+            vaultA,
+            buyer,
+            BRIDGE_AMOUNT
+        );
+
+        vm.prank(
+            buyer
+        );
+
+        QueueFulfillFacet(address(vaultA)).fulfillOrder(
+            queId,
+            0
+        );
+
+        assertEq(
+            vaultA.balanceOf(buyer),
+            BRIDGE_AMOUNT
+        );
+
+        assertEq(
+            _recorderOf(vaultA).getTrackedContribution(buyer),
+            0
+        );
+
+        vm.recordLogs();
+
+        _bridgeAs(
+            buyer,
+            vaultA,
+            SELECTOR_B,
+            BRIDGE_AMOUNT
+        );
+
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        assertEq(
+            _wireReferralBytes().length,
+            0
+        );
+
+        assertEq(
+            vaultB.balanceOf(buyer),
+            BRIDGE_AMOUNT
+        );
+
+        assertEq(
+            _recorderOf(vaultA).getTrackedContribution(buyer),
+            0
+        );
+
+        assertEq(
+            _recorderOf(vaultB).getTrackedContribution(buyer),
+            0
+        );
+
+        assertEq(
+            _recorderOf(vaultA).getCohortScore(refA),
+            DEPOSIT - BRIDGE_AMOUNT
+        );
+
+        assertEq(
+            _recorderOf(vaultB).getCohortScore(refA),
+            0
+        );
+
+        assertEq(
+            registryB.referrerOf(buyer),
+            address(0)
+        );
+
+        assertEq(
+            _countTopic(
+                logs,
+                SENT_TOPIC
+            ),
+            0
+        );
+
+        assertEq(
+            _countTopic(
+                logs,
+                SKIPPED_TOPIC
+            ),
+            0
+        );
+
+        assertEq(
+            _countTopic(
+                logs,
+                APPLIED_TOPIC
+            ),
+            0
+        );
+
+        assertEq(
+            _countTopic(
+                logs,
+                DISCARDED_TOPIC
+            ),
+            0
+        );
+
+        assertEq(
+            _countTopic(
+                logs,
+                BRIDGE_REFERRAL_TOPIC
+            ),
+            0
+        );
+
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].topics.length > 1 && logs[i].topics[0] == SYNCED_TOPIC) {
+                assertTrue(
+                    logs[i].topics[1] != bytes32(uint256(uint160(buyer)))
+                );
+            }
+        }
+    }
+
+    // ---- 24. a lazy deficit pending from a transfer is destroyed newest
+    // lane first by the pre-burn sync and never carried ----
+
+    function test_bridgeToVault_pendingLazyDeficit_destroyedNewestFirstNeverCarried()
+        public
+    {
+        _armBoth();
+
+        _depositWithReferralOn(
+            vaultA,
+            user1,
+            30 * 1e6,
+            refA
+        );
+
+        uint256 oldSlot = _creditSlot();
+
+        vm.warp(
+            block.timestamp + 53 weeks
+        );
+
+        _depositWithReferralOn(
+            vaultA,
+            user1,
+            70 * 1e6,
+            refA
+        );
+
+        uint256 newSlot = _creditSlot();
+
+        uint256 landSlot = _landSlot();
+
+        assertEq(
+            _recorderOf(vaultA).getTrackedContribution(user1),
+            100 * 1e6
+        );
+
+        _assertBookOn(
+            vaultA,
+            refA,
+            70 * 1e6,
+            30 * 1e6,
+            0
+        );
+
+        vm.prank(
+            user1
+        );
+
+        vaultA.transfer(
+            buyer,
+            30 * 1e6
+        );
+
+        assertEq(
+            _recorderOf(vaultA).getTrackedContribution(user1),
+            100 * 1e6
+        );
+
+        assertEq(
+            _recorderOf(vaultA).getCohortScore(refA),
+            100 * 1e6
+        );
+
+        assertEq(
+            vaultA.balanceOf(user1),
+            70 * 1e6
+        );
+
+        vm.expectEmit(
+            true,
+            true,
+            true,
+            true,
+            address(vaultA)
+        );
+
+        emit CohortBookReduced(
+            refA,
+            30 * 1e6,
+            30 * 1e6,
+            0,
+            0
+        );
+
+        vm.expectEmit(
+            true,
+            true,
+            true,
+            true,
+            address(vaultA)
+        );
+
+        emit CohortContributionSynced(
+            user1,
+            refA,
+            100 * 1e6,
+            70 * 1e6
+        );
+
+        vm.expectEmit(
+            true,
+            true,
+            true,
+            true,
+            address(vaultA)
+        );
+
+        emit CohortBookReduced(
+            refA,
+            50 * 1e6,
+            40 * 1e6,
+            10 * 1e6,
+            0
+        );
+
+        vm.expectEmit(
+            true,
+            true,
+            true,
+            true,
+            address(vaultA)
+        );
+
+        emit CohortContributionSynced(
+            user1,
+            refA,
+            70 * 1e6,
+            20 * 1e6
+        );
+
+        vm.expectEmit(
+            true,
+            true,
+            true,
+            true,
+            address(vaultA)
+        );
+
+        emit CohortBridgeCarrySent(
+            user1,
+            SELECTOR_B,
+            refA,
+            50 * 1e6,
+            40 * 1e6,
+            10 * 1e6,
+            0
+        );
+
+        vm.expectEmit(
+            true,
+            true,
+            true,
+            true,
+            address(vaultB)
+        );
+
+        emit CohortBridgeCarryApplied(
+            user1,
+            SELECTOR_A,
+            refA,
+            refA,
+            50 * 1e6,
+            40 * 1e6,
+            10 * 1e6,
+            0
+        );
+
+        _bridgeAs(
+            user1,
+            vaultA,
+            SELECTOR_B,
+            50 * 1e6
+        );
+
+        assertEq(
+            vaultA.balanceOf(user1),
+            20 * 1e6
+        );
+
+        assertEq(
+            _recorderOf(vaultA).getTrackedContribution(user1),
+            20 * 1e6
+        );
+
+        _assertBookOn(
+            vaultA,
+            refA,
+            0,
+            20 * 1e6,
+            0
+        );
+
+        _assertRingSlotsOf(
+            vaultA,
+            refA,
+            newSlot,
+            0,
+            0
+        );
+
+        _assertRingSlotsOf(
+            vaultA,
+            refA,
+            oldSlot,
+            0,
+            20 * 1e6
+        );
+
+        assertEq(
+            _recorderOf(vaultA).getCohortScore(refA),
+            20 * 1e6
+        );
+
+        _assertWireLanes(
+            50 * 1e6,
+            40 * 1e6,
+            10 * 1e6,
+            0
+        );
+
+        assertEq(
+            vaultB.balanceOf(user1),
+            50 * 1e6
+        );
+
+        assertEq(
+            _recorderOf(vaultB).getTrackedContribution(user1),
+            50 * 1e6
+        );
+
+        _assertBookOn(
+            vaultB,
+            refA,
+            40 * 1e6,
+            10 * 1e6,
+            0
+        );
+
+        _assertRingSlotsOf(
+            vaultB,
+            refA,
+            landSlot,
+            40 * 1e6,
+            10 * 1e6
+        );
+
+        assertEq(
+            _recorderOf(vaultB).getCohortScore(refA),
+            50 * 1e6
+        );
+
+        assertEq(
+            _recorderOf(vaultA).getCohortScore(refA)
+                + _recorderOf(vaultB).getCohortScore(refA),
+            70 * 1e6
+        );
+
+        assertEq(
+            _recorderOf(vaultA).getTrackedContribution(user1)
+                + _recorderOf(vaultB).getTrackedContribution(user1),
+            70 * 1e6
+        );
+    }
+
+    // ---- 25. a 52-week-old cohort lands in the year2 ring at the
+    // arrival slot with the year1 ring untouched ----
+
+    function test_bridgeToVault_year2Cohort_landsInYear2RingOldestSlot()
+        public
+    {
+        _armBoth();
+
+        _depositWithReferralOn(
+            vaultA,
+            user1,
+            DEPOSIT,
+            refA
+        );
+
+        uint256 creditSlot = _creditSlot();
+
+        vm.warp(
+            block.timestamp + 52 weeks
+        );
+
+        _recorderOf(vaultA).advanceBook(
+            refA,
+            CohortWeeks.MAX_SETTLE_BOUNDARIES
+        );
+
+        _assertBookOn(
+            vaultA,
+            refA,
+            0,
+            DEPOSIT,
+            0
+        );
+
+        _assertRingSlotsOf(
+            vaultA,
+            refA,
+            creditSlot,
+            0,
+            DEPOSIT
+        );
+
+        uint256 landSlot = _landSlot();
+
+        vm.expectEmit(
+            true,
+            true,
+            true,
+            true,
+            address(vaultA)
+        );
+
+        emit CohortBridgeCarrySent(
+            user1,
+            SELECTOR_B,
+            refA,
+            BRIDGE_AMOUNT,
+            0,
+            BRIDGE_AMOUNT,
+            0
+        );
+
+        vm.expectEmit(
+            true,
+            true,
+            true,
+            true,
+            address(vaultB)
+        );
+
+        emit CohortBridgeCarryApplied(
+            user1,
+            SELECTOR_A,
+            refA,
+            refA,
+            BRIDGE_AMOUNT,
+            0,
+            BRIDGE_AMOUNT,
+            0
+        );
+
+        _bridgeAs(
+            user1,
+            vaultA,
+            SELECTOR_B,
+            BRIDGE_AMOUNT
+        );
+
+        _assertWireLanes(
+            BRIDGE_AMOUNT,
+            0,
+            BRIDGE_AMOUNT,
+            0
+        );
+
+        _assertBookOn(
+            vaultA,
+            refA,
+            0,
+            DEPOSIT - BRIDGE_AMOUNT,
+            0
+        );
+
+        _assertRingSlotsOf(
+            vaultA,
+            refA,
+            creditSlot,
+            0,
+            DEPOSIT - BRIDGE_AMOUNT
+        );
+
+        assertEq(
+            _recorderOf(vaultA).getTrackedContribution(user1),
+            DEPOSIT - BRIDGE_AMOUNT
+        );
+
+        _assertBookOn(
+            vaultB,
+            refA,
+            0,
+            BRIDGE_AMOUNT,
+            0
+        );
+
+        _assertRingSlotsOf(
+            vaultB,
+            refA,
+            landSlot,
+            0,
+            BRIDGE_AMOUNT
+        );
+
+        (
+            uint64[52] memory ring1B,
+            uint64[52] memory ring2B
+        ) = _recorderOf(vaultB).getCohortRings(
+            refA
+        );
+
+        uint256 ring2Sum;
+
+        for (uint256 i; i < 52; ++i) {
+            assertEq(
+                uint256(ring1B[i]),
+                0
+            );
+
+            ring2Sum += uint256(ring2B[i]);
+        }
+
+        assertEq(
+            ring2Sum,
+            BRIDGE_AMOUNT
+        );
+
+        assertEq(
+            _recorderOf(vaultB).getTrackedContribution(user1),
+            BRIDGE_AMOUNT
+        );
+
+        assertEq(
+            _recorderOf(vaultA).getCohortScore(refA)
+                + _recorderOf(vaultB).getCohortScore(refA),
+            DEPOSIT
+        );
+    }
+
+    // ---- 26. a 104-week-old cohort lands in the mature lane with no
+    // ring write on either chain and a return hop cannot rejuvenate it ----
+
+    function test_bridgeToVault_matureCohort_landsInMatureLaneNoRingWrite()
+        public
+    {
+        _armBoth();
+
+        _depositWithReferralOn(
+            vaultA,
+            user1,
+            DEPOSIT,
+            refA
+        );
+
+        vm.warp(
+            block.timestamp + 104 weeks
+        );
+
+        _recorderOf(vaultA).advanceBook(
+            refA,
+            CohortWeeks.MAX_SETTLE_BOUNDARIES
+        );
+
+        _assertBookOn(
+            vaultA,
+            refA,
+            0,
+            0,
+            DEPOSIT
+        );
+
+        _assertRingsZero(
+            vaultA,
+            refA
+        );
+
+        vm.expectEmit(
+            true,
+            true,
+            true,
+            true,
+            address(vaultA)
+        );
+
+        emit CohortBridgeCarrySent(
+            user1,
+            SELECTOR_B,
+            refA,
+            BRIDGE_AMOUNT,
+            0,
+            0,
+            BRIDGE_AMOUNT
+        );
+
+        vm.expectEmit(
+            true,
+            true,
+            true,
+            true,
+            address(vaultB)
+        );
+
+        emit CohortBridgeCarryApplied(
+            user1,
+            SELECTOR_A,
+            refA,
+            refA,
+            BRIDGE_AMOUNT,
+            0,
+            0,
+            BRIDGE_AMOUNT
+        );
+
+        _bridgeAs(
+            user1,
+            vaultA,
+            SELECTOR_B,
+            BRIDGE_AMOUNT
+        );
+
+        _assertWireLanes(
+            BRIDGE_AMOUNT,
+            0,
+            0,
+            BRIDGE_AMOUNT
+        );
+
+        _assertBookOn(
+            vaultA,
+            refA,
+            0,
+            0,
+            DEPOSIT - BRIDGE_AMOUNT
+        );
+
+        assertEq(
+            _recorderOf(vaultA).getTrackedContribution(user1),
+            DEPOSIT - BRIDGE_AMOUNT
+        );
+
+        _assertBookOn(
+            vaultB,
+            refA,
+            0,
+            0,
+            BRIDGE_AMOUNT
+        );
+
+        _assertRingsZero(
+            vaultB,
+            refA
+        );
+
+        assertEq(
+            _recorderOf(vaultB).getTrackedContribution(user1),
+            BRIDGE_AMOUNT
+        );
+
+        assertEq(
+            vaultB.balanceOf(user1),
+            BRIDGE_AMOUNT
+        );
+
+        assertEq(
+            _recorderOf(vaultA).getCohortScore(refA)
+                + _recorderOf(vaultB).getCohortScore(refA),
+            DEPOSIT
+        );
+
+        _bridgeAs(
+            user1,
+            vaultB,
+            SELECTOR_A,
+            BRIDGE_AMOUNT
+        );
+
+        _assertBookOn(
+            vaultA,
+            refA,
+            0,
+            0,
+            DEPOSIT
+        );
+
+        _assertRingsZero(
+            vaultA,
+            refA
+        );
+
+        _assertBookOn(
+            vaultB,
+            refA,
+            0,
+            0,
+            0
+        );
+
+        assertEq(
+            _recorderOf(vaultA).getTrackedContribution(user1),
+            DEPOSIT
+        );
+
+        assertEq(
+            _recorderOf(vaultB).getTrackedContribution(user1),
+            0
         );
     }
 }

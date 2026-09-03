@@ -294,6 +294,16 @@ contract CohortBridgeSeamHarness is CohortRecorderBase {
         cohortRingYear1[_referrer][_slot] = _amount;
     }
 
+    function harnessSetRingYear2(
+        address _referrer,
+        uint256 _slot,
+        uint64 _amount
+    )
+        external
+    {
+        cohortRingYear2[_referrer][_slot] = _amount;
+    }
+
     // ---- view helpers ----
 
     function viewTracked(
@@ -325,6 +335,17 @@ contract CohortBridgeSeamHarness is CohortRecorderBase {
         returns (uint64)
     {
         return cohortRingYear1[_referrer][_slot];
+    }
+
+    function viewRingYear2(
+        address _referrer,
+        uint256 _slot
+    )
+        external
+        view
+        returns (uint64)
+    {
+        return cohortRingYear2[_referrer][_slot];
     }
 }
 
@@ -499,7 +520,10 @@ contract CohortFlipSeamHarness is CohortRecorderBase {
  * applied, book lanes dropped), a rejected merge (lanes land under
  * the local answer), the flip migration's sale-like deficit clamp and
  * its saturating replant clip, and the replant walk's defensive
- * zero-amount pair skip.
+ * zero-amount pair skip. A scaled-down capture over a three-lane book
+ * floors every lane on its own, so the carried tracked delta stays
+ * strictly below the floored burn and a second harness lands each
+ * floored lane under the mint without ever rounding up.
  */
 contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
 
@@ -2616,6 +2640,239 @@ contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
         assertEq(
             vm.getRecordedLogs().length,
             0
+        );
+    }
+
+    // ---- 19. a scaled-down capture over three lanes floors each lane
+    // on its own and lands strictly under the mint ----
+
+    function test_captureBridgeOut_scaleDownMultiLane_floorsPerLaneAndLandsUnderMint()
+        public
+    {
+        ReferralRegistry seamRegistry = new ReferralRegistry(
+            address(this),
+            0
+        );
+
+        seamRegistry.setAllowedVault(
+            address(this),
+            true
+        );
+
+        seamRegistry.assignReferrer(
+            user1,
+            refA
+        );
+
+        seamHarness.harnessSetRegistry(
+            address(seamRegistry)
+        );
+
+        seamHarness.harnessMintBalance(
+            user1,
+            1_000 * 1e6
+        );
+
+        seamHarness.harnessSetTracked(
+            user1,
+            1_000 * 1e6 + 750
+        );
+
+        seamHarness.harnessSetBookLanes(
+            refA,
+            150,
+            250,
+            350
+        );
+
+        uint256 slot = _creditSlot();
+
+        seamHarness.harnessSetRingYear1(
+            refA,
+            slot,
+            150
+        );
+
+        seamHarness.harnessSetRingYear2(
+            refA,
+            slot,
+            250
+        );
+
+        vm.expectEmit(
+            true,
+            true,
+            true,
+            true,
+            address(seamHarness)
+        );
+
+        emit CohortBridgeCarrySent(
+            user1,
+            SELECTOR_LOW,
+            refA,
+            6,
+            1,
+            2,
+            3
+        );
+
+        bytes memory payload = seamHarness.exposedCaptureBridgeOut(
+            user1,
+            SELECTOR_LOW,
+            750,
+            1,
+            100
+        );
+
+        assertEq(
+            seamHarness.viewTracked(user1),
+            1_000 * 1e6
+        );
+
+        assertEq(
+            seamHarness.viewBookWord(refA),
+            0
+        );
+
+        assertEq(
+            uint256(seamHarness.viewRingYear1(refA, slot)),
+            0
+        );
+
+        assertEq(
+            uint256(seamHarness.viewRingYear2(refA, slot)),
+            0
+        );
+
+        assertEq(
+            payload.length,
+            CohortWeeks.BRIDGE_CARRY_BYTES
+        );
+
+        (
+            ,
+            uint256 word1,
+            uint256 word2,
+            uint256 word3
+        ) = CohortWeeks.unpackBridgeCarry(
+            payload
+        );
+
+        assertEq(
+            CohortWeeks.carryTrackedDelta(word1),
+            6
+        );
+
+        assertEq(
+            CohortWeeks.carryPairLo(word2),
+            1
+        );
+
+        assertEq(
+            CohortWeeks.carryPairHi(word2),
+            2
+        );
+
+        assertEq(
+            word3,
+            3
+        );
+
+        assertTrue(
+            CohortWeeks.bridgeCarryValid(
+                payload,
+                7
+            )
+        );
+
+        assertFalse(
+            CohortWeeks.bridgeCarryValid(
+                payload,
+                5
+            )
+        );
+
+        CohortBridgeSeamHarness dest = new CohortBridgeSeamHarness();
+
+        ReferralRegistry destRegistry = new ReferralRegistry(
+            address(this),
+            1
+        );
+
+        destRegistry.setAllowedVault(
+            address(dest),
+            true
+        );
+
+        dest.harnessSetRegistry(
+            address(destRegistry)
+        );
+
+        uint256 landSlot = _landSlot();
+
+        vm.expectEmit(
+            true,
+            true,
+            true,
+            true,
+            address(dest)
+        );
+
+        emit CohortBridgeCarryApplied(
+            user1,
+            SELECTOR_A,
+            refA,
+            refA,
+            6,
+            1,
+            2,
+            3
+        );
+
+        bool applied = dest.exposedApplyBridgeIn(
+            user1,
+            SELECTOR_A,
+            7,
+            payload
+        );
+
+        assertTrue(
+            applied
+        );
+
+        assertEq(
+            dest.viewTracked(user1),
+            6
+        );
+
+        assertLt(
+            dest.viewTracked(user1),
+            7
+        );
+
+        assertEq(
+            dest.viewBookWord(refA),
+            CohortWeeks.packLanes(
+                1,
+                2,
+                3
+            )
+        );
+
+        assertEq(
+            uint256(dest.viewRingYear1(refA, landSlot)),
+            1
+        );
+
+        assertEq(
+            uint256(dest.viewRingYear2(refA, landSlot)),
+            2
+        );
+
+        assertEq(
+            destRegistry.referrerOf(user1),
+            refA
         );
     }
 }

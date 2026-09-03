@@ -57,7 +57,12 @@ contract OversizeCarryRegistry {
  * allowlist (clamp lands, staging skipped), stale payloads
  * (discarded), malformed payloads (validator rejects wholesale),
  * empty mailbox, codeless registry; plus the per-component floor
- * scaling and its lane-max cap.
+ * scaling and its lane-max cap. Section B also carries a fuzzed
+ * partial twin of the round trip: four tranches spread across up to
+ * sixty weeks (so Year-2 pairs arise through the credit-triggered
+ * settle) and an arbitrary partial amount, asserting exact per-slot
+ * relocation after the first leg and byte-identical rings, book and
+ * tracked after the return.
  */
 contract WiseTelecomNodesCohortCarryEngineTest is Test {
 
@@ -239,6 +244,27 @@ contract WiseTelecomNodesCohortCarryEngineTest is Test {
                 ++count;
             }
         }
+    }
+
+    function _assertCarryDrained(
+        address _src,
+        address _dst
+    )
+        internal
+        view
+    {
+        (
+            uint256 stagedAt,
+            uint256[] memory payload
+        ) = registry.getCarry(
+            _src,
+            _dst,
+            user1
+        );
+
+        assertEq(stagedAt, 0);
+
+        assertEq(payload.length, 0);
     }
 
     // ---- Section A: captured walk ----
@@ -995,6 +1021,216 @@ contract WiseTelecomNodesCohortCarryEngineTest is Test {
         assertEq(
             harnessB.viewTracked(user1),
             0
+        );
+    }
+
+    struct PartialRoundTrip {
+        uint256 week;
+        uint256 total;
+        uint256 delta;
+        uint256 originBook;
+        uint256 originTracked;
+        uint64[52] origin1;
+        uint64[52] origin2;
+        uint64[52] afterA1;
+        uint64[52] afterA2;
+        uint64[52] afterB1;
+        uint64[52] afterB2;
+        uint64[52] final1;
+        uint64[52] final2;
+    }
+
+    function testFuzz_captureApply_engineRoundTrip_partialByteIdentical(
+        uint256 _weekSeed,
+        uint256 _amountSeed,
+        uint256 _deltaSeed
+    )
+        public
+    {
+        PartialRoundTrip memory run;
+
+        _referUser1();
+
+        run.week = BASE_WEEK;
+
+        for (uint256 i; i < 4; ++i) {
+
+            run.week += bound(
+                uint256(uint8(_weekSeed >> (8 * i))),
+                0,
+                20
+            );
+
+            uint256 amount = bound(
+                uint256(uint32(_amountSeed >> (32 * i))),
+                1e6,
+                3_000 * 1e6
+            );
+
+            _creditAt(
+                harnessA,
+                run.week,
+                amount
+            );
+
+            run.total += amount;
+        }
+
+        harnessA.harnessMintBalance(
+            user1,
+            run.total
+        );
+
+        run.delta = bound(
+            _deltaSeed,
+            1,
+            run.total
+        );
+
+        (
+            run.origin1,
+            run.origin2
+        ) = _ringSnapshot(
+            harnessA,
+            refA
+        );
+
+        run.originBook = harnessA.viewBookWord(
+            refA
+        );
+
+        run.originTracked = harnessA.viewTracked(
+            user1
+        );
+
+        harnessA.harnessBurnBalance(
+            user1,
+            run.delta
+        );
+
+        harnessA.exposedCaptureMoveOut(
+            user1,
+            address(harnessB),
+            run.delta,
+            1,
+            1
+        );
+
+        harnessB.harnessMintBalance(
+            user1,
+            run.delta
+        );
+
+        harnessB.exposedApplyMoveIn(
+            user1,
+            address(harnessA)
+        );
+
+        assertEq(
+            harnessA.viewTracked(user1),
+            run.total - run.delta
+        );
+
+        assertEq(
+            harnessB.viewTracked(user1),
+            run.delta
+        );
+
+        (
+            run.afterA1,
+            run.afterA2
+        ) = _ringSnapshot(
+            harnessA,
+            refA
+        );
+
+        (
+            run.afterB1,
+            run.afterB2
+        ) = _ringSnapshot(
+            harnessB,
+            refA
+        );
+
+        for (uint256 i; i < 52; ++i) {
+
+            assertEq(
+                uint256(run.origin1[i]) - uint256(run.afterA1[i]),
+                uint256(run.afterB1[i])
+            );
+
+            assertEq(
+                uint256(run.origin2[i]) - uint256(run.afterA2[i]),
+                uint256(run.afterB2[i])
+            );
+        }
+
+        harnessB.harnessBurnBalance(
+            user1,
+            run.delta
+        );
+
+        harnessB.exposedCaptureMoveOut(
+            user1,
+            address(harnessA),
+            run.delta,
+            1,
+            1
+        );
+
+        harnessA.harnessMintBalance(
+            user1,
+            run.delta
+        );
+
+        harnessA.exposedApplyMoveIn(
+            user1,
+            address(harnessB)
+        );
+
+        (
+            run.final1,
+            run.final2
+        ) = _ringSnapshot(
+            harnessA,
+            refA
+        );
+
+        _assertRingsEqual(
+            run.final1,
+            run.final2,
+            run.origin1,
+            run.origin2
+        );
+
+        assertEq(
+            harnessA.viewBookWord(refA),
+            run.originBook
+        );
+
+        assertEq(
+            harnessA.viewTracked(user1),
+            run.originTracked
+        );
+
+        assertEq(
+            harnessB.viewBookWord(refA),
+            0
+        );
+
+        assertEq(
+            harnessB.viewTracked(user1),
+            0
+        );
+
+        _assertCarryDrained(
+            address(harnessA),
+            address(harnessB)
+        );
+
+        _assertCarryDrained(
+            address(harnessB),
+            address(harnessA)
         );
     }
 
