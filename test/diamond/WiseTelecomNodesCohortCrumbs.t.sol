@@ -60,7 +60,11 @@ contract MockUSD is ERC20 {
  * 104-boundary walk; the mixed case where `advanceBook` pre-walked
  * part of a dormant span and the gap covers the rest; and
  * finalized-crumb immutability: once the walk crosses a week's
- * closing boundary its word never changes again.
+ * closing boundary its word never changes again. The batched window
+ * read `getCohortWeekCrumbs` returns element for element exactly what
+ * the single getter serves across a window mixing written and
+ * untouched weeks; and a zero-count window returns an empty array
+ * without reverting.
  */
 contract WiseTelecomNodesCohortCrumbsTest is DiamondTestHarness {
 
@@ -692,5 +696,106 @@ contract WiseTelecomNodesCohortCrumbsTest is DiamondTestHarness {
                 finalized
             );
         }
+    }
+
+    // ---- batched window read ----
+
+    function test_getCohortWeekCrumbs_matchesSingleGetterAcrossWindow()
+        public
+    {
+        _depositWithReferralAs(
+            user1,
+            AMOUNT,
+            refA
+        );
+
+        vm.warp(
+            BASE_TIME + 3 weeks
+        );
+
+        _recorder().advanceBook(
+            refA,
+            104
+        );
+
+        uint256[] memory crumbs = _recorder().getCohortWeekCrumbs(
+            refA,
+            2_999,
+            6
+        );
+
+        assertEq(
+            crumbs.length,
+            6
+        );
+
+        for (uint256 i; i < crumbs.length; ++i) {
+
+            assertEq(
+                crumbs[i],
+                _recorder().getCohortWeekCrumb(
+                    refA,
+                    2_999 + i
+                )
+            );
+        }
+
+        assertEq(
+            crumbs[0],
+            0
+        );
+
+        assertEq(
+            crumbs[1],
+            _crumbWord(
+                AMOUNT * (1 weeks - 1 hours),
+                0,
+                0
+            )
+        );
+
+        assertEq(
+            crumbs[2],
+            _crumbWord(
+                AMOUNT * 1 weeks,
+                0,
+                0
+            )
+        );
+
+        assertEq(
+            crumbs[5],
+            0
+        );
+    }
+
+    function test_getCohortWeekCrumbs_zeroCount_returnsEmpty()
+        public
+    {
+        _depositWithReferralAs(
+            user1,
+            AMOUNT,
+            refA
+        );
+
+        vm.warp(
+            BASE_TIME + 3 weeks
+        );
+
+        _recorder().advanceBook(
+            refA,
+            104
+        );
+
+        uint256[] memory crumbs = _recorder().getCohortWeekCrumbs(
+            refA,
+            3_000,
+            0
+        );
+
+        assertEq(
+            crumbs.length,
+            0
+        );
     }
 }
