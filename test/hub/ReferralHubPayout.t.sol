@@ -55,6 +55,14 @@ contract MockUSD is ERC20 {
  * diamond. Accrual here reuses the intake recipe: absolute score
  * report, two dwell-min boundary crossings, one crumb delivery
  * whose lane quantity prices to an exact whole amount (no dust).
+ * The batch readers are pinned against their single-value siblings.
+ * `paidCursorsAtSource` over a window with two delivered weeks and
+ * two untouched ones returns, per week, exactly the packed lanes of
+ * `paidCursorAtSource`, with the untouched weeks reading zero. A
+ * zero count yields an empty array without reverting. `claimableOf`
+ * over three referrers on one chain id, two with distinct accruals
+ * and one with nothing, equals `claimable` element by element. An
+ * empty batch yields an empty array without reverting.
  */
 contract ReferralHubPayoutTest is Test {
 
@@ -72,6 +80,8 @@ contract ReferralHubPayoutTest is Test {
     uint256 internal constant BASE_TIME = 3_000 weeks + 1 hours;
 
     address internal refA = address(0xB1);
+
+    address internal refB = address(0xB2);
 
     address internal designated = address(0xF2);
 
@@ -135,6 +145,44 @@ contract ReferralHubPayoutTest is Test {
         );
 
         expectedPaid = 1e6;
+    }
+
+    function _accrueUsd(
+        address _referrer,
+        uint256 _wholeUsd
+    )
+        internal
+        returns (uint256 expectedPaid)
+    {
+        hub.reportScores(
+            _referrer,
+            6_000 * 1e6,
+            0
+        );
+
+        uint256 reportWeek = block.timestamp / CohortWeeks.WEEK;
+
+        vm.warp(
+            (reportWeek + 3) * CohortWeeks.WEEK + 1 hours
+        );
+
+        uint256[] memory weeksArr = new uint256[](1);
+        weeksArr[0] = reportWeek + 2;
+
+        uint256[] memory words = new uint256[](1);
+        words[0] = CohortWeeks.packLanes(
+            _wholeUsd * 100 * CohortWeeks.YEAR * 1e6,
+            0,
+            0
+        );
+
+        hub.deliverCrumbs(
+            _referrer,
+            weeksArr,
+            words
+        );
+
+        expectedPaid = _wholeUsd * 1e6;
     }
 
     // ---- constructor ----
@@ -613,6 +661,198 @@ contract ReferralHubPayoutTest is Test {
 
         assertEq(
             hub.payoutStamp(block.chainid + 1, refA),
+            0
+        );
+    }
+
+    // ---- batch views ----
+
+    function test_paidCursorsAtSource_matchesSingleViewAcrossWindow()
+        public
+    {
+        bytes32 source = hub.sourceKeyOf(
+            block.chainid,
+            address(this)
+        );
+
+        uint256 fromWeek = block.timestamp / CohortWeeks.WEEK - 4;
+
+        uint256[] memory weeksArr = new uint256[](2);
+        weeksArr[0] = fromWeek;
+        weeksArr[1] = fromWeek + 2;
+
+        uint256[] memory words = new uint256[](2);
+        words[0] = CohortWeeks.packLanes(
+            11 * CohortWeeks.YEAR,
+            0,
+            0
+        );
+        words[1] = CohortWeeks.packLanes(
+            22 * CohortWeeks.YEAR,
+            33 * CohortWeeks.YEAR,
+            44 * CohortWeeks.YEAR
+        );
+
+        hub.deliverCrumbs(
+            refA,
+            weeksArr,
+            words
+        );
+
+        uint256[] memory cursorWords = hub.paidCursorsAtSource(
+            source,
+            refA,
+            fromWeek,
+            4
+        );
+
+        assertEq(
+            cursorWords.length,
+            4
+        );
+
+        for (uint256 i; i < 4; ++i) {
+
+            (
+                uint256 y1Cursor,
+                uint256 y2Cursor,
+                uint256 mCursor
+            ) = hub.paidCursorAtSource(
+                source,
+                refA,
+                fromWeek + i
+            );
+
+            assertEq(
+                cursorWords[i],
+                CohortWeeks.packLanes(
+                    y1Cursor,
+                    y2Cursor,
+                    mCursor
+                )
+            );
+        }
+
+        assertEq(
+            cursorWords[0],
+            words[0]
+        );
+
+        assertEq(
+            cursorWords[1],
+            0
+        );
+
+        assertEq(
+            cursorWords[2],
+            words[1]
+        );
+
+        assertEq(
+            cursorWords[3],
+            0
+        );
+
+        assertEq(
+            CohortWeeks.laneY1(cursorWords[2]),
+            22 * CohortWeeks.YEAR
+        );
+
+        assertEq(
+            CohortWeeks.laneY2(cursorWords[2]),
+            33 * CohortWeeks.YEAR
+        );
+
+        assertEq(
+            CohortWeeks.laneM(cursorWords[2]),
+            44 * CohortWeeks.YEAR
+        );
+    }
+
+    function test_paidCursorsAtSource_zeroCount_returnsEmpty()
+        public
+        view
+    {
+        bytes32 source = hub.sourceKeyOf(
+            block.chainid,
+            address(this)
+        );
+
+        uint256[] memory cursorWords = hub.paidCursorsAtSource(
+            source,
+            refA,
+            block.timestamp / CohortWeeks.WEEK,
+            0
+        );
+
+        assertEq(
+            cursorWords.length,
+            0
+        );
+    }
+
+    function test_claimableOf_matchesClaimableForBatch()
+        public
+    {
+        uint256 paidA = _accrueOneUsd();
+
+        uint256 paidB = _accrueUsd(
+            refB,
+            3
+        );
+
+        address[] memory referrers = new address[](3);
+        referrers[0] = refA;
+        referrers[1] = refB;
+        referrers[2] = stranger;
+
+        uint256[] memory amounts = hub.claimableOf(
+            block.chainid,
+            referrers
+        );
+
+        assertEq(
+            amounts.length,
+            3
+        );
+
+        for (uint256 i; i < 3; ++i) {
+
+            assertEq(
+                amounts[i],
+                hub.claimable(block.chainid, referrers[i])
+            );
+        }
+
+        assertEq(
+            amounts[0],
+            paidA
+        );
+
+        assertEq(
+            amounts[1],
+            paidB
+        );
+
+        assertEq(
+            amounts[2],
+            0
+        );
+    }
+
+    function test_claimableOf_emptyBatch_returnsEmpty()
+        public
+        view
+    {
+        address[] memory referrers = new address[](0);
+
+        uint256[] memory amounts = hub.claimableOf(
+            block.chainid,
+            referrers
+        );
+
+        assertEq(
+            amounts.length,
             0
         );
     }
