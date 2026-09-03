@@ -278,6 +278,14 @@ contract FlushRefundRejector {
  * gate), and a size-dependent fee mock pins `quoteFlushFee` as a
  * strict lower bound when storage settles and grows between quote
  * and execution, the courier's mandatory over-funding margin.
+ * `previewFlushEnvelope` is pinned byte-identical to the CCIP send
+ * for a settled book, header-decoded in local mode with the caller
+ * as deliverer, a lower bound on the sent envelope before
+ * settlement, and gated by the same three batch guards as the
+ * quote. `getFlushCursors` is pinned element by element against
+ * `getFlushedThroughWeek` and `getFlushGapCursor` over a batch that
+ * mixes a fresh gap slice, a mid-walk gap cursor and a never-flushed
+ * book, and returns three empty arrays for an empty batch.
  */
 contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
 
@@ -3678,6 +3686,494 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
         assertEq(
             refA.balance,
             quoted - windowFee
+        );
+    }
+
+    // ---- preview ----
+
+    function test_previewFlushEnvelope_matchesSentEnvelope_ccipMode()
+        public
+    {
+        _flush(rdiamond).setAllowedFlushBot(
+            bot,
+            true
+        );
+
+        _depositWithReferralOn(
+            rdiamond,
+            user1,
+            8_000 * 1e6,
+            refD
+        );
+
+        vm.warp(
+            BASE_TIME + 2 weeks + 3 hours
+        );
+
+        _depositWithReferralOn(
+            rdiamond,
+            user2,
+            2_000 * 1e6,
+            refD
+        );
+
+        address[] memory refs = _oneRef(
+            refD
+        );
+
+        vm.prank(
+            bot
+        );
+
+        bytes memory preview = _flush(rdiamond).previewFlushEnvelope(
+            refs
+        );
+
+        assertGt(
+            preview.length,
+            32
+        );
+
+        vm.deal(
+            bot,
+            FIXED_FEE
+        );
+
+        vm.prank(
+            bot
+        );
+
+        _flush(rdiamond).flushReferrals{value: FIXED_FEE}(
+            refs
+        );
+
+        bytes memory sent = router.lastData();
+
+        assertEq(
+            keccak256(
+                preview
+            ),
+            keccak256(
+                sent
+            )
+        );
+    }
+
+    function test_previewFlushEnvelope_localMode_carriesEntries()
+        public
+    {
+        _flush(diamond).setAllowedFlushBot(
+            bot,
+            true
+        );
+
+        _depositWithReferralOn(
+            diamond,
+            user1,
+            10_000 * 1e6,
+            refA
+        );
+
+        _depositWithReferralOn(
+            diamond,
+            user2,
+            5_000 * 1e6,
+            refD
+        );
+
+        address[] memory refs = new address[](2);
+
+        refs[0] = refA;
+        refs[1] = refD;
+
+        vm.prank(
+            bot
+        );
+
+        bytes memory preview = _flush(diamond).previewFlushEnvelope(
+            refs
+        );
+
+        assertGt(
+            preview.length,
+            0
+        );
+
+        uint256 header = _envWord(preview, 0);
+
+        assertEq(
+            CohortWeeks.flushHeaderEntryCount(
+                header
+            ),
+            refs.length
+        );
+
+        assertEq(
+            CohortWeeks.flushHeaderDeliverer(
+                header
+            ),
+            bot
+        );
+
+        vm.expectEmit(
+            true,
+            true,
+            false,
+            true,
+            address(diamond)
+        );
+
+        emit CohortFlushDelivered(
+            address(hub),
+            bot,
+            2
+        );
+
+        vm.prank(
+            bot
+        );
+
+        _flush(diamond).flushReferrals(
+            refs
+        );
+    }
+
+    function test_previewFlushEnvelope_isLowerBound_beforeSettle()
+        public
+    {
+        _depositWithReferralOn(
+            rdiamond,
+            user1,
+            10_000 * 1e6,
+            refA
+        );
+
+        vm.warp(
+            BASE_TIME + 2 weeks + 3 hours
+        );
+
+        address[] memory refs = _oneRef(
+            refA
+        );
+
+        vm.prank(
+            refA
+        );
+
+        bytes memory preview = _flush(rdiamond).previewFlushEnvelope(
+            refs
+        );
+
+        assertEq(
+            preview.length,
+            3 * 32
+        );
+
+        assertEq(
+            CohortWeeks.flushHeaderStamp(
+                _envWord(preview, 0)
+            ),
+            block.timestamp
+        );
+
+        _depositWithReferralOn(
+            rdiamond,
+            user2,
+            5_000 * 1e6,
+            refA
+        );
+
+        _flushOwnRemote(
+            refA
+        );
+
+        bytes memory sent = router.lastData();
+
+        assertLe(
+            preview.length,
+            sent.length
+        );
+
+        assertEq(
+            sent.length,
+            9 * 32
+        );
+    }
+
+    function test_RevertWhen_previewFlushEnvelope_hubNotSet()
+        public
+    {
+        WiseTelecomNodesDiamond bare = _newDiamond(
+            address(usd)
+        );
+
+        _wireAllFacets(
+            bare
+        );
+
+        _wireOne(
+            bare,
+            address(new CohortFlushFacet()),
+            WiseTelecomNodesDiamondSelectors.cohortFlushSelectors()
+        );
+
+        bare.finalizeSetup();
+
+        address[] memory refs = _oneRef(
+            refA
+        );
+
+        vm.expectRevert(
+            WiseTelecomNodesDiamondErrors.FlushHubNotSet.selector
+        );
+
+        _flush(bare).previewFlushEnvelope(
+            refs
+        );
+    }
+
+    function test_RevertWhen_previewFlushEnvelope_emptyBatch()
+        public
+    {
+        address[] memory refs = new address[](0);
+
+        vm.expectRevert(
+            WiseTelecomNodesDiamondErrors.NothingToFlush.selector
+        );
+
+        _flush(diamond).previewFlushEnvelope(
+            refs
+        );
+    }
+
+    function test_RevertWhen_previewFlushEnvelope_batchTooLarge()
+        public
+    {
+        address[] memory refs = new address[](17);
+
+        for (uint256 i; i < 17; ++i) {
+            refs[i] = address(
+                uint160(0x1000 + i)
+            );
+        }
+
+        vm.expectRevert(
+            WiseTelecomNodesDiamondErrors.FlushBatchTooLarge.selector
+        );
+
+        _flush(diamond).previewFlushEnvelope(
+            refs
+        );
+    }
+
+    // ---- batch cursor view ----
+
+    function _buildTwoDormantMatureBooks()
+        internal
+    {
+        _depositWithReferralOn(
+            diamond,
+            user1,
+            100_000 * 1e6,
+            refA
+        );
+
+        _depositOn(
+            diamond,
+            refA,
+            100_000 * 1e6
+        );
+
+        _depositWithReferralOn(
+            diamond,
+            user2,
+            100_000 * 1e6,
+            refD
+        );
+
+        _depositOn(
+            diamond,
+            refD,
+            100_000 * 1e6
+        );
+
+        _flushOwnLocal(
+            refA
+        );
+
+        _flushOwnLocal(
+            refD
+        );
+
+        vm.warp(
+            3_104 weeks + 1 hours
+        );
+
+        _rec(diamond).advanceBook(
+            refA,
+            104
+        );
+
+        _rec(diamond).advanceBook(
+            refD,
+            104
+        );
+
+        vm.warp(
+            3_358 weeks + 5 hours
+        );
+    }
+
+    function test_getFlushCursors_matchesSingleGettersForBatch()
+        public
+    {
+        _buildTwoDormantMatureBooks();
+
+        _flushOwnLocal(
+            refA
+        );
+
+        _flushOwnLocal(
+            refD
+        );
+
+        vm.warp(
+            block.timestamp + 1 hours
+        );
+
+        _flushOwnLocal(
+            refD
+        );
+
+        address[] memory refs = new address[](3);
+
+        refs[0] = refA;
+        refs[1] = refD;
+        refs[2] = stranger;
+
+        (
+            uint256[] memory throughWeeks,
+            uint256[] memory gapIndexes,
+            uint256[] memory gapResumeWeeks
+        ) = _flush(diamond).getFlushCursors(
+            refs
+        );
+
+        assertEq(
+            throughWeeks.length,
+            3
+        );
+
+        assertEq(
+            gapIndexes.length,
+            3
+        );
+
+        assertEq(
+            gapResumeWeeks.length,
+            3
+        );
+
+        for (uint256 i; i < refs.length; ++i) {
+
+            (
+                uint256 gapIndex,
+                uint256 gapResumeWeek
+            ) = _flush(diamond).getFlushGapCursor(
+                refs[i]
+            );
+
+            assertEq(
+                throughWeeks[i],
+                _flush(diamond).getFlushedThroughWeek(
+                    refs[i]
+                )
+            );
+
+            assertEq(
+                gapIndexes[i],
+                gapIndex
+            );
+
+            assertEq(
+                gapResumeWeeks[i],
+                gapResumeWeek
+            );
+        }
+
+        assertEq(
+            throughWeeks[0],
+            3_103
+        );
+
+        assertEq(
+            gapIndexes[0],
+            0
+        );
+
+        assertEq(
+            gapResumeWeeks[0],
+            3_312
+        );
+
+        assertEq(
+            throughWeeks[1],
+            3_207
+        );
+
+        assertEq(
+            gapIndexes[1],
+            1
+        );
+
+        assertEq(
+            gapResumeWeeks[1],
+            0
+        );
+
+        assertEq(
+            throughWeeks[2],
+            0
+        );
+
+        assertEq(
+            gapIndexes[2],
+            0
+        );
+
+        assertEq(
+            gapResumeWeeks[2],
+            0
+        );
+    }
+
+    function test_getFlushCursors_emptyBatch_returnsEmptyArrays()
+        public
+        view
+    {
+        address[] memory refs = new address[](0);
+
+        (
+            uint256[] memory throughWeeks,
+            uint256[] memory gapIndexes,
+            uint256[] memory gapResumeWeeks
+        ) = _flush(diamond).getFlushCursors(
+            refs
+        );
+
+        assertEq(
+            throughWeeks.length,
+            0
+        );
+
+        assertEq(
+            gapIndexes.length,
+            0
+        );
+
+        assertEq(
+            gapResumeWeeks.length,
+            0
         );
     }
 
