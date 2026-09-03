@@ -60,7 +60,17 @@ import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
  * delivery pricing for remote non-own-book entries) credits the
  * envelope's stamped deliverer in its own source-chain bucket. The
  * hub-chain vaults report through the same reporter surface below;
- * their flush facet runs in local direct-call mode.
+ * their flush facet runs in local direct-call mode. Source keys
+ * are readable through `sourceKeyOf` (the address-padded local key
+ * for hub-chain reporters, `keccak256(chainId, vault)` for spokes),
+ * and `paidCursorAtSource` / `lastReportOfSource` expose the
+ * per-source paid state either class writes, so a keeper needs no
+ * log index to price what a flush would still earn (the range and
+ * batch readers `paidCursorsAtSource`, `weeklyRatesRange` and
+ * `claimableOf` return whole windows in one call; cursor words keep
+ * the crumb lane geometry, three 80-bit lanes); every courier
+ * share event carries the applied envelope's message id (zero for
+ * local deliveries, which never split).
  *
  * Deliberately outside this contract:
  * - Sybil countermeasure: attaches inside `_weeklyRates` as a
@@ -187,8 +197,7 @@ contract ReferralHub is
                 _referrer,
                 _weeks[i],
                 _words[i],
-                block.chainid,
-                msg.sender
+                _localOrigin()
             );
         }
 
@@ -214,8 +223,7 @@ contract ReferralHub is
             _record,
             _fromWeek,
             _maxWeeks,
-            block.chainid,
-            msg.sender
+            _localOrigin()
         );
 
         _bookAccrual();
@@ -579,6 +587,117 @@ contract ReferralHub is
             CohortWeeks.laneY2(word),
             CohortWeeks.laneM(word)
         );
+    }
+
+    function sourceKeyOf(
+        uint256 _chainId,
+        address _vault
+    )
+        external
+        view
+        returns (bytes32)
+    {
+        if (_chainId == block.chainid) {
+            return _sourceKey(
+                _vault
+            );
+        }
+
+        return keccak256(
+            abi.encode(
+                _chainId,
+                _vault
+            )
+        );
+    }
+
+    function lastReportOfSource(
+        bytes32 _source,
+        address _referrer
+    )
+        external
+        view
+        returns (
+            uint256 referredScore,
+            uint256 selfScore
+        )
+    {
+        uint256 packed = lastSourceReport[_source][_referrer];
+
+        return (
+            packed >> REPORT_REFERRED_SHIFT,
+            packed & REPORT_VALUE_MASK
+        );
+    }
+
+    function paidCursorAtSource(
+        bytes32 _source,
+        address _referrer,
+        uint256 _week
+    )
+        external
+        view
+        returns (
+            uint256 y1Cursor,
+            uint256 y2Cursor,
+            uint256 mCursor
+        )
+    {
+        uint256 word = paidCursor[_source][_referrer][_week];
+
+        return (
+            CohortWeeks.laneY1(word),
+            CohortWeeks.laneY2(word),
+            CohortWeeks.laneM(word)
+        );
+    }
+
+    function paidCursorsAtSource(
+        bytes32 _source,
+        address _referrer,
+        uint256 _fromWeek,
+        uint256 _count
+    )
+        external
+        view
+        returns (uint256[] memory cursorWords)
+    {
+        cursorWords = new uint256[](
+            _count
+        );
+
+        for (uint256 i; i < _count; ++i) {
+            cursorWords[i] = paidCursor[_source][_referrer][_fromWeek + i];
+        }
+    }
+
+    function claimableOf(
+        uint256 _chainId,
+        address[] calldata _referrers
+    )
+        external
+        view
+        returns (uint256[] memory amounts)
+    {
+        amounts = new uint256[](
+            _referrers.length
+        );
+
+        for (uint256 i; i < _referrers.length; ++i) {
+            amounts[i] = claimable[_chainId][_referrers[i]];
+        }
+    }
+
+    function _localOrigin()
+        internal
+        view
+        returns (DeliveryOrigin memory)
+    {
+        return DeliveryOrigin({
+            chainId: block.chainid,
+            deliverer: msg.sender,
+            messageId: bytes32(0)
+        });
     }
 
     function _payClaim(
