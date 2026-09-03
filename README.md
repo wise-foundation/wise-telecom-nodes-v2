@@ -108,7 +108,7 @@ The suite splits into an offline part and a mainnet-fork part:
 
 ```bash
 # offline: no network or configuration needed
-forge test --no-match-path "test/{MoneyForward.t.sol,MoneyForwardViewParity.t.sol,diamond/WiseTelecomNodesBurnWiseFacet.t.sol,diamond/fork/CcipBridgeFork.t.sol,diamond/fork/CcipCarryUpgradeRehearsalFork.t.sol,diamond/fork/CcipLaneDiscoveryFork.t.sol,diamond/fork/CcipRobinhoodBridgeFork.t.sol,diamond/fork/CcipUsdgPeeringRehearsalFork.t.sol,diamond/fork/CohortFlushUpgradeFork.t.sol,diamond/fork/DiamondLiveUsageFork.t.sol,diamond/fork/ReferralBotOpsFork.t.sol,diamond/fork/ReferralPayoutUpgradeFork.t.sol,diamond/fork/ReferralRegistryUpgradeFork.t.sol,diamond/fork/UniswapV4FlashLoanFork.t.sol,diamond/fork/WiseBurnFork.t.sol,diamond/fork/WiseTelecomNodesPermitFork.t.sol,migration/DiamondMigrationForkE2E.t.sol,migration/PostDeployMigrationFork.t.sol}"
+forge test --no-match-path "test/{MoneyForward.t.sol,MoneyForwardViewParity.t.sol,diamond/WiseTelecomNodesBurnWiseFacet.t.sol,diamond/fork/CcipBridgeFork.t.sol,diamond/fork/CcipCarryUpgradeRehearsalFork.t.sol,diamond/fork/CcipLaneDiscoveryFork.t.sol,diamond/fork/CcipRobinhoodBridgeFork.t.sol,diamond/fork/CcipUsdgPeeringRehearsalFork.t.sol,diamond/fork/CohortBridgeAttributionMatrixFork.t.sol,diamond/fork/CohortBridgeAttributionMatrixForkRollout.t.sol,diamond/fork/CohortBridgeAttributionMatrixForkStates.t.sol,diamond/fork/CohortFlushUpgradeFork.t.sol,diamond/fork/DiamondLiveUsageFork.t.sol,diamond/fork/ReferralBotOpsFork.t.sol,diamond/fork/ReferralPayoutUpgradeFork.t.sol,diamond/fork/ReferralRegistryUpgradeFork.t.sol,diamond/fork/UniswapV4FlashLoanFork.t.sol,diamond/fork/WiseBurnFork.t.sol,diamond/fork/WiseTelecomNodesPermitFork.t.sol,migration/DiamondMigrationForkE2E.t.sol,migration/PostDeployMigrationFork.t.sol}"
 
 # full: additionally replays the live Ethereum + Arbitrum vaults and re-verifies the
 # v2 to v3 migration against real chain state at a pinned pre-migration block
@@ -125,7 +125,8 @@ forge test --match-path "test/diamond/fork/ReferralRegistryUpgradeFork.t.sol" --
 
 # payout rehearsal: replays the referral-payout round (three selector batches + the
 # slot-80 hub pointer clock + a real-USD claim through the live vault's pool) on a
-# mainnet fork, plus the default-off half on a base fork
+# mainnet fork, plus the default-off half on a base fork, and the registry latch phase
+# mirrored on both forks (inside the hub pointer clock on the payout vault)
 forge test --match-path "test/diamond/fork/ReferralPayoutUpgradeFork.t.sol"
 
 # flush-transport rehearsal: installs the full flush round on a live spoke fork and the
@@ -149,6 +150,22 @@ WTN_CCIP_ROUTE_ENGINE=router forge test --match-path "test/diamond/fork/CohortFl
 # converge exactly with the in-order run, plus the paid-cursor zeroing of a stale re-sent
 # in-progress week
 forge test --match-path "test/diamond/fork/ReferralBotOpsFork.t.sol"
+
+# cross-chain attribution rehearsal: forks BOTH ends of a real CCIP lane, installs and arms
+# the cohort round on each under the real master and the real timelocks, then pins the
+# referred-bridge attribution matrix over the lane — the armed scenarios (plain, junk-bytes
+# and forged carries, same-, earlier- and later-key registry merges, a pending flip), the
+# state scenarios (untracked headroom, lazy deficit, unreferred, split rings, aged lanes,
+# a round trip over the reverse lane) and the rollout states (genesis bytecode on either or
+# both sides, a zeroed registry pointer, a three-lane delivery); one --match-contract
+# prefix selects all three groups of a lane
+forge test --match-path "test/diamond/fork/CohortBridgeAttributionMatrixFork*.t.sol" --match-contract CohortBridgeMatrixUsdcMainnetBaseFork
+
+# the robinhood lane forks through ROBINHOOD_RPC_URL (foundry.toml); the public endpoint
+# carries the full matrix, so override the variable inline when .env points elsewhere. The
+# matrix self-skips under any routing engine other than the default off-ramp shim, so the
+# router override above does not apply here
+ROBINHOOD_RPC_URL=https://rpc.mainnet.chain.robinhood.com forge test --match-path "test/diamond/fork/CohortBridgeAttributionMatrixFork*.t.sol" --match-contract CohortBridgeMatrixUsdgMainnetRobinhoodFork
 ```
 
 CI runs the build, the storage-layout check and the offline suite on every push.
