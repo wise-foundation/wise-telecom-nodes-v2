@@ -306,6 +306,7 @@ abstract contract ReferralHubDeclarations is OwnableMaster {
         uint256 indexed chainId,
         address indexed deliverer,
         address indexed referrer,
+        bytes32 messageId,
         uint256 amount
     );
 
