@@ -31,6 +31,11 @@ import {NotMaster} from "../../src/diamond/shared/OwnableMaster.sol";
  * Reported scores need a full two-week dwell before they price under
  * the default-on dwell-min knob, so every tier-edge assertion warps
  * two weeks past its report before reading `weeklyRates`.
+ * `weeklyRatesRange` is pinned element by element against
+ * `weeklyRates` over a window that spans the dwell-min zero weeks,
+ * the genesis tail rates and a pushed table's tail rates, so
+ * consecutive entries differ in every lane. A zero count returns
+ * three empty arrays without reverting.
  */
 contract ReferralHubRatesTest is Test {
 
@@ -989,5 +994,91 @@ contract ReferralHubRatesTest is Test {
         assertEq(y1Bps, ladderSum > 1_000 ? 1_000 : ladderSum);
         assertEq(y2Bps, ladderSum >= 1_000 ? 500 : 0);
         assertEq(mBps, ladderSum >= 1_000 ? 100 : 0);
+    }
+
+    // ---- range view ----
+
+    function test_weeklyRatesRange_matchesWeeklyRatesAcrossWindow()
+        public
+    {
+        address referrer = address(0xE9);
+
+        _report(
+            referrer,
+            1_000_000 * 1e6,
+            10_000 * 1e6
+        );
+
+        ReferralHub.RateTable memory table = _validTable(
+            uint32(BASE_WEEK + 3)
+        );
+
+        table.y2RateBps = 600;
+        table.mRateBps = 200;
+
+        hub.pushRateTable(
+            table
+        );
+
+        _warpToWeek(5);
+
+        (
+            uint256[] memory y1Range,
+            uint256[] memory y2Range,
+            uint256[] memory mRange
+        ) = hub.weeklyRatesRange(
+            referrer,
+            BASE_WEEK,
+            5
+        );
+
+        assertEq(y1Range.length, 5);
+        assertEq(y2Range.length, 5);
+        assertEq(mRange.length, 5);
+
+        for (uint256 i; i < 5; ++i) {
+
+            (
+                uint256 y1Single,
+                uint256 y2Single,
+                uint256 mSingle
+            ) = hub.weeklyRates(
+                referrer,
+                BASE_WEEK + i
+            );
+
+            assertEq(y1Range[i], y1Single);
+            assertEq(y2Range[i], y2Single);
+            assertEq(mRange[i], mSingle);
+        }
+
+        assertEq(y1Range[1], 0);
+        assertEq(y2Range[1], 0);
+        assertEq(mRange[1], 0);
+        assertEq(y1Range[2], 1_000);
+        assertEq(y2Range[2], 500);
+        assertEq(mRange[2], 100);
+        assertEq(y1Range[3], 1_000);
+        assertEq(y2Range[3], 600);
+        assertEq(mRange[3], 200);
+    }
+
+    function test_weeklyRatesRange_zeroCount_returnsEmpty()
+        public
+        view
+    {
+        (
+            uint256[] memory y1Range,
+            uint256[] memory y2Range,
+            uint256[] memory mRange
+        ) = hub.weeklyRatesRange(
+            address(0xE9),
+            BASE_WEEK,
+            0
+        );
+
+        assertEq(y1Range.length, 0);
+        assertEq(y2Range.length, 0);
+        assertEq(mRange.length, 0);
     }
 }
