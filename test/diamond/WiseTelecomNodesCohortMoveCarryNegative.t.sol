@@ -4,6 +4,7 @@ pragma solidity =0.8.36;
 
 import {Vm} from "forge-std/Vm.sol";
 
+import {WiseTelecomNodesDiamond} from "../../src/diamond/vault/WiseTelecomNodesDiamond.sol";
 import {AdminFacet} from "../../src/diamond/vault/facets/AdminFacet.sol";
 import {MoveFacet} from "../../src/diamond/vault/facets/MoveFacet.sol";
 import {CohortWeeks} from "../../src/diamond/shared/pending/CohortWeeks.sol";
@@ -141,7 +142,14 @@ contract LowDecimalsPeerVault {
  * (reverting, reentrant, silently no-op) and a hostile registry
  * (codeful but always-reverting) are driven directly against one real
  * diamond to pin the trust boundary at the peer/registry seam rather
- * than at the cohort engine itself.
+ * than at the cohort engine itself. The unreferred mover is pinned
+ * beyond the full exit: a partial move splits tracked exactly into
+ * the kept and moved slices and the wash returns it to the origin,
+ * with the zero-referrer book untouched on both vaults and both
+ * mailbox directions drained; a mover carrying a lazy deficit from an
+ * earlier transfer has that deficit clamped sale-like by the pre-burn
+ * sync first, after which the carry relocates exactly the burned
+ * remainder and nothing else.
  */
 contract WiseTelecomNodesCohortMoveCarryNegativeTest is TwoVaultCohortHarness {
 
@@ -185,6 +193,13 @@ contract WiseTelecomNodesCohortMoveCarryNegativeTest is TwoVaultCohortHarness {
         uint256 clippedAmount
     );
 
+    event CohortContributionSynced(
+        address indexed user,
+        address indexed referrer,
+        uint256 oldContribution,
+        uint256 newContribution
+    );
+
     uint256 internal constant DEPOSIT = 5_000 * 1e6;
 
     uint256 internal constant MOVE_AMOUNT = 2_000 * 1e6;
@@ -193,10 +208,98 @@ contract WiseTelecomNodesCohortMoveCarryNegativeTest is TwoVaultCohortHarness {
 
     address internal refA = address(0xB1);
 
+    address internal outsider = address(0xC1);
+
     function setUp()
         public
     {
         _deployCohortPair();
+    }
+
+    // ---- helpers ----
+
+    function _assertZeroReferrerBookUntouched()
+        internal
+        view
+    {
+        assertEq(
+            _recorderOf(vaultA).getCohortScore(address(0)),
+            0
+        );
+
+        assertEq(
+            _recorderOf(vaultB).getCohortScore(address(0)),
+            0
+        );
+
+        (
+            uint256 year1A,
+            uint256 year2A,
+            uint256 matureA,
+        ) = _recorderOf(vaultA).getCohortBook(address(0));
+
+        assertEq(
+            year1A,
+            0
+        );
+
+        assertEq(
+            year2A,
+            0
+        );
+
+        assertEq(
+            matureA,
+            0
+        );
+
+        (
+            uint256 year1B,
+            uint256 year2B,
+            uint256 matureB,
+        ) = _recorderOf(vaultB).getCohortBook(address(0));
+
+        assertEq(
+            year1B,
+            0
+        );
+
+        assertEq(
+            year2B,
+            0
+        );
+
+        assertEq(
+            matureB,
+            0
+        );
+    }
+
+    function _assertCarryDrained(
+        WiseTelecomNodesDiamond _src,
+        WiseTelecomNodesDiamond _dst
+    )
+        internal
+        view
+    {
+        (
+            uint256 stagedAt,
+            uint256[] memory payload
+        ) = registry.getCarry(
+            address(_src),
+            address(_dst),
+            user1
+        );
+
+        assertEq(
+            stagedAt,
+            0
+        );
+
+        assertEq(
+            payload.length,
+            0
+        );
     }
 
     // ---- destination not armed: source clamps, orphan inert until overwritten ----
@@ -554,6 +657,248 @@ contract WiseTelecomNodesCohortMoveCarryNegativeTest is TwoVaultCohortHarness {
         assertEq(year2B, 0);
 
         assertEq(matureB, 0);
+    }
+
+    // ---- unreferred mover: partial split, wash restores ----
+
+    function test_move_unreferredUser_partial_trackedSplitsAndWashRestores()
+        public
+    {
+        _armBoth();
+
+        _depositOn(
+            vaultA,
+            user1,
+            DEPOSIT
+        );
+
+        vm.expectEmit(
+            true,
+            true,
+            true,
+            true,
+            address(vaultA)
+        );
+
+        emit CohortCarryStaged(
+            user1,
+            address(vaultB),
+            address(0),
+            MOVE_AMOUNT,
+            0,
+            0,
+            0,
+            0
+        );
+
+        vm.expectEmit(
+            true,
+            true,
+            true,
+            true,
+            address(vaultB)
+        );
+
+        emit CohortCarryApplied(
+            user1,
+            address(vaultA),
+            address(0),
+            MOVE_AMOUNT,
+            0,
+            0,
+            0,
+            0
+        );
+
+        _moveAs(
+            user1,
+            vaultA,
+            vaultB,
+            MOVE_AMOUNT
+        );
+
+        assertEq(
+            _recorderOf(vaultA).getTrackedContribution(user1),
+            DEPOSIT - MOVE_AMOUNT
+        );
+
+        assertEq(
+            _recorderOf(vaultB).getTrackedContribution(user1),
+            MOVE_AMOUNT
+        );
+
+        _assertZeroReferrerBookUntouched();
+
+        _assertCarryDrained(
+            vaultA,
+            vaultB
+        );
+
+        _moveAs(
+            user1,
+            vaultB,
+            vaultA,
+            MOVE_AMOUNT
+        );
+
+        assertEq(
+            _recorderOf(vaultA).getTrackedContribution(user1),
+            DEPOSIT
+        );
+
+        assertEq(
+            _recorderOf(vaultB).getTrackedContribution(user1),
+            0
+        );
+
+        assertEq(
+            vaultA.balanceOf(user1),
+            DEPOSIT
+        );
+
+        _assertZeroReferrerBookUntouched();
+
+        _assertCarryDrained(
+            vaultA,
+            vaultB
+        );
+
+        _assertCarryDrained(
+            vaultB,
+            vaultA
+        );
+    }
+
+    // ---- unreferred mover with a lazy deficit: clamp first, carry the remainder ----
+
+    function test_move_unreferredUser_withLazyDeficit_clampsThenCarriesRemainder()
+        public
+    {
+        _armBoth();
+
+        _depositOn(
+            vaultA,
+            user1,
+            DEPOSIT
+        );
+
+        vm.prank(
+            user1
+        );
+
+        vaultA.transfer(
+            outsider,
+            1_000 * 1e6
+        );
+
+        assertEq(
+            _recorderOf(vaultA).getTrackedContribution(user1),
+            DEPOSIT
+        );
+
+        assertEq(
+            vaultA.balanceOf(user1),
+            DEPOSIT - 1_000 * 1e6
+        );
+
+        vm.expectEmit(
+            true,
+            true,
+            false,
+            true,
+            address(vaultA)
+        );
+
+        emit CohortContributionSynced(
+            user1,
+            address(0),
+            DEPOSIT,
+            DEPOSIT - 1_000 * 1e6
+        );
+
+        vm.expectEmit(
+            true,
+            true,
+            true,
+            true,
+            address(vaultA)
+        );
+
+        emit CohortCarryStaged(
+            user1,
+            address(vaultB),
+            address(0),
+            MOVE_AMOUNT,
+            0,
+            0,
+            0,
+            0
+        );
+
+        vm.expectEmit(
+            true,
+            true,
+            true,
+            true,
+            address(vaultB)
+        );
+
+        emit CohortCarryApplied(
+            user1,
+            address(vaultA),
+            address(0),
+            MOVE_AMOUNT,
+            0,
+            0,
+            0,
+            0
+        );
+
+        _moveAs(
+            user1,
+            vaultA,
+            vaultB,
+            MOVE_AMOUNT
+        );
+
+        uint256 trackedA = _recorderOf(vaultA).getTrackedContribution(
+            user1
+        );
+
+        uint256 trackedB = _recorderOf(vaultB).getTrackedContribution(
+            user1
+        );
+
+        uint256 heldA = vaultA.balanceOf(
+            user1
+        );
+
+        assertEq(
+            trackedA,
+            MOVE_AMOUNT
+        );
+
+        assertEq(
+            trackedA,
+            heldA
+        );
+
+        assertEq(
+            trackedB,
+            MOVE_AMOUNT
+        );
+
+        assertEq(
+            trackedA + trackedB,
+            DEPOSIT - 1_000 * 1e6
+        );
+
+        _assertZeroReferrerBookUntouched();
+
+        assertEq(
+            _recorderOf(vaultA).getTrackedContribution(outsider),
+            0
+        );
     }
 
     // ---- hostile peers ----
