@@ -75,6 +75,9 @@ import {IReferralRegistry} from "../../interfaces/pending/IReferralRegistry.sol"
  * destroy, so which headroom deserves seeding is master POLICY;
  * the permissionless flows keep the destroy-never-recredit rule
  * intact, and the latch bounds the discretion window.
+ * `getCohortWeekCrumbs` reads a window of frozen crumb words in one
+ * call for offchain readers; it is a plain range read over the same
+ * per-week log the single getter serves.
  */
 contract CohortRecorderFacet is FacetBase {
 
@@ -270,6 +273,24 @@ contract CohortRecorderFacet is FacetBase {
         returns (uint256)
     {
         return cohortWeekLog[_referrer][_week];
+    }
+
+    function getCohortWeekCrumbs(
+        address _referrer,
+        uint256 _fromWeek,
+        uint256 _count
+    )
+        external
+        view
+        returns (uint256[] memory crumbs)
+    {
+        crumbs = new uint256[](
+            _count
+        );
+
+        for (uint256 i; i < _count; ++i) {
+            crumbs[i] = cohortWeekLog[_referrer][_fromWeek + i];
+        }
     }
 
     function getCohortGapLogLength(
