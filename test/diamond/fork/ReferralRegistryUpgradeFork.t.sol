@@ -356,7 +356,14 @@ interface IUsdToken {
  *      hold after every mutating step, and
  *      the registry's code persists across blocks (EIP-6780: no
  *      selfdestruct path exists; re-verify semantics per chain
- *      before any real broadcast on non-Cancun networks).
+ *      before any real broadcast on non-Cancun networks);
+ *   7. the optional retirement leg: the genesis passthrough pair
+ *      (`bridgeToVaultWithReferral`, `quoteBridgeFeeWithReferral`)
+ *      is proposed to the zero facet through the same real 3-day
+ *      selector timelock, executes only after the delay, then
+ *      reverts {FacetNotFound} through the live fallback while
+ *      `bridgeToVault` and `quoteBridgeFee` keep routing to the
+ *      round's {BridgeFacet}.
  * The diamond address is read from config/vault.<product>.<network>
  * .json before forking so it can never drift to a wrong or stale
  * address.
@@ -1253,6 +1260,135 @@ abstract contract ReferralRegistryUpgradeForkBase is Test {
             registry.referrerOf(user),
             refA,
             "registry truth must persist"
+        );
+    }
+
+    function test_registryUpgrade_retireLegacyReferralBridge_timelockedRemoval()
+        public
+    {
+        _proposeAllGroups();
+
+        vm.warp(
+            block.timestamp + SELECTOR_DELAY + 1
+        );
+
+        _executeAllGroups();
+
+        address bridgeFacet = v.selectorToFacet(
+            BridgeFacet.bridgeToVault.selector
+        );
+
+        assertTrue(
+            bridgeFacet != address(0),
+            "bridge group not routed"
+        );
+
+        assertEq(
+            v.selectorToFacet(
+                BridgeFacet.bridgeToVaultWithReferral.selector
+            ),
+            bridgeFacet,
+            "legacy bridgeToVaultWithReferral not on the round's BridgeFacet"
+        );
+
+        assertEq(
+            v.selectorToFacet(
+                BridgeFacet.quoteBridgeFeeWithReferral.selector
+            ),
+            bridgeFacet,
+            "legacy quoteBridgeFeeWithReferral not on the round's BridgeFacet"
+        );
+
+        bytes4[] memory pair = WiseTelecomNodesDiamondSelectors.legacyReferralBridgeSelectors();
+
+        vm.prank(
+            master
+        );
+
+        v.proposeSelectors(
+            pair,
+            address(0)
+        );
+
+        vm.prank(
+            master
+        );
+
+        vm.expectRevert(
+            SelectorTimelockNotElapsed.selector
+        );
+
+        v.executeSelectorChanges(
+            pair
+        );
+
+        vm.warp(
+            block.timestamp + SELECTOR_DELAY + 1
+        );
+
+        vm.prank(
+            master
+        );
+
+        v.executeSelectorChanges(
+            pair
+        );
+
+        assertEq(
+            v.selectorToFacet(
+                BridgeFacet.bridgeToVaultWithReferral.selector
+            ),
+            address(0),
+            "bridgeToVaultWithReferral still routed after retirement"
+        );
+
+        assertEq(
+            v.selectorToFacet(
+                BridgeFacet.quoteBridgeFeeWithReferral.selector
+            ),
+            address(0),
+            "quoteBridgeFeeWithReferral still routed after retirement"
+        );
+
+        assertEq(
+            v.selectorToFacet(
+                BridgeFacet.bridgeToVault.selector
+            ),
+            bridgeFacet,
+            "bridgeToVault lost its route"
+        );
+
+        assertEq(
+            v.selectorToFacet(
+                BridgeFacet.quoteBridgeFee.selector
+            ),
+            bridgeFacet,
+            "quoteBridgeFee lost its route"
+        );
+
+        _assertSelectorUnknown(
+            abi.encodeWithSignature(
+                "bridgeToVaultWithReferral(uint64,uint256,bytes)",
+                uint64(1),
+                uint256(1),
+                bytes("")
+            )
+        );
+
+        _assertSelectorUnknown(
+            abi.encodeWithSignature(
+                "quoteBridgeFeeWithReferral(uint64,uint256,bytes)",
+                uint64(1),
+                uint256(1),
+                bytes("")
+            )
+        );
+
+        assertTrue(
+            v.selectorToFacet(
+                BridgeFacet.quoteBridgeFee.selector
+            ) != address(0),
+            "quoteBridgeFee must still resolve to the facet"
         );
     }
 

@@ -8,6 +8,8 @@ import {AdminFacet} from "../../../src/diamond/vault/facets/AdminFacet.sol";
 import {SweepFacet} from "../../../src/diamond/vault/facets/SweepFacet.sol";
 import {ReferralPayoutFacet} from "../../../src/diamond/vault/facets/pending/ReferralPayoutFacet.sol";
 import {ReferralHub} from "../../../src/hub/pending/ReferralHub.sol";
+import {ReferralRegistry} from "../../../src/registry/pending/ReferralRegistry.sol";
+import {ReferralRegistryDeclarations} from "../../../src/registry/pending/ReferralRegistryDeclarations.sol";
 
 import {FacetNotFound} from "../../../src/diamond/shared/DiamondErrors.sol";
 import {WiseTelecomNodesDiamondErrors} from "../../../src/diamond/vault/WiseTelecomNodesDiamondErrors.sol";
@@ -134,7 +136,17 @@ interface IUsdErc20 {
  *      crumb pricing, liability booked into slot 76, and a claim
  *      that pulls real USD out of the live vault's pool and pays the
  *      referrer, leaving liability, claimable and balances exactly
- *      conserved.
+ *      conserved;
+ *   5. the latch phase of {DeployReferralRegistry}, the one script
+ *      phase with no rehearsal elsewhere: the real registry bytecode
+ *      is deployed on-fork under the live master and latched exactly
+ *      as the script does, proving the latch sets and emits, that
+ *      the registry refuses a second latch (the reason the script
+ *      phase returns early once latched) and that corrections are
+ *      refused afterwards. On the payout vault the latch runs inside
+ *      the pointer clock, before the hub pointer executes, in the
+ *      order the rollout requires: every registry latches before
+ *      payouts arm at the hub.
  * The diamond address is read from config/vault.<product>.<network>
  * .json before forking so it can never drift to a wrong or stale
  * address.
@@ -145,11 +157,14 @@ abstract contract ReferralPayoutUpgradeForkBase is Test {
 
     uint256 internal constant PAYOUT_HUB_DELAY = 3 days;
 
+    event CorrectionsLatched();
+
     struct Cfg {
         string rpc;
         string product;
         string network;
         bool payoutVault;
+        uint256 chainRank;
     }
 
     IWtnPayoutVault internal v;
@@ -300,6 +315,90 @@ abstract contract ReferralPayoutUpgradeForkBase is Test {
         vm.stopPrank();
     }
 
+    function _deployRegistry()
+        internal
+        returns (ReferralRegistry registry)
+    {
+        Cfg memory cfg = _config();
+
+        registry = new ReferralRegistry(
+            master,
+            cfg.chainRank
+        );
+
+        assertEq(
+            registry.master(),
+            master,
+            "registry master must be the live vault master"
+        );
+    }
+
+    function _latchRegistry(
+        ReferralRegistry _registry
+    )
+        internal
+    {
+        assertGt(
+            address(_registry).code.length,
+            0,
+            "registry has no code on the fork"
+        );
+
+        assertFalse(
+            _registry.correctionsLatched(),
+            "corrections must start unlatched"
+        );
+
+        vm.expectEmit(
+            false,
+            false,
+            false,
+            true,
+            address(_registry)
+        );
+
+        emit CorrectionsLatched();
+
+        vm.prank(
+            master
+        );
+
+        _registry.latchCorrections();
+
+        assertTrue(
+            _registry.correctionsLatched(),
+            "latch must set correctionsLatched"
+        );
+
+        vm.prank(
+            master
+        );
+
+        vm.expectRevert(
+            ReferralRegistryDeclarations.CorrectionsAlreadyLatched.selector
+        );
+
+        _registry.latchCorrections();
+
+        vm.prank(
+            master
+        );
+
+        vm.expectRevert(
+            ReferralRegistryDeclarations.CorrectionsDisabled.selector
+        );
+
+        _registry.proposeCorrectReferrer(
+            refA,
+            address(this)
+        );
+
+        assertTrue(
+            _registry.correctionsLatched(),
+            "a refused second latch must leave the latch set"
+        );
+    }
+
     // ---- rehearsal ----
 
     function test_payoutUpgrade_selectorRound_defaultOffEverywhere()
@@ -380,6 +479,14 @@ abstract contract ReferralPayoutUpgradeForkBase is Test {
         );
     }
 
+    function test_payoutUpgrade_latchPhase_registryLatchesUnderMaster()
+        public
+    {
+        _latchRegistry(
+            _deployRegistry()
+        );
+    }
+
     function test_payoutUpgrade_pointerAndClaimEndToEnd()
         public
     {
@@ -418,8 +525,19 @@ abstract contract ReferralPayoutUpgradeForkBase is Test {
 
         v.executePayoutHubChange();
 
+        ReferralRegistry registry = _deployRegistry();
+
+        _latchRegistry(
+            registry
+        );
+
         vm.warp(
             block.timestamp + PAYOUT_HUB_DELAY + 1
+        );
+
+        assertTrue(
+            registry.correctionsLatched(),
+            "the registry must be latched before the hub pointer executes"
         );
 
         vm.prank(
@@ -540,7 +658,8 @@ contract ReferralPayoutUpgradeUsdcMainnetFork is ReferralPayoutUpgradeForkBase {
             rpc: "mainnet",
             product: "usdc",
             network: "mainnet",
-            payoutVault: true
+            payoutVault: true,
+            chainRank: 0
         });
     }
 }
@@ -557,7 +676,8 @@ contract ReferralPayoutUpgradeUsdtBaseFork is ReferralPayoutUpgradeForkBase {
             rpc: "base",
             product: "usdt",
             network: "base",
-            payoutVault: false
+            payoutVault: false,
+            chainRank: 1
         });
     }
 }
