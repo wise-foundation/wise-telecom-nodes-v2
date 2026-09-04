@@ -345,6 +345,26 @@ abstract contract WiseTelecomNodesDiamondEvents {
         uint256 newContribution
     );
 
+    event CohortAttributionCharged(
+        address indexed user,
+        address indexed referrer,
+        uint256 charged,
+        uint256 uncharged
+    );
+
+    event CohortDivestParked(
+        address indexed user
+    );
+
+    event CohortDivestDrained(
+        address indexed user
+    );
+
+    event CohortDivestParkSkipped(
+        address indexed user,
+        address indexed parked
+    );
+
     event CohortBookSettled(
         address indexed referrer,
         uint256 fromTimestamp,

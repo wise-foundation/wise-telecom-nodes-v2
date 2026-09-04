@@ -30,7 +30,14 @@ import {CohortRecorderBase} from "./CohortRecorderBase.sol";
  * {CohortBridgeHookFacet} slice of the same source under the same
  * bracket. The stubs gate on `cohortSyncEnabled`; `applyTransferHook`
  * gates internally because `_runTransferHook` calls it whenever the
- * hook is installed. Direct facet calls are rejected by
+ * hook is installed. Because that call lands BEFORE the balance
+ * moves and carries no amount, `applyTransferHook` parks the
+ * sender and every entrypoint here except the bounded
+ * `applyCohortAdvance` drains the parked sender first (see
+ * {CohortDivestDeclaration}; the advance keeps its chunked-walk
+ * gas contract and stays the permissionless remedy that makes a
+ * dormant parked book cheap to drain). Direct facet calls are
+ * rejected by
  * `onlyDelegateCall`, non-bracketed delegatecalls by the
  * `hookExecuting` guard. The same-chain move pair
  * (`applyCohortMoveOut` / `applyCohortMoveIn`) runs only on the
@@ -73,12 +80,22 @@ contract CohortHookFacet is CohortRecorderBase {
             return;
         }
 
-        _syncRefereeCohort(
-            _from
-        );
+        address drained = _drainPendingDivestCohort();
 
-        _syncRefereeCohort(
-            _to
+        if (drained != _from) {
+            _syncRefereeCohort(
+                _from
+            );
+        }
+
+        if (drained != _to) {
+            _syncRefereeCohort(
+                _to
+            );
+        }
+
+        _parkDivestCohort(
+            _from
         );
     }
 
@@ -94,7 +111,7 @@ contract CohortHookFacet is CohortRecorderBase {
             NotHookExecution()
         );
 
-        _syncRefereeCohort(
+        _syncAfterDrainCohort(
             _user
         );
     }
@@ -111,6 +128,8 @@ contract CohortHookFacet is CohortRecorderBase {
             hookExecuting,
             NotHookExecution()
         );
+
+        _drainPendingDivestCohort();
 
         _creditContributionCohort(
             _user,
@@ -149,6 +168,8 @@ contract CohortHookFacet is CohortRecorderBase {
             NotHookExecution()
         );
 
+        _drainPendingDivestCohort();
+
         _settleBookCohort(
             _referrer
         );
@@ -169,6 +190,8 @@ contract CohortHookFacet is CohortRecorderBase {
             hookExecuting,
             NotHookExecution()
         );
+
+        _drainPendingDivestCohort();
 
         _captureMoveOutCohort(
             _user,
@@ -191,6 +214,8 @@ contract CohortHookFacet is CohortRecorderBase {
             hookExecuting,
             NotHookExecution()
         );
+
+        _drainPendingDivestCohort();
 
         _applyMoveInCohort(
             _user,

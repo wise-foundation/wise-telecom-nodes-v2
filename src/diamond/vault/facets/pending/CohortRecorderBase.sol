@@ -30,7 +30,38 @@ import {IReferralRegistry} from "../../interfaces/pending/IReferralRegistry.sol"
  * EVERY depositor, referred or not, because the self-stake ladder
  * input must stay honest) and reduces the referrer's book
  * newest-credit-first so a sell-plus-redeposit cycle can never upgrade
- * old credit while fresh cover exists.
+ * old credit while fresh cover exists. The book is charged only by
+ * the user's attributed contribution ({CohortAttributionDeclaration}):
+ * every clamp charges `min(deficit, attributed)` through
+ * `_chargeAttributedCohort` and lowers that counter by the charge, so
+ * contribution that credited no book (a deposit made while unreferred
+ * or while the lookup failed) can never be charged to the referrer
+ * the registry names later, and `attributed <= tracked` holds at
+ * every touchpoint. The carry paths split the same charge sale-like
+ * first, then into the envelope (`_splitClampCohort`).
+ *
+ * Deferred divestment ({CohortDivestDeclaration}): the entry
+ * contract runs the transfer hook BEFORE the balance moves and
+ * hands it only the two addresses, so a sender's clamp cannot be
+ * observed at hook time (frozen bytecode, not a facet choice). The
+ * hook parks the sender in `pendingDivestSync` (`_parkDivestCohort`,
+ * only while they hold tracked contribution) and every hook-slice
+ * entrypoint except the bounded `applyCohortAdvance` drains that
+ * slot first (`_drainPendingDivestCohort`): the parked user is
+ * synced at the balance they hold by then, the exact post-transfer
+ * balance, and the slot clears. Every path that lets shares leave
+ * the vault is such an entrypoint, so a divested referee is clamped
+ * before the shares can be sold on. The drain is skipped inside a
+ * router-initiated receive (`msg.sender == ccipRouter`): that path
+ * runs under a fixed CCIP gas budget and deferred work of unbounded
+ * age must never strand a delivery. A drained sync that hits a
+ * failed lookup keeps the slot, and an occupied slot skips a new
+ * park with {CohortDivestParkSkipped} instead of overwriting it.
+ * The drain reports the user it attempted, and the same entrypoint
+ * skips its own explicit sync of exactly that user
+ * (`_syncAfterDrainCohort`), so one registry failure emits one
+ * {CohortReferrerLookupFailed} while a skipped drain never skips the
+ * caller's own clamp.
  *
  * Never-block guarantee: the settle walk is
  * capped at MAX_SETTLE_BOUNDARIES = 104 steps (after 104 rotations
@@ -73,9 +104,8 @@ import {IReferralRegistry} from "../../interfaces/pending/IReferralRegistry.sol"
  * never reducing the referrer's book: a permanent, unrecoverable
  * over-credit once the hub prices it), and
  * `_creditContributionCohort` credits nobody for that deposit while
- * still tracking the contribution (the protocol-favoring direction:
- * a later clamp can only over-reduce into the saturating clip, never
- * over-credit). Every failed lookup emits
+ * still tracking the contribution, and attributes nothing, so no
+ * later clamp can charge any referrer for it. Every failed lookup emits
  * {CohortReferrerLookupFailed} for monitoring. The routed
  * {ReferralFacet} view getter deliberately does NOT use this guarded
  * seam; a view revert DoSes nothing.
@@ -96,8 +126,12 @@ import {IReferralRegistry} from "../../interfaces/pending/IReferralRegistry.sol"
  * `_applyMoveInCohort` drains the mailbox and replants: same slots,
  * same rings, same `block.timestamp`, a byte-identical graduation
  * schedule, which is what makes wash-moving A→B→A provably a no-op.
- * Unreferred movers stage a tracked-only envelope (the self-stake
- * ladder input survives relocation).
+ * Every mover carries the full deficit slice as tracked contribution
+ * (the self-stake ladder input survives relocation, referred and
+ * unreferred alike); the lanes carry only the attributed slice, which
+ * the destination attributes on landing by the amounts it is told (a
+ * clipped replant leaves attributed above the book, the
+ * protocol-favoring direction).
  *
  * Carry failure doctrine (the never-block guarantee extended to the
  * move path): the move
@@ -228,6 +262,7 @@ abstract contract CohortRecorderBase is FacetBase {
         address _user
     )
         internal
+        returns (bool)
     {
         uint256 tracked = trackedContribution[_user];
 
@@ -236,7 +271,7 @@ abstract contract CohortRecorderBase is FacetBase {
         );
 
         if (held >= tracked) {
-            return;
+            return true;
         }
 
         uint256 delta = tracked - held;
@@ -249,7 +284,7 @@ abstract contract CohortRecorderBase is FacetBase {
         );
 
         if (lookupOk == false) {
-            return;
+            return false;
         }
 
         if (referrer != ZERO_ADDRESS) {
@@ -260,10 +295,16 @@ abstract contract CohortRecorderBase is FacetBase {
 
         trackedContribution[_user] = held;
 
-        if (referrer != ZERO_ADDRESS) {
+        uint256 charge = _chargeAttributedCohort(
+            _user,
+            referrer,
+            delta
+        );
+
+        if (referrer != ZERO_ADDRESS && charge > 0) {
             _reduceBookCohort(
                 referrer,
-                delta
+                charge
             );
         }
 
@@ -273,6 +314,137 @@ abstract contract CohortRecorderBase is FacetBase {
             tracked,
             held
         );
+
+        return true;
+    }
+
+    function _drainPendingDivestCohort()
+        internal
+        returns (address user)
+    {
+        user = pendingDivestSync;
+
+        if (user == ZERO_ADDRESS) {
+            return ZERO_ADDRESS;
+        }
+
+        if (msg.sender == ccipRouter) {
+            return ZERO_ADDRESS;
+        }
+
+        bool resolved = _syncRefereeCohort(
+            user
+        );
+
+        if (resolved == false) {
+            return user;
+        }
+
+        pendingDivestSync = ZERO_ADDRESS;
+
+        emit CohortDivestDrained(
+            user
+        );
+    }
+
+    function _parkDivestCohort(
+        address _user
+    )
+        internal
+    {
+        if (trackedContribution[_user] == 0) {
+            return;
+        }
+
+        address parked = pendingDivestSync;
+
+        if (parked == _user) {
+            return;
+        }
+
+        if (parked != ZERO_ADDRESS) {
+
+            emit CohortDivestParkSkipped(
+                _user,
+                parked
+            );
+
+            return;
+        }
+
+        pendingDivestSync = _user;
+
+        emit CohortDivestParked(
+            _user
+        );
+    }
+
+    function _syncAfterDrainCohort(
+        address _user
+    )
+        internal
+    {
+        address drained = _drainPendingDivestCohort();
+
+        if (drained == _user) {
+            return;
+        }
+
+        _syncRefereeCohort(
+            _user
+        );
+    }
+
+    function _chargeAttributedCohort(
+        address _user,
+        address _referrer,
+        uint256 _delta
+    )
+        internal
+        returns (uint256 charge)
+    {
+        uint256 attributed = attributedContribution[_user];
+
+        charge = attributed < _delta
+            ? attributed
+            : _delta;
+
+        if (charge > 0) {
+            attributedContribution[_user] = attributed - charge;
+        }
+
+        emit CohortAttributionCharged(
+            _user,
+            _referrer,
+            charge,
+            _delta - charge
+        );
+    }
+
+    function _splitClampCohort(
+        address _user,
+        address _referrer,
+        uint256 _delta,
+        uint256 _burnedAmount
+    )
+        internal
+        returns (ClampSplit memory split)
+    {
+        split.carryDelta = _delta < _burnedAmount
+            ? _delta
+            : _burnedAmount;
+
+        uint256 charge = _chargeAttributedCohort(
+            _user,
+            _referrer,
+            _delta
+        );
+
+        split.saleLike = charge < _delta - split.carryDelta
+            ? charge
+            : _delta - split.carryDelta;
+
+        split.carryCharge = charge - split.saleLike;
     }
 
     function _creditContributionCohort(
@@ -302,6 +474,8 @@ abstract contract CohortRecorderBase is FacetBase {
                 referrer,
                 _amount
             );
+
+            attributedContribution[_user] += _amount;
         }
 
         trackedContribution[_user] += _amount;
@@ -699,6 +873,12 @@ abstract contract CohortRecorderBase is FacetBase {
         }
     }
 
+    struct ClampSplit {
+        uint256 carryDelta;
+        uint256 saleLike;
+        uint256 carryCharge;
+    }
+
     struct CarryPairBuffer {
         uint256[] pairs;
         uint256 count;
@@ -1017,9 +1197,12 @@ abstract contract CohortRecorderBase is FacetBase {
             return;
         }
 
-        uint256 carryDelta = tracked - held < _burnedAmount
-            ? tracked - held
-            : _burnedAmount;
+        ClampSplit memory split = _splitClampCohort(
+            _user,
+            referrer,
+            tracked - held,
+            _burnedAmount
+        );
 
         if (referrer != ZERO_ADDRESS) {
 
@@ -1027,10 +1210,10 @@ abstract contract CohortRecorderBase is FacetBase {
                 referrer
             );
 
-            if (tracked - held > carryDelta) {
+            if (split.saleLike > 0) {
                 _reduceBookCohort(
                     referrer,
-                    tracked - held - carryDelta
+                    split.saleLike
                 );
             }
         }
@@ -1041,7 +1224,7 @@ abstract contract CohortRecorderBase is FacetBase {
             _user,
             _dstVault,
             referrer,
-            carryDelta,
+            split,
             _scaleNumerator,
             _scaleDenominator
         );
@@ -1058,7 +1241,7 @@ abstract contract CohortRecorderBase is FacetBase {
         address _user,
         address _dstVault,
         address _referrer,
-        uint256 _carryDelta,
+        ClampSplit memory _split,
         uint256 _scaleNumerator,
         uint256 _scaleDenominator
     )
@@ -1066,7 +1249,7 @@ abstract contract CohortRecorderBase is FacetBase {
     {
         CarryStage memory stage;
 
-        if (_referrer != ZERO_ADDRESS) {
+        if (_referrer != ZERO_ADDRESS && _split.carryCharge > 0) {
             (
                 stage.pairs,
                 stage.pairCount,
@@ -1075,7 +1258,7 @@ abstract contract CohortRecorderBase is FacetBase {
                 stage.mature
             ) = _reduceBookCohortCaptured(
                 _referrer,
-                _carryDelta
+                _split.carryCharge
             );
         }
 
@@ -1096,16 +1279,12 @@ abstract contract CohortRecorderBase is FacetBase {
             _scaleDenominator
         );
 
-        stage.trackedDelta = stage.year1Sum + stage.year2Sum + stage.mature;
-
-        if (_referrer == ZERO_ADDRESS) {
-            stage.trackedDelta = _scaleCarryAmount(
-                _carryDelta,
-                _scaleNumerator,
-                _scaleDenominator,
-                CohortWeeks.CARRY_HALF_MASK
-            );
-        }
+        stage.trackedDelta = _scaleCarryAmount(
+            _split.carryDelta,
+            _scaleNumerator,
+            _scaleDenominator,
+            CohortWeeks.CARRY_HALF_MASK
+        );
 
         if (stage.trackedDelta == 0 && stage.pairCount == 0) {
             return;
@@ -1357,6 +1536,8 @@ abstract contract CohortRecorderBase is FacetBase {
                 year2Sum,
                 mature
             );
+
+            attributedContribution[_user] += year1Sum + year2Sum + mature;
         }
 
         emit CohortCarryApplied(
@@ -1639,9 +1820,12 @@ abstract contract CohortRecorderBase is FacetBase {
             }
         }
 
-        uint256 carryDelta = tracked - held < _burnedAmount
-            ? tracked - held
-            : _burnedAmount;
+        ClampSplit memory split = _splitClampCohort(
+            _user,
+            bookReferrer,
+            tracked - held,
+            _burnedAmount
+        );
 
         if (bookReferrer != ZERO_ADDRESS) {
 
@@ -1649,21 +1833,23 @@ abstract contract CohortRecorderBase is FacetBase {
                 bookReferrer
             );
 
-            if (tracked - held > carryDelta) {
+            if (split.saleLike > 0) {
                 _reduceBookCohort(
                     bookReferrer,
-                    tracked - held - carryDelta
+                    split.saleLike
                 );
             }
 
-            (
-                stage.year1,
-                stage.year2,
-                stage.mature
-            ) = _reduceBookCohort(
-                bookReferrer,
-                carryDelta
-            );
+            if (split.carryCharge > 0) {
+                (
+                    stage.year1,
+                    stage.year2,
+                    stage.mature
+                ) = _reduceBookCohort(
+                    bookReferrer,
+                    split.carryCharge
+                );
+            }
         }
 
         trackedContribution[_user] = held;
@@ -1696,14 +1882,12 @@ abstract contract CohortRecorderBase is FacetBase {
             CohortWeeks.LANE_MASK_80
         );
 
-        stage.trackedDelta = stage.referrer == ZERO_ADDRESS
-            ? _scaleCarryAmount(
-                carryDelta,
-                _scaleNumerator,
-                _scaleDenominator,
-                CohortWeeks.CARRY_HALF_MASK
-            )
-            : stage.year1 + stage.year2 + stage.mature;
+        stage.trackedDelta = _scaleCarryAmount(
+            split.carryDelta,
+            _scaleNumerator,
+            _scaleDenominator,
+            CohortWeeks.CARRY_HALF_MASK
+        );
 
         if (stage.trackedDelta == 0) {
             return "";
@@ -1871,6 +2055,8 @@ abstract contract CohortRecorderBase is FacetBase {
             stage
         );
 
+        attributedContribution[_user] += stage.year1 + stage.year2 + stage.mature;
+
         emit CohortBridgeCarryApplied(
             _user,
             _srcChainSelector,
@@ -1970,10 +2156,18 @@ abstract contract CohortRecorderBase is FacetBase {
 
             trackedContribution[_user] = held;
 
-            _reduceBookCohort(
+            uint256 charge = _chargeAttributedCohort(
+                _user,
                 _oldReferrer,
                 tracked - held
             );
+
+            if (charge > 0) {
+                _reduceBookCohort(
+                    _oldReferrer,
+                    charge
+                );
+            }
 
             emit CohortContributionSynced(
                 _user,
@@ -1981,11 +2175,11 @@ abstract contract CohortRecorderBase is FacetBase {
                 tracked,
                 held
             );
-
-            tracked = held;
         }
 
-        if (tracked == 0) {
+        uint256 attributed = attributedContribution[_user];
+
+        if (attributed == 0) {
 
             emit CohortReferrerFlipApplied(
                 _user,
@@ -2008,7 +2202,7 @@ abstract contract CohortRecorderBase is FacetBase {
             uint256 mature
         ) = _reduceBookCohortCaptured(
             _oldReferrer,
-            tracked
+            attributed
         );
 
         uint256 year1Sum;

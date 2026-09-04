@@ -77,7 +77,10 @@ import {IReferralRegistry} from "../../interfaces/pending/IReferralRegistry.sol"
  * intact, and the latch bounds the discretion window.
  * `getCohortWeekCrumbs` reads a window of frozen crumb words in one
  * call for offchain readers; it is a plain range read over the same
- * per-week log the single getter serves.
+ * per-week log the single getter serves. `getAttributedContribution`
+ * exposes the slice of a user's tracked contribution that was
+ * credited to a referrer, the only quantity a clamp charges a book
+ * with, next to the wider self-stake ledger `getTrackedContribution`.
  */
 contract CohortRecorderFacet is FacetBase {
 
@@ -210,6 +213,16 @@ contract CohortRecorderFacet is FacetBase {
         returns (uint256)
     {
         return trackedContribution[_user];
+    }
+
+    function getAttributedContribution(
+        address _user
+    )
+        external
+        view
+        returns (uint256)
+    {
+        return attributedContribution[_user];
     }
 
     function getCohortBook(
