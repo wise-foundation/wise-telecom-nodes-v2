@@ -1269,8 +1269,8 @@ abstract contract CohortBridgeAttributionMatrixForkGroupB is CohortBridgeAttribu
                 CohortContributionSynced.selector,
                 src.diamond
             ),
-            0,
-            "no clamp may fire while the balance covers the tracked cover"
+            1,
+            "only the parked headroom source clamps; the covered bridging user never does"
         );
 
         assertEq(

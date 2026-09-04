@@ -342,6 +342,81 @@ contract CohortCrossVaultHandler is Test {
         );
     }
 
+    function _depositPlainRefereeOn(
+        WiseTelecomNodesDiamond _vault,
+        TwoVaultMockUSD _usd,
+        uint256 _actorSeed,
+        uint256 _amountSeed
+    )
+        internal
+    {
+        address actor = _refereeActor(
+            _actorSeed
+        );
+
+        uint256 amount = bound(
+            _amountSeed,
+            50 * 1e6,
+            5_000 * 1e6
+        );
+
+        _usd.mint(
+            actor,
+            amount
+        );
+
+        vm.prank(
+            actor
+        );
+
+        _usd.approve(
+            address(_vault),
+            amount
+        );
+
+        vm.prank(
+            actor
+        );
+
+        UserFacet(address(_vault)).deposit(
+            amount
+        );
+
+        if (ReferralFacet(address(_vault)).getReferrerOf(actor) != address(0)) {
+            ghostCreditedTotal += amount;
+        }
+    }
+
+    function depositPlainRefereeOnA(
+        uint256 _actorSeed,
+        uint256 _amountSeed
+    )
+        external
+        captureGhost
+    {
+        _depositPlainRefereeOn(
+            vaultA,
+            usdA,
+            _actorSeed,
+            _amountSeed
+        );
+    }
+
+    function depositPlainRefereeOnB(
+        uint256 _actorSeed,
+        uint256 _amountSeed
+    )
+        external
+        captureGhost
+    {
+        _depositPlainRefereeOn(
+            vaultB,
+            usdB,
+            _actorSeed,
+            _amountSeed
+        );
+    }
+
     function transferOutA(
         uint256 _actorSeed,
         uint256 _amountSeed
@@ -446,6 +521,14 @@ contract CohortCrossVaultHandler is Test {
             actor
         );
 
+        uint256 parkedCharge = _parkedCharge(
+            _src,
+            actor
+        ) + _parkedCharge(
+            _dst,
+            actor
+        );
+
         uint256 scoreBefore = _globalScore();
 
         uint256 trackedBefore = _combinedTracked(
@@ -464,8 +547,8 @@ contract CohortCrossVaultHandler is Test {
         );
 
         uint256 expected = actor == u
-            ? scoreBefore
-            : scoreBefore - preDeficit;
+            ? scoreBefore - parkedCharge
+            : scoreBefore - preDeficit - parkedCharge;
 
         if (_globalScore() != expected) {
             ++ghostMoveViolations;
@@ -501,6 +584,43 @@ contract CohortCrossVaultHandler is Test {
         return tracked > bal
             ? tracked - bal
             : 0;
+    }
+
+    function _parkedCharge(
+        WiseTelecomNodesDiamond _vault,
+        address _mover
+    )
+        internal
+        view
+        returns (uint256)
+    {
+        address parked = address(
+            uint160(
+                uint256(
+                    vm.load(
+                        address(_vault),
+                        bytes32(uint256(91))
+                    )
+                )
+            )
+        );
+
+        if (parked == address(0) || parked == _mover) {
+            return 0;
+        }
+
+        uint256 deficit = _pendingDeficit(
+            _vault,
+            parked
+        );
+
+        uint256 attributed = CohortRecorderFacet(address(_vault)).getAttributedContribution(
+            parked
+        );
+
+        return deficit < attributed
+            ? deficit
+            : attributed;
     }
 
     function _combinedTracked(
@@ -880,8 +1000,8 @@ contract CohortCrossVaultInvariantTest is TwoVaultCohortHarness {
         internal
         view
     {
-        uint256 trackedSum = _recorderOf(d).getTrackedContribution(A1)
-            + _recorderOf(d).getTrackedContribution(A2);
+        uint256 attributedSum = _recorderOf(d).getAttributedContribution(A1)
+            + _recorderOf(d).getAttributedContribution(A2);
 
         (
             uint256 year1,
@@ -891,11 +1011,11 @@ contract CohortCrossVaultInvariantTest is TwoVaultCohortHarness {
         ) = _recorderOf(d).getCohortBook(REF);
 
         assertEq(
-            trackedSum,
+            attributedSum,
             year1 + year2 + mature,
             string.concat(
                 _tag,
-                ": tracked sum != book total"
+                ": attributed sum != book total"
             )
         );
 
@@ -911,6 +1031,58 @@ contract CohortCrossVaultInvariantTest is TwoVaultCohortHarness {
 
     /// forge-config: default.invariant.runs = 128
     /// forge-config: default.invariant.depth = 64
+    function invariant_XC8_attributedNeverExceedsTrackedBothVaults()
+        public
+        view
+    {
+        _assertAttributedBounded(
+            vaultA,
+            "XC8-A"
+        );
+
+        _assertAttributedBounded(
+            vaultB,
+            "XC8-B"
+        );
+    }
+
+    function _assertAttributedBounded(
+        WiseTelecomNodesDiamond d,
+        string memory _tag
+    )
+        internal
+        view
+    {
+        assertLe(
+            _recorderOf(d).getAttributedContribution(A1),
+            _recorderOf(d).getTrackedContribution(A1),
+            string.concat(
+                _tag,
+                "-A1: attributed above tracked"
+            )
+        );
+
+        assertLe(
+            _recorderOf(d).getAttributedContribution(A2),
+            _recorderOf(d).getTrackedContribution(A2),
+            string.concat(
+                _tag,
+                "-A2: attributed above tracked"
+            )
+        );
+
+        assertEq(
+            _recorderOf(d).getAttributedContribution(U),
+            0,
+            string.concat(
+                _tag,
+                "-U: unreferred actor attributed"
+            )
+        );
+    }
+
+    /// forge-config: default.invariant.runs = 128
+    /// forge-config: default.invariant.depth = 64
     function invariant_XC2_globalBookConservation()
         public
         view
@@ -918,15 +1090,15 @@ contract CohortCrossVaultInvariantTest is TwoVaultCohortHarness {
         uint256 globalScore = _recorderOf(vaultA).getCohortScore(REF)
             + _recorderOf(vaultB).getCohortScore(REF);
 
-        uint256 globalTracked = _recorderOf(vaultA).getTrackedContribution(A1)
-            + _recorderOf(vaultA).getTrackedContribution(A2)
-            + _recorderOf(vaultB).getTrackedContribution(A1)
-            + _recorderOf(vaultB).getTrackedContribution(A2);
+        uint256 globalAttributed = _recorderOf(vaultA).getAttributedContribution(A1)
+            + _recorderOf(vaultA).getAttributedContribution(A2)
+            + _recorderOf(vaultB).getAttributedContribution(A1)
+            + _recorderOf(vaultB).getAttributedContribution(A2);
 
         assertEq(
             globalScore,
-            globalTracked,
-            "XC2: global book != global referee tracked"
+            globalAttributed,
+            "XC2: global book != global referee attributed"
         );
 
         assertLe(
