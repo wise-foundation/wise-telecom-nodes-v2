@@ -63,14 +63,15 @@ interface IAutoCompoundGetters {
  *
  * Counts: admin=46, proxy=3, user=8, sweep=2, cashedInterest=1,
  * burnWise=3, move=7, bridge=14, permit2=3, referral=4,
- * permit2Referral=3, cohortRecorder=13, cohortBridgeHook=3,
+ * permit2Referral=3, cohortRecorder=14, cohortBridgeHook=3,
  * cohortFlush=13, multicall=1, queueAdmin=2,
  * queueJoinLeave=5, queueFulfill=4, queueView=10, queueForecast=1,
  * interestAdmin=1, rescue=1, autoCompound=7 (4 functions + the 3
  * shard getters, which the frozen live dispatchers cannot serve),
  * referralPayout=3 (cohortRecorder grew 11→12 with the master-only
- * retroactive seed and to 13 with the batched crumb reader, shipping
- * wholesale inside the registry round's recorder group); total 158,
+ * retroactive seed, to 13 with the batched crumb reader and to 14
+ * with the attributed-contribution getter, shipping wholesale inside
+ * the registry round's recorder group); total 159,
  * of which
  * 90 are wired at genesis (the genesis-era admin group had 27;
  * `setCohortSyncEnabled` ships with the cohort upgrade's AdminFacet
@@ -194,7 +195,7 @@ library WiseTelecomNodesDiamondSelectors {
         pure
         returns (bytes4[] memory sels)
     {
-        sels = new bytes4[](13);
+        sels = new bytes4[](14);
         sels[0] = CohortRecorderFacet.syncReferee.selector;
         sels[1] = CohortRecorderFacet.advanceBook.selector;
         sels[2] = CohortRecorderFacet.getTrackedContribution.selector;
@@ -208,6 +209,7 @@ library WiseTelecomNodesDiamondSelectors {
         sels[10] = CohortRecorderFacet.receiveReferrerFlip.selector;
         sels[11] = CohortRecorderFacet.seedCohortContribution.selector;
         sels[12] = CohortRecorderFacet.getCohortWeekCrumbs.selector;
+        sels[13] = CohortRecorderFacet.getAttributedContribution.selector;
     }
 
     function cohortBridgeHookSelectors()
