@@ -180,6 +180,17 @@ contract CohortLaneHarness is CohortRecorderBase {
         external
     {
         trackedContribution[_user] = _amount;
+
+        attributedContribution[_user] = _amount;
+    }
+
+    function harnessSetAttributed(
+        address _user,
+        uint256 _amount
+    )
+        external
+    {
+        attributedContribution[_user] = _amount;
     }
 
     function harnessSetRegistry(
@@ -288,5 +299,15 @@ contract CohortLaneHarness is CohortRecorderBase {
         returns (uint256)
     {
         return trackedContribution[_user];
+    }
+
+    function viewAttributed(
+        address _user
+    )
+        external
+        view
+        returns (uint256)
+    {
+        return attributedContribution[_user];
     }
 }

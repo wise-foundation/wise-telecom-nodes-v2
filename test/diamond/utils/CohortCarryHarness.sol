@@ -173,6 +173,26 @@ contract CohortCarryHarness is CohortRecorderBase {
 
     // ---- view helpers ----
 
+    function harnessSetTracked(
+        address _user,
+        uint256 _amount
+    )
+        external
+    {
+        trackedContribution[_user] = _amount;
+
+        attributedContribution[_user] = _amount;
+    }
+
+    function harnessSetAttributed(
+        address _user,
+        uint256 _amount
+    )
+        external
+    {
+        attributedContribution[_user] = _amount;
+    }
+
     function viewRingYear1(
         address _referrer,
         uint256 _slot
@@ -213,5 +233,15 @@ contract CohortCarryHarness is CohortRecorderBase {
         returns (uint256)
     {
         return trackedContribution[_user];
+    }
+
+    function viewAttributed(
+        address _user
+    )
+        external
+        view
+        returns (uint256)
+    {
+        return attributedContribution[_user];
     }
 }
