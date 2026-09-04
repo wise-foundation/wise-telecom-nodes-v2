@@ -26,7 +26,9 @@ import {ReferralRegistry} from "../../../src/registry/pending/ReferralRegistry.s
  *
  * REFB1 sync never increases the referee ledger or the book total;
  * REFB2 a clamp lands exactly on min(tracked, balance) and reduces
- * the book by exactly the deficit; REFB3 a credit adds exactly its
+ * the book by exactly the attributed slice of the deficit (the
+ * harness stages tracked fully attributed, so that slice is the whole
+ * deficit here); REFB3 a credit adds exactly its
  * amount to ring slot and Y1 lane; REFB4 rotation preserves the book
  * total while relocating lanes; REFB5 reduction never reverts and
  * conserves (book drops by exactly min(delta, total), floor at zero);
