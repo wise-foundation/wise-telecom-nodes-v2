@@ -62,7 +62,8 @@ pragma solidity =0.8.36;
  * payload wholesale unless every structural rule holds: exact length,
  * version match, reserved bits zero, an unreferred envelope
  * (referrer zero) carrying zero book lanes, a referred envelope whose
- * trackedDelta equals the lane sum exactly, a nonzero trackedDelta
+ * lane sum never exceeds trackedDelta (the lanes carry the attributed
+ * slice, trackedDelta the whole deficit slice), a nonzero trackedDelta
  * or lane sum (a payload carrying only the sync key is rejected),
  * and trackedDelta bounded by the amount the same message
  * mints, the conservation ceiling that prices any forged book credit
@@ -503,7 +504,7 @@ library CohortWeeks {
             }
         } else {
 
-            if (trackedDelta != laneSum) {
+            if (laneSum > trackedDelta) {
                 return false;
             }
         }
