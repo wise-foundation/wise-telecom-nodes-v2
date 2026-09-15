@@ -104,6 +104,14 @@ abstract contract ReferralHubDeclarations is OwnableMaster {
 
     uint256 internal constant REPORT_VALUE_MASK = (1 << 128) - 1;
 
+    uint256 internal constant REPORT_REFERRED_MASK = (1 << 96) - 1;
+
+    uint256 internal constant REPORT_WEEK_SHIFT = 224;
+
+    uint256 internal constant REPORT_WEEK_MASK = (1 << 32) - 1;
+
+    uint256 internal constant REPORT_FRESHNESS_WEEKS = 1;
+
     uint256 internal constant GAP_WEEK_MASK = (1 << 32) - 1;
 
     uint256 internal constant MAX_SOURCE_SCORE = 3 * CohortWeeks.LANE_MASK_80;
@@ -142,6 +150,8 @@ abstract contract ReferralHubDeclarations is OwnableMaster {
     // ---- Per-source reports ----
 
     mapping(bytes32 => mapping(address => uint256)) internal lastSourceReport;
+
+    mapping(address => bytes32[]) internal sourcesOf;
 
     // ---- Week-versioned rate tables ----
 
@@ -192,6 +202,13 @@ abstract contract ReferralHubDeclarations is OwnableMaster {
         address indexed referrer,
         uint256 referredScore,
         uint256 selfScore
+    );
+
+    event SourceReportExpired(
+        bytes32 indexed source,
+        address indexed referrer,
+        uint256 referredDropped,
+        uint256 selfDropped
     );
 
     event ReferrerCheckpointed(
