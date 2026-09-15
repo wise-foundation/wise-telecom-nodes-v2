@@ -161,6 +161,13 @@ contract ReferralHubMailboxTest is Test {
         bytes payload
     );
 
+    event SourceReportExpired(
+        bytes32 indexed source,
+        address indexed referrer,
+        uint256 referredDropped,
+        uint256 selfDropped
+    );
+
     event FlushApplied(
         bytes32 indexed messageId,
         bytes32 indexed source,
@@ -1881,6 +1888,12 @@ contract ReferralHubMailboxTest is Test {
 
         uint256 expectedPaid = _richExpectedPaid();
 
+        hub.reportScores(
+            refA,
+            AT_CAP_REFERRED,
+            AT_CAP_SELF
+        );
+
         vm.expectEmit(
             true,
             true,
@@ -1921,7 +1934,7 @@ contract ReferralHubMailboxTest is Test {
         );
 
         assertEq(hub.globalReferredScore(refA), AT_CAP_REFERRED + 1_000 * 1e6);
-        assertEq(hub.globalSelfScore(refA), AT_CAP_SELF + 500 * 1e6);
+        assertEq(hub.globalSelfScore(refA), AT_CAP_SELF);
         assertEq(hub.appliedScoreStamp(source, refA), stamp);
         assertEq(hub.claimable(CHAIN_BASE, refA), expectedPaid);
         assertEq(hub.payoutAddressOf(CHAIN_BASE, refA), designated);
@@ -2038,6 +2051,12 @@ contract ReferralHubMailboxTest is Test {
         _receiveFlushAs(
             bytes32(uint256(0x62)),
             stalePayload
+        );
+
+        hub.reportScores(
+            refA,
+            HIGH_SCORE,
+            0
         );
 
         hub.applyFlush(
@@ -2651,6 +2670,12 @@ contract ReferralHubMailboxTest is Test {
             SEL_ARB,
             spokeVault,
             payload
+        );
+
+        hub.reportScores(
+            refA,
+            HIGH_SCORE,
+            0
         );
 
         hub.applyFlush(
@@ -3404,6 +3429,12 @@ contract ReferralHubMailboxTest is Test {
             refA
         );
 
+        hub.reportScores(
+            refA,
+            HIGH_SCORE,
+            0
+        );
+
         hub.applyFlush(
             messageId,
             CHAIN_BASE,
@@ -3431,6 +3462,82 @@ contract ReferralHubMailboxTest is Test {
         assertEq(referredAfter, 6_000 * 1e6);
         assertEq(selfAfter, 250 * 1e6);
         assertEq(localReferred, HIGH_SCORE);
+    }
+
+    function test_applyFlush_staleLocalReportExpiresAtRemoteTouch()
+        public
+    {
+        uint256 week = _establishTier6(
+            refA
+        );
+
+        bytes memory payload = _crumbPayload(
+            refA,
+            block.timestamp,
+            refA,
+            6_000 * 1e6,
+            250 * 1e6,
+            week,
+            _word(TIER6_QUANTITY, 0, 0)
+        );
+
+        bytes32 messageId = bytes32(
+            uint256(0xE4)
+        );
+
+        _receiveFlushAs(
+            messageId,
+            payload
+        );
+
+        bytes32 localSource = hub.sourceKeyOf(
+            block.chainid,
+            address(this)
+        );
+
+        uint256 localWeek = hub.lastReportWeekOf(
+            localSource,
+            refA
+        );
+
+        vm.expectEmit(
+            true,
+            true,
+            false,
+            true,
+            address(hub)
+        );
+
+        emit SourceReportExpired(
+            localSource,
+            refA,
+            HIGH_SCORE,
+            0
+        );
+
+        hub.applyFlush(
+            messageId,
+            CHAIN_BASE,
+            spokeVault,
+            payload
+        );
+
+        (
+            uint256 localReferred,
+            uint256 localSelf
+        ) = hub.lastReportOf(
+            address(this),
+            refA
+        );
+
+        assertEq(localReferred, 0);
+        assertEq(localSelf, 0);
+        assertEq(hub.lastReportWeekOf(localSource, refA), localWeek);
+        assertEq(hub.globalReferredScore(refA), 6_000 * 1e6);
+        assertEq(hub.globalSelfScore(refA), 250 * 1e6);
+        assertEq(hub.claimable(CHAIN_BASE, refA), TIER6_PAID);
+        assertEq(hub.sourceCountOf(refA), 2);
+        assertEq(hub.sourceOfAt(refA, 0), localSource);
     }
 
     // ---- courier share message id ----

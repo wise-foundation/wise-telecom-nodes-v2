@@ -81,9 +81,9 @@ contract ReferralHubGasTest is Test {
 
     address internal constant USD_STUB = address(0xF01);
 
-    uint256 internal constant FIRST_TOUCH_GAS_CEILING = 105_000;
+    uint256 internal constant FIRST_TOUCH_GAS_CEILING = 155_000;
 
-    uint256 internal constant SAME_WEEK_REPEAT_GAS_CEILING = 50_000;
+    uint256 internal constant SAME_WEEK_REPEAT_GAS_CEILING = 60_000;
 
     uint256 internal constant CRUMB_GAS_CEILING = 116_000;
 

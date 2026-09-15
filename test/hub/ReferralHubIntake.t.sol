@@ -3,6 +3,7 @@
 pragma solidity =0.8.36;
 
 import {Test} from "forge-std/Test.sol";
+import {Vm} from "forge-std/Vm.sol";
 
 import {ReferralHub} from "../../src/hub/pending/ReferralHub.sol";
 import {ReferralHubDeclarations} from "../../src/hub/pending/ReferralHubDeclarations.sol";
@@ -38,6 +39,13 @@ import {CohortWeeks} from "../../src/diamond/shared/pending/CohortWeeks.sol";
  * source isolation is itself under test.
  */
 contract ReferralHubIntakeTest is Test {
+
+    event SourceReportExpired(
+        bytes32 indexed source,
+        address indexed referrer,
+        uint256 referredDropped,
+        uint256 selfDropped
+    );
 
     event CrumbPriced(
         bytes32 indexed source,
@@ -1409,5 +1417,279 @@ contract ReferralHubIntakeTest is Test {
             hub.claimable(block.chainid, refA) * 10_000 * YEAR,
             total * TIER6_BPS
         );
+    }
+
+    // ---- score aggregation: max self, freshness expiry ----
+
+    function _localSourceOf(
+        address _reporter
+    )
+        internal
+        view
+        returns (bytes32)
+    {
+        return hub.sourceKeyOf(
+            block.chainid,
+            _reporter
+        );
+    }
+
+    function _expiredCount()
+        internal
+        returns (uint256 count)
+    {
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        bytes32 topic = keccak256(
+            "SourceReportExpired(bytes32,address,uint256,uint256)"
+        );
+
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].topics[0] == topic) {
+                ++count;
+            }
+        }
+    }
+
+    function test_reportScores_selfAggregatesAsMaxAcrossReporters()
+        public
+    {
+        hub.setAllowedReporter(
+            reporter2,
+            true
+        );
+
+        vm.prank(
+            reporter1
+        );
+
+        hub.reportScores(
+            refA,
+            1_000 * 1e6,
+            300 * 1e6
+        );
+
+        vm.prank(
+            reporter2
+        );
+
+        hub.reportScores(
+            refA,
+            2_000 * 1e6,
+            500 * 1e6
+        );
+
+        assertEq(hub.globalReferredScore(refA), 3_000 * 1e6);
+        assertEq(hub.globalSelfScore(refA), 500 * 1e6);
+        assertEq(hub.sourceCountOf(refA), 2);
+        assertEq(hub.sourceOfAt(refA, 0), _localSourceOf(reporter1));
+        assertEq(hub.sourceOfAt(refA, 1), _localSourceOf(reporter2));
+
+        vm.prank(
+            reporter2
+        );
+
+        hub.reportScores(
+            refA,
+            2_000 * 1e6,
+            100 * 1e6
+        );
+
+        assertEq(hub.globalReferredScore(refA), 3_000 * 1e6);
+        assertEq(hub.globalSelfScore(refA), 300 * 1e6);
+        assertEq(hub.sourceCountOf(refA), 2);
+    }
+
+    function test_reportScores_staleSourceExpiresAtNextTouch()
+        public
+    {
+        hub.setAllowedReporter(
+            reporter2,
+            true
+        );
+
+        vm.prank(
+            reporter1
+        );
+
+        hub.reportScores(
+            refA,
+            1_000 * 1e6,
+            300 * 1e6
+        );
+
+        bytes32 source1 = _localSourceOf(
+            reporter1
+        );
+
+        uint256 reportWeek = block.timestamp / WEEK;
+
+        assertEq(hub.lastReportWeekOf(source1, refA), reportWeek);
+
+        vm.warp(
+            block.timestamp + 2 weeks
+        );
+
+        vm.expectEmit(
+            true,
+            true,
+            false,
+            true,
+            address(hub)
+        );
+
+        emit SourceReportExpired(
+            source1,
+            refA,
+            1_000 * 1e6,
+            300 * 1e6
+        );
+
+        vm.prank(
+            reporter2
+        );
+
+        hub.reportScores(
+            refA,
+            2_000 * 1e6,
+            100 * 1e6
+        );
+
+        (
+            uint256 referred1,
+            uint256 self1
+        ) = hub.lastReportOf(
+            reporter1,
+            refA
+        );
+
+        assertEq(referred1, 0);
+        assertEq(self1, 0);
+        assertEq(hub.lastReportWeekOf(source1, refA), reportWeek);
+        assertEq(hub.globalReferredScore(refA), 2_000 * 1e6);
+        assertEq(hub.globalSelfScore(refA), 100 * 1e6);
+
+        vm.recordLogs();
+
+        vm.prank(
+            reporter2
+        );
+
+        hub.reportScores(
+            refA,
+            2_500 * 1e6,
+            100 * 1e6
+        );
+
+        assertEq(_expiredCount(), 0);
+        assertEq(hub.globalReferredScore(refA), 2_500 * 1e6);
+
+        vm.prank(
+            reporter1
+        );
+
+        hub.reportScores(
+            refA,
+            1_000 * 1e6,
+            300 * 1e6
+        );
+
+        assertEq(hub.lastReportWeekOf(source1, refA), reportWeek + 2);
+        assertEq(hub.globalReferredScore(refA), 3_500 * 1e6);
+        assertEq(hub.globalSelfScore(refA), 300 * 1e6);
+        assertEq(hub.sourceCountOf(refA), 2);
+    }
+
+    function test_reportScores_oneWeekOldReportStaysFresh()
+        public
+    {
+        hub.setAllowedReporter(
+            reporter2,
+            true
+        );
+
+        vm.prank(
+            reporter1
+        );
+
+        hub.reportScores(
+            refA,
+            1_000 * 1e6,
+            300 * 1e6
+        );
+
+        vm.warp(
+            block.timestamp + 1 weeks
+        );
+
+        vm.recordLogs();
+
+        vm.prank(
+            reporter2
+        );
+
+        hub.reportScores(
+            refA,
+            2_000 * 1e6,
+            100 * 1e6
+        );
+
+        assertEq(_expiredCount(), 0);
+        assertEq(hub.globalReferredScore(refA), 3_000 * 1e6);
+        assertEq(hub.globalSelfScore(refA), 300 * 1e6);
+    }
+
+    function test_reportScores_sameValuesLaterWeekRefreshStamp()
+        public
+    {
+        vm.prank(
+            reporter1
+        );
+
+        hub.reportScores(
+            refA,
+            1_000 * 1e6,
+            300 * 1e6
+        );
+
+        bytes32 source1 = _localSourceOf(
+            reporter1
+        );
+
+        uint256 reportWeek = block.timestamp / WEEK;
+
+        vm.recordLogs();
+
+        vm.prank(
+            reporter1
+        );
+
+        hub.reportScores(
+            refA,
+            1_000 * 1e6,
+            300 * 1e6
+        );
+
+        assertEq(vm.getRecordedLogs().length, 0);
+        assertEq(hub.lastReportWeekOf(source1, refA), reportWeek);
+
+        vm.warp(
+            block.timestamp + 1 weeks
+        );
+
+        vm.prank(
+            reporter1
+        );
+
+        hub.reportScores(
+            refA,
+            1_000 * 1e6,
+            300 * 1e6
+        );
+
+        assertEq(hub.lastReportWeekOf(source1, refA), reportWeek + 1);
+        assertEq(hub.globalReferredScore(refA), 1_000 * 1e6);
+        assertEq(hub.globalSelfScore(refA), 300 * 1e6);
+        assertEq(hub.sourceCountOf(refA), 1);
     }
 }

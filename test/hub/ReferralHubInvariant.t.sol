@@ -927,6 +927,11 @@ contract ReferralHubInvariantTest is Test {
         public
         view
     {
+        bytes32 remoteSource = hub.sourceKeyOf(
+            handler.REMOTE_CHAIN_ID(),
+            handler.REMOTE_VAULT()
+        );
+
         address[3] memory reporters = [
             address(0xD1),
             address(0xD2),
@@ -957,11 +962,25 @@ contract ReferralHubInvariantTest is Test {
                 ) = hub.lastReportOf(reporters[j], referrer);
 
                 sumReferred += referred;
-                sumSelf += selfScore;
+
+                if (selfScore > sumSelf) {
+                    sumSelf = selfScore;
+                }
             }
 
-            sumReferred += handler.ghostRemoteReferred(referrer);
-            sumSelf += handler.ghostRemoteSelf(referrer);
+            (
+                uint256 remoteReferred,
+                uint256 remoteSelf
+            ) = hub.lastReportOfSource(
+                remoteSource,
+                referrer
+            );
+
+            sumReferred += remoteReferred;
+
+            if (remoteSelf > sumSelf) {
+                sumSelf = remoteSelf;
+            }
 
             assertEq(
                 hub.globalReferredScore(referrer),
@@ -972,7 +991,7 @@ contract ReferralHubInvariantTest is Test {
             assertEq(
                 hub.globalSelfScore(referrer),
                 sumSelf,
-                "I3: globalSelfScore != sum(lastReportOf.self)"
+                "I3: globalSelfScore != max(lastReportOf.self)"
             );
         }
     }
