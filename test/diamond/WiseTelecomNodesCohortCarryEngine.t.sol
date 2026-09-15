@@ -104,6 +104,7 @@ contract WiseTelecomNodesCohortCarryEngineTest is Test {
     uint256 internal constant BASE_TIME = BASE_WEEK * 1 weeks + 1 hours;
 
     address internal user1 = address(0xA1);
+    address internal user2 = address(0xA2);
 
     address internal refA = address(0xB1);
 
@@ -1744,7 +1745,7 @@ contract WiseTelecomNodesCohortCarryEngineTest is Test {
 
         assertEq(
             CohortWeeks.carryTrackedDelta(payload[1]),
-            3
+            4
         );
 
         assertEq(
@@ -1764,7 +1765,7 @@ contract WiseTelecomNodesCohortCarryEngineTest is Test {
 
         assertEq(
             harnessB.viewTracked(user1),
-            3
+            4
         );
 
         assertEq(
@@ -1774,6 +1775,114 @@ contract WiseTelecomNodesCohortCarryEngineTest is Test {
                 )
             ),
             3
+        );
+    }
+
+    function test_captureMoveOut_partiallyAttributed_capturesOnlyAttributedAndCarriesFullTracked()
+        public
+    {
+        _creditAt(
+            harnessA,
+            BASE_WEEK,
+            500
+        );
+
+        _referUser1();
+
+        _creditAt(
+            harnessA,
+            BASE_WEEK + 1,
+            1_000
+        );
+
+        registry.assignReferrer(
+            user2,
+            refA
+        );
+
+        harnessA.exposedCreditContribution(
+            user2,
+            2_000
+        );
+
+        assertEq(
+            harnessA.viewTracked(user1),
+            1_500
+        );
+
+        assertEq(
+            harnessA.viewAttributed(user1),
+            1_000
+        );
+
+        harnessA.exposedCaptureMoveOut(
+            user1,
+            address(harnessB),
+            1_500,
+            1,
+            1
+        );
+
+        assertEq(
+            harnessA.viewTracked(user1),
+            0
+        );
+
+        assertEq(
+            harnessA.viewAttributed(user1),
+            0
+        );
+
+        assertEq(
+            CohortWeeks.laneY1(
+                harnessA.viewBookWord(
+                    refA
+                )
+            ),
+            2_000
+        );
+
+        (
+            ,
+            uint256[] memory payload
+        ) = registry.getCarry(
+            address(harnessA),
+            address(harnessB),
+            user1
+        );
+
+        assertEq(
+            CohortWeeks.carryTrackedDelta(payload[1]),
+            1_500
+        );
+
+        harnessB.harnessMintBalance(
+            user1,
+            1_500
+        );
+
+        harnessB.exposedApplyMoveIn(
+            user1,
+            address(harnessA)
+        );
+
+        assertEq(
+            harnessB.viewTracked(user1),
+            1_500
+        );
+
+        assertEq(
+            harnessB.viewAttributed(user1),
+            1_000
+        );
+
+        assertEq(
+            CohortWeeks.laneY1(
+                harnessB.viewBookWord(
+                    refA
+                )
+            ),
+            1_000
         );
     }
 

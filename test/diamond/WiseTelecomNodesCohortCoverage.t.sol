@@ -270,6 +270,47 @@ contract WiseTelecomNodesCohortCoverageTest is DiamondTestHarness {
         );
     }
 
+    function test_syncReferee_unsetRegistryPointer_clampsAttributedWithoutBook()
+        public
+    {
+        CohortLaneHarness harness = new CohortLaneHarness();
+
+        harness.harnessSetTracked(
+            user1,
+            500
+        );
+
+        harness.harnessMintBalance(
+            user1,
+            200
+        );
+
+        harness.exposedSyncReferee(
+            user1
+        );
+
+        assertEq(
+            harness.viewTracked(
+                user1
+            ),
+            200
+        );
+
+        assertEq(
+            harness.viewAttributed(
+                user1
+            ),
+            200
+        );
+
+        assertEq(
+            harness.viewBookWord(
+                refA
+            ),
+            0
+        );
+    }
+
     function test_reduceWalk_ringMirrorClipEmitsBookAnomaly()
         public
     {
