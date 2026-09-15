@@ -318,6 +318,10 @@ abstract contract ReferralBotOpsForkBase is CohortFlushUpgradeForkBase {
 
         _referredDepositOnSpoke();
 
+        _ageSpokeWeeks(
+            2
+        );
+
         _onSrc();
 
         vm.prank(
@@ -550,6 +554,22 @@ abstract contract ReferralBotOpsForkBase is CohortFlushUpgradeForkBase {
         IWtnFlushVault(src.diamond).setAllowedFlushBot(
             _run.courierB,
             true
+        );
+
+        _onSrc();
+
+        _warpSrcToBoundaryOfWeek(
+            block.timestamp / CohortWeeks.WEEK + 2
+        );
+
+        _flushSpokeForced(
+            _run.refA,
+            _run.courierA
+        );
+
+        _flushSpokeForced(
+            _run.refB,
+            _run.courierA
         );
 
         _deliverAndApply(
@@ -832,7 +852,7 @@ abstract contract ReferralBotOpsForkBase is CohortFlushUpgradeForkBase {
         );
 
         out[2] = CohortWeeks.packFlushScores(
-            IWtnFlushVault(src.diamond).getCohortScore(
+            _spokeBookSum(
                 _run.refA
             ),
             IWtnFlushVault(src.diamond).getTrackedContribution(
@@ -848,7 +868,7 @@ abstract contract ReferralBotOpsForkBase is CohortFlushUpgradeForkBase {
         );
 
         out[4] = CohortWeeks.packFlushScores(
-            IWtnFlushVault(src.diamond).getCohortScore(
+            _spokeBookSum(
                 _run.refB
             ),
             IWtnFlushVault(src.diamond).getTrackedContribution(
