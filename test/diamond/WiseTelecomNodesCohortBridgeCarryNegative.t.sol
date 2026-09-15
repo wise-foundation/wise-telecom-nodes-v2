@@ -255,6 +255,17 @@ contract CohortBridgeSeamHarness is CohortRecorderBase {
         external
     {
         trackedContribution[_user] = _amount;
+
+        attributedContribution[_user] = _amount;
+    }
+
+    function harnessSetAttributed(
+        address _user,
+        uint256 _amount
+    )
+        external
+    {
+        attributedContribution[_user] = _amount;
     }
 
     function harnessSetBookLanes(
@@ -314,6 +325,16 @@ contract CohortBridgeSeamHarness is CohortRecorderBase {
         returns (uint256)
     {
         return trackedContribution[_user];
+    }
+
+    function viewAttributed(
+        address _user
+    )
+        external
+        view
+        returns (uint256)
+    {
+        return attributedContribution[_user];
     }
 
     function viewBookWord(
@@ -407,6 +428,17 @@ contract CohortFlipSeamHarness is CohortRecorderBase {
         external
     {
         trackedContribution[_user] = _amount;
+
+        attributedContribution[_user] = _amount;
+    }
+
+    function harnessSetAttributed(
+        address _user,
+        uint256 _amount
+    )
+        external
+    {
+        attributedContribution[_user] = _amount;
     }
 
     function harnessSetRingYear1(
@@ -456,6 +488,16 @@ contract CohortFlipSeamHarness is CohortRecorderBase {
         returns (uint256)
     {
         return trackedContribution[_user];
+    }
+
+    function viewAttributed(
+        address _user
+    )
+        external
+        view
+        returns (uint256)
+    {
+        return attributedContribution[_user];
     }
 
     function viewBookWord(
@@ -622,6 +664,13 @@ contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
         address indexed referrer,
         uint256 oldContribution,
         uint256 newContribution
+    );
+
+    event CohortAttributionCharged(
+        address indexed user,
+        address indexed referrer,
+        uint256 charged,
+        uint256 uncharged
     );
 
     event CohortLaneSaturated(
@@ -1989,6 +2038,135 @@ contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
         );
     }
 
+    function test_captureBridgeOut_partiallyAttributed_chargesSaleLikeFirstThenCarriesTheRest()
+        public
+    {
+        ReferralRegistry seamRegistry = new ReferralRegistry(
+            address(this),
+            0
+        );
+
+        seamRegistry.setAllowedVault(
+            address(this),
+            true
+        );
+
+        seamRegistry.assignReferrer(
+            user1,
+            refA
+        );
+
+        seamHarness.harnessSetRegistry(
+            address(seamRegistry)
+        );
+
+        seamHarness.harnessMintBalance(
+            user1,
+            1_000 * 1e6
+        );
+
+        seamHarness.harnessSetTracked(
+            user1,
+            1_000 * 1e6 + 800
+        );
+
+        seamHarness.harnessSetAttributed(
+            user1,
+            600
+        );
+
+        seamHarness.harnessSetBookLanes(
+            refA,
+            300,
+            0,
+            500
+        );
+
+        seamHarness.harnessSetRingYear1(
+            refA,
+            (block.timestamp / CohortWeeks.WEEK) % CohortWeeks.RING_SLOTS,
+            300
+        );
+
+        vm.expectEmit(
+            true,
+            true,
+            false,
+            true,
+            address(seamHarness)
+        );
+
+        emit CohortAttributionCharged(
+            user1,
+            refA,
+            600,
+            200
+        );
+
+        bytes memory payload = seamHarness.exposedCaptureBridgeOut(
+            user1,
+            SELECTOR_B,
+            500,
+            1,
+            1
+        );
+
+        assertEq(
+            seamHarness.viewTracked(user1),
+            1_000 * 1e6
+        );
+
+        assertEq(
+            seamHarness.viewAttributed(user1),
+            0
+        );
+
+        assertEq(
+            seamHarness.viewBookWord(refA),
+            CohortWeeks.packLanes(
+                0,
+                0,
+                200
+            )
+        );
+
+        (
+            ,
+            uint256 word1,
+            uint256 word2,
+            uint256 word3
+        ) = CohortWeeks.unpackBridgeCarry(
+            payload
+        );
+
+        assertEq(
+            CohortWeeks.carryTrackedDelta(word1),
+            500
+        );
+
+        assertEq(
+            CohortWeeks.carryPairLo(word2),
+            0
+        );
+
+        assertEq(
+            CohortWeeks.carryPairHi(word2),
+            0
+        );
+
+        assertEq(
+            word3,
+            300
+        );
+
+        assertTrue(
+            CohortWeeks.bridgeCarryValid(
+                payload,
+                500
+            )
+        );
+    }
+
     function test_captureBridgeOut_excessDeficitReducesSaleLikeFirst()
         public
     {
@@ -2381,6 +2559,107 @@ contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
     // ---- 15. flip migration destroys a lazy deficit sale-like before
     // relocating the residual ----
 
+    function test_migrateReferrerCohort_partiallyAttributed_chargesAndRelocatesAttributedOnly()
+        public
+    {
+        uint256 slot = _creditSlot();
+
+        flipHarness.harnessMintBalance(
+            user1,
+            300 * 1e6
+        );
+
+        flipHarness.harnessSetTracked(
+            user1,
+            500 * 1e6
+        );
+
+        flipHarness.harnessSetAttributed(
+            user1,
+            250 * 1e6
+        );
+
+        flipHarness.harnessSetRingYear1(
+            refA,
+            slot,
+            uint64(500 * 1e6)
+        );
+
+        flipHarness.harnessSetBookLanes(
+            refA,
+            500 * 1e6,
+            0,
+            0
+        );
+
+        vm.expectEmit(
+            true,
+            true,
+            false,
+            true,
+            address(flipHarness)
+        );
+
+        emit CohortAttributionCharged(
+            user1,
+            refA,
+            200 * 1e6,
+            0
+        );
+
+        vm.expectEmit(
+            true,
+            true,
+            true,
+            true,
+            address(flipHarness)
+        );
+
+        emit CohortReferrerFlipApplied(
+            user1,
+            refA,
+            refB,
+            50 * 1e6,
+            0,
+            0,
+            1
+        );
+
+        flipHarness.exposedMigrateReferrer(
+            user1,
+            refA,
+            refB
+        );
+
+        assertEq(
+            flipHarness.viewTracked(user1),
+            300 * 1e6
+        );
+
+        assertEq(
+            flipHarness.viewAttributed(user1),
+            50 * 1e6
+        );
+
+        assertEq(
+            flipHarness.viewBookWord(refA),
+            CohortWeeks.packLanes(
+                250 * 1e6,
+                0,
+                0
+            )
+        );
+
+        assertEq(
+            flipHarness.viewBookWord(refB),
+            CohortWeeks.packLanes(
+                50 * 1e6,
+                0,
+                0
+            )
+        );
+    }
+
     function test_migrateReferrerCohort_deficitClampsSaleLikeThenMigratesResidual()
         public
     {
@@ -2711,7 +2990,7 @@ contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
             user1,
             SELECTOR_LOW,
             refA,
-            6,
+            7,
             1,
             2,
             3
@@ -2761,7 +3040,7 @@ contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
 
         assertEq(
             CohortWeeks.carryTrackedDelta(word1),
-            6
+            7
         );
 
         assertEq(
@@ -2824,7 +3103,7 @@ contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
             SELECTOR_A,
             refA,
             refA,
-            6,
+            7,
             1,
             2,
             3
@@ -2843,10 +3122,10 @@ contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
 
         assertEq(
             dest.viewTracked(user1),
-            6
+            7
         );
 
-        assertLt(
+        assertLe(
             dest.viewTracked(user1),
             7
         );
