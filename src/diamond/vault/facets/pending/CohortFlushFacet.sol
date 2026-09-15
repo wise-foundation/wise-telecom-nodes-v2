@@ -12,8 +12,9 @@ import {IReferralFlushHub} from "../../interfaces/pending/IReferralFlushHub.sol"
 
 /**
  * @dev CohortFlushFacet: the routed flush transport of the cohort
- * recorder: it carries this vault's referral book (absolute referred
- * and self scores, frozen weekly crumb words, compressed dormant gap
+ * recorder: it carries this vault's referral book (the referred score
+ * time-weighted over the last seven days, the absolute self score,
+ * frozen weekly crumb words, compressed dormant gap
  * records, and the referrer's own-chain payout designation) to the
  * mainnet referral hub. Two delivery modes behind one planner: a
  * nonzero `flushHubChainSelector` packs a versioned flush envelope
@@ -67,6 +68,22 @@ import {IReferralFlushHub} from "../../interfaces/pending/IReferralFlushHub.sol"
  * same no-settle lower-bound planning. `getFlushCursors` returns the
  * send cursors of a whole batch in one call, the pair a bot needs to
  * size its next envelope.
+ *
+ * The referred score of an entry is the lower of the instantaneous
+ * book and its rolling seven-day average from the previous and
+ * current week crumbs (`_referredScoreCohort`), so a snapshot can
+ * never claim more presence than the book had: a stake toured
+ * through vaults counts at most once across them, a book that left
+ * reports its lower instantaneous value at once, and a book that
+ * just arrived counts by its presence share until it has been held
+ * a full week (a mid-week arrival is pro-rated across its arrival
+ * week). The rolling average reads the crumbs the settle just wrote;
+ * when the previous week sits inside a compressed dormant span it
+ * reads that span's constant mature principal instead, and a week
+ * that has neither (the book was empty) counts as absent, so an old
+ * span can never vouch for a book that left and came back. While the
+ * recorder is disarmed the frozen book is reported as is, since
+ * nothing can move while it is off.
  */
 contract CohortFlushFacet is FacetBase {
 
@@ -460,6 +477,91 @@ contract CohortFlushFacet is FacetBase {
         }
     }
 
+    function _referredScoreCohort(
+        address _referrer,
+        uint256 _book
+    )
+        internal
+        view
+        returns (uint256)
+    {
+        uint256 instant = CohortWeeks.laneY1(_book)
+            + CohortWeeks.laneY2(_book)
+            + CohortWeeks.laneM(_book);
+
+        if (cohortSyncEnabled == false) {
+            return instant;
+        }
+
+        uint256 week = block.timestamp / CohortWeeks.WEEK;
+
+        uint256 elapsed = block.timestamp - week * CohortWeeks.WEEK;
+
+        uint256 current = _crumbSecondsCohort(
+            cohortWeekLog[_referrer][week]
+        );
+
+        uint256 previous = _previousWeekSecondsCohort(
+            _referrer,
+            week - 1
+        );
+
+        uint256 rolling = (
+            current
+                + previous * (CohortWeeks.WEEK - elapsed) / CohortWeeks.WEEK
+        ) / CohortWeeks.WEEK;
+
+        return instant < rolling
+            ? instant
+            : rolling;
+    }
+
+    function _previousWeekSecondsCohort(
+        address _referrer,
+        uint256 _week
+    )
+        internal
+        view
+        returns (uint256)
+    {
+        uint256 crumb = cohortWeekLog[_referrer][_week];
+
+        if (crumb & CohortWeeks.CRUMB_WRITTEN_BIT != 0) {
+            return _crumbSecondsCohort(
+                crumb
+            );
+        }
+
+        uint256[] storage gaps = cohortGapLog[_referrer];
+
+        if (gaps.length == 0) {
+            return 0;
+        }
+
+        uint256 last = gaps[gaps.length - 1];
+
+        if (
+            CohortWeeks.gapRecordFromWeek(last) > _week
+                || _week >= CohortWeeks.gapRecordToWeek(last)
+        ) {
+            return 0;
+        }
+
+        return CohortWeeks.gapRecordMature(last) * CohortWeeks.WEEK;
+    }
+
+    function _crumbSecondsCohort(
+        uint256 _crumb
+    )
+        internal
+        pure
+        returns (uint256)
+    {
+        return CohortWeeks.laneY1(_crumb)
+            + CohortWeeks.laneY2(_crumb)
+            + CohortWeeks.laneM(_crumb);
+    }
+
     function _planFlushEntry(
         address _referrer,
         uint256 _fromWeek,
@@ -475,9 +577,10 @@ contract CohortFlushFacet is FacetBase {
 
         entry.referrer = _referrer;
 
-        entry.referredScore = CohortWeeks.laneY1(book)
-            + CohortWeeks.laneY2(book)
-            + CohortWeeks.laneM(book);
+        entry.referredScore = _referredScoreCohort(
+            _referrer,
+            book
+        );
 
         uint256 tracked = trackedContribution[_referrer];
 
