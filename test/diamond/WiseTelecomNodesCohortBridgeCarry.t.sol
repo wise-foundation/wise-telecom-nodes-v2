@@ -2071,8 +2071,18 @@ contract WiseTelecomNodesCohortBridgeCarryTest is DiamondTestHarness {
         );
 
         assertEq(
+            scoreBefore,
+            DEPOSIT
+        );
+
+        assertEq(
+            _recorderOf(vaultA).getTrackedContribution(user1),
+            DEPOSIT - BRIDGE_AMOUNT
+        );
+
+        assertEq(
             _recorderOf(vaultA).getCohortScore(refA),
-            scoreBefore
+            DEPOSIT - BRIDGE_AMOUNT
         );
 
         assertEq(
@@ -2962,6 +2972,11 @@ contract WiseTelecomNodesCohortBridgeCarryTest is DiamondTestHarness {
                 logs,
                 SYNCED_TOPIC
             ),
+            1
+        );
+
+        assertEq(
+            _recorderOf(vaultA).getTrackedContribution(buyer),
             0
         );
 
