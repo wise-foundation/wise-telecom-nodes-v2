@@ -319,6 +319,46 @@ contract ReferralRegistryAssignTest is Test {
         );
     }
 
+    function test_RevertWhen_assignReferrer_referrerIsAllowedVault()
+        public
+    {
+        vm.prank(
+            vaultA
+        );
+
+        vm.expectRevert(
+            ReferralRegistryDeclarations.InvalidReferrer.selector
+        );
+
+        registry.assignReferrer(
+            user1,
+            vaultB
+        );
+    }
+
+    function test_assignReferrer_revokedVaultAddressAcceptedAsReferrer()
+        public
+    {
+        registry.setAllowedVault(
+            vaultB,
+            false
+        );
+
+        vm.prank(
+            vaultA
+        );
+
+        registry.assignReferrer(
+            user1,
+            vaultB
+        );
+
+        assertEq(
+            registry.referrerOf(user1),
+            vaultB
+        );
+    }
+
     function test_assignReferrer_zeroReferrerRevertsEvenWhenAssigned()
         public
     {

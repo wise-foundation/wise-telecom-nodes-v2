@@ -1427,6 +1427,25 @@ contract ReferralRegistrySyncTest is Test {
         );
     }
 
+    function test_mergeReferrer_revertsWhenReferrerIsAllowedVault()
+        public
+    {
+        vm.prank(
+            vaultA
+        );
+
+        vm.expectRevert(
+            ReferralRegistryDeclarations.InvalidReferrer.selector
+        );
+
+        registry.mergeReferrer(
+            user1,
+            vaultB,
+            BASE_TIME - 1,
+            0
+        );
+    }
+
     function test_mergeReferrer_syncKeyInvalidArms()
         public
     {
@@ -1664,6 +1683,44 @@ contract ReferralRegistrySyncTest is Test {
 
         registry.ccipReceive(
             message
+        );
+    }
+
+    function test_ccipReceive_revertsWhenReferrerIsLocalAllowedVault()
+        public
+    {
+        _armReceive();
+
+        Client.Any2EVMMessage memory message = _syncMessage(
+            bytes32(
+                uint256(0xAA03)
+            ),
+            SEL_ONE,
+            peerOne,
+            _syncData(
+                1,
+                user1,
+                vaultB,
+                BASE_TIME - 3 days,
+                2
+            )
+        );
+
+        vm.prank(
+            routerEoa
+        );
+
+        vm.expectRevert(
+            ReferralRegistryDeclarations.InvalidReferrer.selector
+        );
+
+        registry.ccipReceive(
+            message
+        );
+
+        assertEq(
+            registry.referrerOf(user1),
+            address(0)
         );
     }
 
