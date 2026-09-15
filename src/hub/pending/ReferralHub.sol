@@ -49,6 +49,17 @@ import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
  * sum, and `totalAccrued − totalBooked` the not-yet-booked
  * liability, so the accrual anchor stays monotonic.
  *
+ * Score honesty: reports expire after `REPORT_FRESHNESS_WEEKS`
+ * without a refresh, the referred aggregate sums the fresh reports
+ * (each already time-weighted over the last seven days by the
+ * reporting vault) and the self aggregate takes the largest fresh
+ * self report (an own stake sits in one vault at a time). A stake
+ * relocated between vaults therefore counts once, and a vacated
+ * source stops counting on its own even though an emptied book is
+ * never worth flushing.
+ * `sourceCountOf` / `sourceOfAt` enumerate a referrer's sources and
+ * `lastReportWeekOf` exposes the freshness stamp.
+ *
  * Cross-chain transport is live: the hub is its own CCIP endpoint
  * ({ReferralHubMailbox}). Spoke vault envelopes commit into the
  * mailbox on receive and apply lazily and permissionlessly through
@@ -562,7 +573,7 @@ contract ReferralHub is
         uint256 packed = lastSourceReport[_sourceKey(_reporter)][_referrer];
 
         return (
-            packed >> REPORT_REFERRED_SHIFT,
+            (packed >> REPORT_REFERRED_SHIFT) & REPORT_REFERRED_MASK,
             packed & REPORT_VALUE_MASK
         );
     }
@@ -625,9 +636,41 @@ contract ReferralHub is
         uint256 packed = lastSourceReport[_source][_referrer];
 
         return (
-            packed >> REPORT_REFERRED_SHIFT,
+            (packed >> REPORT_REFERRED_SHIFT) & REPORT_REFERRED_MASK,
             packed & REPORT_VALUE_MASK
         );
+    }
+
+    function lastReportWeekOf(
+        bytes32 _source,
+        address _referrer
+    )
+        external
+        view
+        returns (uint256)
+    {
+        return lastSourceReport[_source][_referrer] >> REPORT_WEEK_SHIFT;
+    }
+
+    function sourceCountOf(
+        address _referrer
+    )
+        external
+        view
+        returns (uint256)
+    {
+        return sourcesOf[_referrer].length;
+    }
+
+    function sourceOfAt(
+        address _referrer,
+        uint256 _index
+    )
+        external
+        view
+        returns (bytes32)
+    {
+        return sourcesOf[_referrer][_index];
     }
 
     function paidCursorAtSource(
