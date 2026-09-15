@@ -21,13 +21,27 @@ import {CohortWeeks} from "../../diamond/shared/pending/CohortWeeks.sol";
  * geometry, decoded with the {CohortWeeks} accessors at the edges.
  *
  * Scores are ABSOLUTE per source, not deltas: `_applyScoreReport`
- * diffs the reported values against `lastSourceReport` and applies
- * the signed difference to the global aggregates.
- * Re-reports are idempotent no-ops, recorder clamp decreases
- * arrive as plain lower absolutes, and score consistency reduces to
- * the equality `globalReferredScore == Σ lastSourceReport` per
- * referrer. Ordering is load-bearing: apply diff → checkpoint
- * referrer (post-mutation closing value).
+ * stores the reported values under `lastSourceReport` stamped with
+ * the hub week of the report and rebuilds the global aggregates
+ * from every source the referrer has ever reported through
+ * (`sourcesOf`, a short list bounded by the registered reporters
+ * and flush sources). Two hub-side rules keep the aggregates honest
+ * (the reporting vault already time-weights the referred value it
+ * sends, see {CohortFlushFacet}, so a snapshot can never claim more
+ * presence than the book actually had over the last seven days).
+ * A report older than `REPORT_FRESHNESS_WEEKS` at the time of any
+ * later mutation for the same referrer expires to zero
+ * ({SourceReportExpired}), so a source that stops flushing, which is
+ * exactly what an emptied source does because an empty flush prices
+ * nothing, stops counting instead of freezing its last value into
+ * the ladder forever. The referred aggregate is the sum of the fresh
+ * bounded reports and the self aggregate is the LARGEST fresh self
+ * report, because a person's own stake can only sit in one vault at
+ * a time, so touring it through vaults cannot stack it. Same-week
+ * re-reports of identical values are no-ops; a later-week re-report
+ * refreshes the stamp with a zero diff. Ordering is load-bearing:
+ * the aggregate rebuild precedes the checkpoint (post-mutation
+ * closing value).
  *
  * Cursors enforce exactly-once accrual:
  * `paidCursor[source][referrer][week]` stores the
@@ -101,7 +115,11 @@ abstract contract ReferralHubIntake is ReferralHubRates {
             ScoreReportOutOfRange()
         );
 
-        uint256 packed = (_referredAbs << REPORT_REFERRED_SHIFT) | _selfAbs;
+        uint256 week = block.timestamp / CohortWeeks.WEEK;
+
+        uint256 packed = (week << REPORT_WEEK_SHIFT)
+            | (_referredAbs << REPORT_REFERRED_SHIFT)
+            | _selfAbs;
 
         uint256 previous = lastSourceReport[_source][_referrer];
 
@@ -109,15 +127,18 @@ abstract contract ReferralHubIntake is ReferralHubRates {
             return;
         }
 
+        if (previous == 0) {
+            sourcesOf[_referrer].push(
+                _source
+            );
+        }
+
         lastSourceReport[_source][_referrer] = packed;
 
-        globalReferredScore[_referrer] = globalReferredScore[_referrer]
-            - (previous >> REPORT_REFERRED_SHIFT)
-            + _referredAbs;
-
-        globalSelfScore[_referrer] = globalSelfScore[_referrer]
-            - (previous & REPORT_VALUE_MASK)
-            + _selfAbs;
+        _refreshAggregates(
+            _referrer,
+            week
+        );
 
         _checkpointReferrer(
             _referrer
@@ -129,6 +150,58 @@ abstract contract ReferralHubIntake is ReferralHubRates {
             _referredAbs,
             _selfAbs
         );
+    }
+
+    function _refreshAggregates(
+        address _referrer,
+        uint256 _week
+    )
+        internal
+    {
+        bytes32[] storage sources = sourcesOf[_referrer];
+
+        uint256 sumReferred;
+
+        uint256 maxSelf;
+
+        for (uint256 i; i < sources.length; ++i) {
+
+            bytes32 source = sources[i];
+
+            uint256 packed = lastSourceReport[source][_referrer];
+
+            uint256 referred = (packed >> REPORT_REFERRED_SHIFT) & REPORT_REFERRED_MASK;
+
+            uint256 selfScore = packed & REPORT_VALUE_MASK;
+
+            if ((packed >> REPORT_WEEK_SHIFT) + REPORT_FRESHNESS_WEEKS < _week) {
+
+                if (referred > 0 || selfScore > 0) {
+
+                    lastSourceReport[source][_referrer] = packed
+                        & (REPORT_WEEK_MASK << REPORT_WEEK_SHIFT);
+
+                    emit SourceReportExpired(
+                        source,
+                        _referrer,
+                        referred,
+                        selfScore
+                    );
+                }
+
+                continue;
+            }
+
+            sumReferred = sumReferred + referred;
+
+            if (selfScore > maxSelf) {
+                maxSelf = selfScore;
+            }
+        }
+
+        globalReferredScore[_referrer] = sumReferred;
+
+        globalSelfScore[_referrer] = maxSelf;
     }
 
     function _deliverCrumb(
