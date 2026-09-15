@@ -24,9 +24,16 @@ import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
  * packed sync key `(block.timestamp << 8) | LOCAL_CHAIN_RANK`.
  * Validation runs BEFORE the write-once check so a zero/self
  * referrer reverts even for an already-assigned user, preserving
- * the vaults' revert priority. The hardening pair rejects the calling
- * vault and this registry as referrers so cohort credit can never be
- * laundered into system addresses. `assignReferrer` performs a pure
+ * the vaults' revert priority. The hardening set rejects the calling
+ * vault, this registry and every locally allowed vault as referrers,
+ * on assignment, on merge and on correction alike, so cohort credit
+ * can never be laundered into system addresses: a vault can neither
+ * claim at the hub nor designate a payout address, so commission
+ * booked to it would sit as an unclaimable liability forever. The
+ * allowed set is chain-local, so a product address that is a vault
+ * on another chain but not here passes here; a synced assignment
+ * that names a local vault reverts on receive and that user simply
+ * stays unassigned on this chain. `assignReferrer` performs a pure
  * storage write plus event and makes NO external call; the vaults'
  * reentrancy reasoning relies on this staying true.
  *
@@ -153,6 +160,11 @@ contract ReferralRegistry is
 
         require(
             _referrer != address(this),
+            InvalidReferrer()
+        );
+
+        require(
+            allowedVault[_referrer] == false,
             InvalidReferrer()
         );
 
@@ -1158,6 +1170,11 @@ contract ReferralRegistry is
 
         require(
             _referrer != address(this),
+            InvalidReferrer()
+        );
+
+        require(
+            allowedVault[_referrer] == false,
             InvalidReferrer()
         );
 
