@@ -112,6 +112,8 @@ Six dead fields that were previously "retained as storage gaps" were deleted and
 | 88 | `allowedFlushBot` | mapping(address ⇒ bool) | CohortFlushDeclaration |
 | 89 (0) | `publicFlushEnabled` | bool | CohortFlushDeclaration |
 | 89 (1..8) | `flushGasLimit` | uint64 | CohortFlushDeclaration |
+| 90 | `attributedContribution` | mapping(address ⇒ uint256) | CohortAttributionDeclaration |
+| 91 | `pendingDivestSync` | address | CohortDivestDeclaration |
 
 `CrossChainDeclaration` is appended before `WiseDeclaration`, so `ccipRouter` packs into the free upper bytes of slot 34 alongside `negativeIncentivesNotAllowed` and the remaining cross-chain maps take fresh tail slots — no pre-existing slot moves. `WiseDeclaration` is appended last of the original shards, so `WISE_TOKEN` takes fresh tail slot 39 and likewise moves no pre-existing slot. `BridgeReplayDeclaration` is appended after it as a bridge-hardening tail shard: `processedMessageId` is the `ccipReceive` replay/idempotency guard, and `proposedCrossChainPeer` / `proposedCrossChainPeerDecimals` stage a pending cross-chain peer so repointing an already-enabled lane is timelocked like a first-time enable. Its three maps take fresh tail slots 40–42 and move no pre-existing slot. `ThirdPartyDeclaration` follows it as another tail shard backing the `setThirdPartyAddress` propose/execute timelock: `proposedThirdPartyAddress` and `thirdPartyChangeQueuedAt` take fresh tail slots 43–44 and move no pre-existing slot. `TransferHookDeclaration` follows it as the final tail shard backing the optional swappable transfer hook: `transferHookFacet` is the facet `transfer` / `transferFrom` (and the queue internal move) DELEGATECALL for their interest-move policy when set (zero = built-in inline default), and `proposedTransferHookFacet` / `transferHookChangeQueuedAt` back its 3-day propose/execute timelock. Its three fields take fresh tail slots 45–47 and move no pre-existing slot. `BurnWiseRotationDeclaration` follows it as the final tail shard backing the rotating percentage burn: `burnWiseIndex` is the global sequence cursor advanced and wrapped on every successful `burnWise`, and `lastBurnWiseAt` is the per-caller 1-day cooldown stamp. Its two fields take fresh tail slots 48–49 and move no pre-existing slot. `ReferralDeclaration` follows it as the final tail shard for cross-chain forward-prep: `referralEnabled` gates whether an inbound bridge surfaces a non-empty `referralData` payload via `BridgeReferral`, and `bridgeGasLimit` overrides the destination `ccipReceive` callback budget when non-zero (`0` falls back to `BRIDGE_GAS_LIMIT`). Both pack into fresh tail slot 50 (`referralEnabled` at byte 0, `bridgeGasLimit` at bytes 1..8) and move no pre-existing slot. `DepositGateDeclaration` follows it as the final tail shard backing the dormant-chain deposit gate: `depositsDisabled` blocks direct deposits, Permit2 deposits and queue joins when set by master while withdrawals, queue leaves, transfers and both bridge directions keep working. It packs into the free byte 9 of slot 50 alongside `referralEnabled` and `bridgeGasLimit` and moves no pre-existing slot. `GracePeriodDeclaration` follows it as the final tail shard backing the large-deposit grace period: a single deposit/compound call that grows a user's balance by `graceThresholdAmount` or more stamps `lastLargeDepositAt[user]`, and until `gracePeriodDuration` has elapsed that user cannot claim, compound or reassign interest while deposits, withdrawals and every exit path stay open. `graceThresholdAmount == 0` disables the trigger, so an upgraded diamond with zeroed tail storage behaves exactly as before until master calls the setters. `graceFreezeEnabled` (slot 54, default `false`) is the master on/off switch for the swappable freeze hook (`GraceFreezeHookFacet`): the transfer / queue freeze on a grace-locked address enforces only while it is `true`, flipped instantly (no timelock) via `setGraceFreezeEnabled`, independent of the always-on interest-extraction gate. Its four fields take fresh tail slots 51–54 and move no pre-existing slot. `DepositHookDeclaration` follows it as a tail shard backing the optional swappable deposit hook: `depositHookFacet` is the facet `_registerLargeDeposit` DELEGATECALLs with the decorated call's positive balance delta for its large-deposit detection policy when set (zero = built-in inline single-call default), and `proposedDepositHookFacet` / `depositHookChangeQueuedAt` back its 3-day propose/execute timelock (instant pre-finalize, like the transfer hook). `depositHookFacet` packs into the free bytes 1..20 of slot 54 alongside `graceFreezeEnabled` and the other two fields take fresh tail slots 55–56 — no pre-existing slot moves. `DepositAccumDeclaration` follows it as a tail shard backing the two-bucket deposit accumulator (`GraceAccumHookFacet`): `depositAccumWindow` (slot 57, default `0` = accumulator off, never seeded by constructor or scripts) is the master-set bucket length over which the per-user `depositWindowStart` / `depositWindowTotal` records sum sub-threshold deposits toward `graceThresholdAmount`, all window records cleared on every stamp. Its three fields take fresh tail slots 57–59 and move no pre-existing slot. `CashedInterestTotalDeclaration` follows it as a tail shard backing the global cashed-interest ledger: `totalCashedInterest` mirrors `Σ cashedInterest[user]` in lockstep (accrual adds the banked pending, claims subtract the debited amount, the constructor migration seed delta-adds, `moveMyInterestTo` is net-zero and untouched) and feeds `_calculateNeededBuffer` so `sweepOverhang` reserves the settled liability; it is `internal` (no auto-getter) and read externally via `CashedInterestFacet.getTotalCashedInterest()`. It takes fresh tail slot 60 and moves no pre-existing slot. `SweeperDeclaration` follows it as the final tail shard backing the sweeper allowlist: `isSweeper` gates who may trigger `sweepOverhang`. The constructor seeds the worker, the third party and the deployer (`_seedSweepers`; on the deterministic path the bootstrap shim also grants the pending master and revokes its own seed), and master can grant/revoke further sweepers via the instant `setSweeper` — the trigger needs no timelock because swept funds can only reach the 3-day-timelocked `workerAddress` and the reserve floor holds regardless of caller. It takes fresh tail slot 61 and moves no pre-existing slot. `DepositAccumPrevDeclaration` follows it as the final tail shard extending the deposit accumulator with its previous bucket, split out so the shards before it keep their slots: `depositWindowPrevTotal` carries a user's full previous accumulation bucket forward, and `applyDepositAccumHook` always tests it together with the current `depositWindowTotal`, so deposits within one `depositAccumWindow` of each other can never dodge the `graceThresholdAmount` sum by straddling a bucket boundary while co-counting never reaches back two full windows; it is cleared alongside the other window records on every stamp and on a two-window skip. Appended last, it takes fresh tail slot 62 and moves no pre-existing slot.
 
@@ -270,6 +272,47 @@ compound, queue or bridge path. All fields are `internal`; the read surface is t
 the `AdminFacet` pointer trio (six new admin selectors shipping with the flush round's
 AdminFacet redeploy) and the `CohortFlushFacet` entrypoints and policy setters. The next
 free tail slot is now **90**.
+
+### 2026-09-03 cohort attribution shard
+
+`CohortAttributionDeclaration` is appended after `CohortFlushDeclaration` (slots 83–89),
+taking fresh tail slot 90 and moving no pre-existing slot. `attributedContribution` is the
+slice of a user's `trackedContribution` (slot 69) that was actually credited to a referrer's
+book: it rises inside a credit only when a referrer was credited (deposits made while
+unreferred or while the registry lookup failed track but attribute nothing), rises on a
+carry landing by the lanes the destination replants, and is the ONLY quantity a clamp may
+charge a referrer's book with (`min(deficit, attributed)`, the counter lowered by the
+charge). It closes the clamp over-charge: without it a referrer assigned after a user's
+uncredited deposits was charged the whole tracked deficit at the next clamp, so anyone
+could drain a chosen referrer's book with a plain deposit, a one-unit referral deposit and
+a transfer. `attributedContribution <= trackedContribution` holds at every touchpoint;
+`trackedContribution` keeps its self-stake ladder role untouched. Default-off convention:
+zeroed storage attributes nothing, so a clamp on a live diamond charges nothing until
+credits land after arming. The field is `internal`; the read surface is the routed
+`CohortRecorderFacet.getAttributedContribution` (recorder group 13 → 14, selector total
+159); every writer is an engine touchpoint reached through the hook pointer or the routed
+bridge-hook slice. The next free tail slot is now **91**.
+
+### 2026-09-03 cohort divest shard
+
+`CohortDivestDeclaration` is appended after `CohortAttributionDeclaration` (slot 90), taking
+fresh tail slot 91 and moving no pre-existing slot. `pendingDivestSync` is the one share
+sender whose divestment the recorder has not observed yet. The frozen entry contract runs the
+transfer hook BEFORE the balance moves and hands it only the two addresses, so a plain
+transfer left the sender's `trackedContribution` (slot 69) and the referrer's book untouched
+until some later touchpoint of that same sender, and nothing forced one: deposit under a
+referrer, transfer the shares away, sell them at par through the queue, repeat, and the book
+stacked one deposit per cycle on capital that came straight back. The hook now parks the
+sender here (only while they hold tracked contribution) and every hook-slice entrypoint
+except the bounded `applyCohortAdvance` drains the slot first, syncing the parked user at the
+exact post-transfer balance before doing its own work; every path that lets shares leave the
+vault is such an entrypoint, so the shares can never be sold on before the clamp. A drained
+sync that hits a failed registry lookup keeps the slot, an occupied slot skips a new park
+with `CohortDivestParkSkipped`, and a router-initiated receive never drains (fixed CCIP gas
+budget). Default-off convention: zeroed storage parks nothing and the slot is touched only
+while `cohortSyncEnabled`. The field is `internal` with no getter; the `CohortDivestParked`
+and `CohortDivestDrained` events carry it, and any touchpoint or the permissionless
+`syncReferee` clears it. No selector changes. The next free tail slot is now **92**.
 
 ### 2026-08-18 Same-chain move carry — NO diamond storage added
 
