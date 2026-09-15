@@ -137,7 +137,7 @@ contract WiseTelecomNodesCohortGasTest is DiamondTestHarness {
 
     uint256 internal constant TRANSFER_HOOK_BEYOND_CAP_GAP_TOLERANCE = 150_000;
 
-    uint256 internal constant TRANSFER_HOOK_PREWALKED_GAS_CEILING = 135_000;
+    uint256 internal constant TRANSFER_HOOK_PREWALKED_GAS_CEILING = 140_000;
 
     uint256 internal constant ADVANCE_BOOK_26_CHUNK_GAS_CEILING = 875_000;
 

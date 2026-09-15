@@ -1763,6 +1763,19 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
 
         assertEq(
             hub.globalReferredScore(refA),
+            0
+        );
+
+        vm.warp(
+            BASE_TIME + 2 weeks
+        );
+
+        _flushOwnLocal(
+            refA
+        );
+
+        assertEq(
+            hub.globalReferredScore(refA),
             10_000 * 1e6
         );
 
@@ -1784,7 +1797,7 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
             _flush(diamond).getFlushedThroughWeek(
                 refA
             ),
-            2_999
+            3_001
         );
 
         vm.warp(
@@ -1872,6 +1885,14 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
             user1,
             10_000 * 1e6,
             refA
+        );
+
+        _flushOwnLocal(
+            refA
+        );
+
+        vm.warp(
+            BASE_TIME + 2 weeks
         );
 
         _flushOwnLocal(
@@ -2208,6 +2229,14 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
             user1,
             10_000 * 1e6,
             refA
+        );
+
+        _flushOwnLocal(
+            refA
+        );
+
+        vm.warp(
+            BASE_TIME + 2 weeks
         );
 
         _flushOwnLocal(
@@ -4232,6 +4261,183 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
                 refA
             ),
             cursorAfter
+        );
+    }
+
+    // ---- reported referred score: presence-weighted ----
+
+    function test_flushScore_arrivalReportsPresenceShare()
+        public
+    {
+        _depositWithReferralOn(
+            diamond,
+            user1,
+            10_000 * 1e6,
+            refA
+        );
+
+        vm.warp(
+            BASE_TIME + 1 days
+        );
+
+        _flushOwnLocal(
+            refA
+        );
+
+        assertEq(
+            hub.globalReferredScore(refA),
+            uint256(10_000 * 1e6) * 1 days / 1 weeks
+        );
+
+        assertEq(
+            _rec(diamond).getCohortScore(refA),
+            10_000 * 1e6
+        );
+    }
+
+    function test_flushScore_fullAfterWholeWeekHeld()
+        public
+    {
+        _depositWithReferralOn(
+            diamond,
+            user1,
+            10_000 * 1e6,
+            refA
+        );
+
+        vm.warp(
+            BASE_TIME + 2 weeks
+        );
+
+        _flushOwnLocal(
+            refA
+        );
+
+        assertEq(
+            hub.globalReferredScore(refA),
+            10_000 * 1e6
+        );
+    }
+
+    function test_flushScore_bookThatLeftReportsZeroAtOnce()
+        public
+    {
+        _depositWithReferralOn(
+            diamond,
+            user1,
+            10_000 * 1e6,
+            refA
+        );
+
+        vm.warp(
+            BASE_TIME + 2 weeks
+        );
+
+        _flushOwnLocal(
+            refA
+        );
+
+        assertEq(
+            hub.globalReferredScore(refA),
+            10_000 * 1e6
+        );
+
+        vm.prank(
+            user1
+        );
+
+        diamond.transfer(
+            user2,
+            10_000 * 1e6
+        );
+
+        vm.warp(
+            block.timestamp + 1 days
+        );
+
+        _flushOwnLocal(
+            refA
+        );
+
+        assertEq(
+            _rec(diamond).getCohortScore(refA),
+            0
+        );
+
+        assertEq(
+            hub.globalReferredScore(refA),
+            0
+        );
+    }
+
+    function test_flushScore_dormantSpanCountsButNeverVouchesForAReturn()
+        public
+    {
+        _depositWithReferralOn(
+            diamond,
+            user1,
+            10_000 * 1e6,
+            refA
+        );
+
+        vm.warp(
+            BASE_TIME + 120 weeks
+        );
+
+        _flushOwnLocal(
+            refA
+        );
+
+        assertEq(
+            hub.globalReferredScore(refA),
+            10_000 * 1e6
+        );
+
+        vm.prank(
+            user1
+        );
+
+        diamond.transfer(
+            user2,
+            10_000 * 1e6
+        );
+
+        _rec(diamond).syncReferee(
+            user1
+        );
+
+        assertEq(
+            _rec(diamond).getCohortScore(refA),
+            0
+        );
+
+        vm.warp(
+            block.timestamp + 2 weeks
+        );
+
+        _depositWithReferralOn(
+            diamond,
+            user2,
+            5_000 * 1e6,
+            refA
+        );
+
+        vm.warp(
+            block.timestamp + 1 days
+        );
+
+        _flushOwnLocal(
+            refA
+        );
+
+        assertEq(
+            _rec(diamond).getCohortScore(refA),
+            5_000 * 1e6
+        );
+
+        assertEq(
+            hub.globalReferredScore(refA),
+            uint256(5_000 * 1e6) * 1 days / 1 weeks
         );
     }
 }

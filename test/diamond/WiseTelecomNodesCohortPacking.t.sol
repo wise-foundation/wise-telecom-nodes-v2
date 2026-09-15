@@ -908,7 +908,7 @@ contract WiseTelecomNodesCohortPackingTest is Test {
             word3
         );
 
-        CarryValidRow[] memory rows = new CarryValidRow[](14);
+        CarryValidRow[] memory rows = new CarryValidRow[](15);
 
         rows[0] = CarryValidRow(
             base,
@@ -1041,8 +1041,8 @@ contract WiseTelecomNodesCohortPackingTest is Test {
                 word3
             ),
             100,
-            false,
-            "sum law off by one rejected"
+            true,
+            "lane sum below trackedDelta accepted"
         );
 
         rows[11] = CarryValidRow(
@@ -1073,6 +1073,22 @@ contract WiseTelecomNodesCohortPackingTest is Test {
             59,
             false,
             "trackedDelta above mint amount rejected"
+        );
+
+        rows[14] = CarryValidRow(
+            CohortWeeks.packBridgeCarry(
+                word0,
+                CohortWeeks.packBridgeCarryTracked(
+                    59,
+                    123_456,
+                    3
+                ),
+                word2,
+                word3
+            ),
+            100,
+            false,
+            "lane sum above trackedDelta rejected"
         );
 
         for (uint256 i; i < rows.length; ++i) {

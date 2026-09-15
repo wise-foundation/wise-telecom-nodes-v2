@@ -370,6 +370,11 @@ contract WiseTelecomNodesCohortSeedTest is DiamondTestHarness {
             1_050 * ONE
         );
 
+        assertEq(
+            _recorder().getAttributedContribution(user1),
+            1_050 * ONE
+        );
+
         (
             uint256 year1,
             uint256 year2,
@@ -622,6 +627,11 @@ contract WiseTelecomNodesCohortSeedTest is DiamondTestHarness {
 
         assertEq(
             _recorder().getTrackedContribution(user1),
+            1_050 * ONE
+        );
+
+        assertEq(
+            _recorder().getAttributedContribution(user1),
             1_050 * ONE
         );
 
