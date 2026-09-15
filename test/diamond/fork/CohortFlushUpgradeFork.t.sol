@@ -113,6 +113,14 @@ interface IWtnFlushVault {
         view
         returns (uint256);
 
+    function getCohortGapLogEntry(
+        address referrer,
+        uint256 index
+    )
+        external
+        view
+        returns (uint256);
+
     function getCohortGapLogLength(
         address referrer
     )
@@ -1047,9 +1055,88 @@ abstract contract CohortFlushUpgradeForkBase is CcipForkHarness {
         view
         returns (uint256)
     {
-        return IWtnFlushVault(src.diamond).getCohortScore(
+        uint256 instant = IWtnFlushVault(src.diamond).getCohortScore(
             _referrer
         );
+
+        uint256 week = block.timestamp / CohortWeeks.WEEK;
+
+        uint256 elapsed = block.timestamp - week * CohortWeeks.WEEK;
+
+        uint256 current = _crumbSecondsOnSpoke(
+            IWtnFlushVault(src.diamond).getCohortWeekCrumb(
+                _referrer,
+                week
+            )
+        );
+
+        uint256 previous = _previousWeekSecondsOnSpoke(
+            _referrer,
+            week - 1
+        );
+
+        uint256 rolling = (
+            current
+                + previous * (CohortWeeks.WEEK - elapsed) / CohortWeeks.WEEK
+        ) / CohortWeeks.WEEK;
+
+        return instant < rolling
+            ? instant
+            : rolling;
+    }
+
+    function _previousWeekSecondsOnSpoke(
+        address _referrer,
+        uint256 _week
+    )
+        internal
+        view
+        returns (uint256)
+    {
+        uint256 crumb = IWtnFlushVault(src.diamond).getCohortWeekCrumb(
+            _referrer,
+            _week
+        );
+
+        if (crumb & CohortWeeks.CRUMB_WRITTEN_BIT != 0) {
+            return _crumbSecondsOnSpoke(
+                crumb
+            );
+        }
+
+        uint256 length = IWtnFlushVault(src.diamond).getCohortGapLogLength(
+            _referrer
+        );
+
+        if (length == 0) {
+            return 0;
+        }
+
+        uint256 last = IWtnFlushVault(src.diamond).getCohortGapLogEntry(
+            _referrer,
+            length - 1
+        );
+
+        if (
+            CohortWeeks.gapRecordFromWeek(last) > _week
+                || _week >= CohortWeeks.gapRecordToWeek(last)
+        ) {
+            return 0;
+        }
+
+        return CohortWeeks.gapRecordMature(last) * CohortWeeks.WEEK;
+    }
+
+    function _crumbSecondsOnSpoke(
+        uint256 _crumb
+    )
+        internal
+        pure
+        returns (uint256)
+    {
+        return CohortWeeks.laneY1(_crumb)
+            + CohortWeeks.laneY2(_crumb)
+            + CohortWeeks.laneM(_crumb);
     }
 
     function _spokeDesignationWord(
@@ -1804,6 +1891,10 @@ abstract contract CohortFlushUpgradeForkE2E is CohortFlushUpgradeForkBase {
 
         _referredDepositOnSpoke();
 
+        _ageSpokeWeeks(
+            2
+        );
+
         FlushWire memory first = _flushSpoke(
             referrer,
             referrer
@@ -1936,6 +2027,10 @@ abstract contract CohortFlushUpgradeForkE2E is CohortFlushUpgradeForkBase {
 
         _referredDepositOnSpoke();
 
+        _ageSpokeWeeks(
+            2
+        );
+
         _deliverAndApply(
             _flushSpoke(
                 referrer,
@@ -2024,6 +2119,10 @@ abstract contract CohortFlushUpgradeForkE2E is CohortFlushUpgradeForkBase {
         }
 
         _referredDepositOnSpoke();
+
+        _ageSpokeWeeks(
+            2
+        );
 
         address payoutOne = makeAddr(
             "flushForkPayoutOne"
