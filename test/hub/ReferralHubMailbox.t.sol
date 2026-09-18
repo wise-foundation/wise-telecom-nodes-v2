@@ -102,7 +102,13 @@ contract MockPayoutVault {
  * stamp with greater-or-equal semantics, crumb and gap pricing into
  * per-source-chain claimable buckets, one liability booking per
  * apply), idempotent re-application and out-of-order envelope
- * convergence, the courier bot-share split for remote non-own-book
+ * convergence, the replay-proof freshness week (a re-apply in a
+ * later week keeps the build week, an archived or banked envelope
+ * re-applied after its source expired never revives it, an envelope
+ * first applied two weeks after its build drops its scores while
+ * still pricing its crumbs and expiring the referrer's stale
+ * sources, and a one-week-old envelope lands under its build week),
+ * the courier bot-share split for remote non-own-book
  * deliveries across the full bps range, the designation rails
  * (latest-wins stamps, strict-greater replay no-ops, skip anomalies
  * for zero / far-future / rank-overflowing pairs, push payload
@@ -707,6 +713,23 @@ contract ReferralHubMailboxTest is Test {
         revert(
             "log not found"
         );
+    }
+
+    function _scoresReportedCount()
+        internal
+        returns (uint256 count)
+    {
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        bytes32 topic = keccak256(
+            "SourceScoresReported(bytes32,address,uint256,uint256)"
+        );
+
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].topics[0] == topic) {
+                ++count;
+            }
+        }
     }
 
     function _cursorWordAtSource(
@@ -2014,6 +2037,515 @@ contract ReferralHubMailboxTest is Test {
         assertEq(hub.appliedScoreStamp(source, refA), stamp);
     }
 
+    function test_applyFlush_reapplyLaterWeek_keepsReportWeek()
+        public
+    {
+        uint256 buildWeek = block.timestamp / WEEK;
+
+        bytes memory payload = _scoresPayload(
+            refA,
+            block.timestamp,
+            refA,
+            6_000 * 1e6,
+            250 * 1e6
+        );
+
+        bytes32 messageId = bytes32(
+            uint256(0x71)
+        );
+
+        _receiveFlushAs(
+            messageId,
+            payload
+        );
+
+        hub.applyFlush(
+            messageId,
+            CHAIN_BASE,
+            spokeVault,
+            payload
+        );
+
+        bytes32 source = _remoteSourceOf(
+            CHAIN_BASE,
+            spokeVault
+        );
+
+        assertEq(hub.lastReportWeekOf(source, refA), buildWeek);
+        assertEq(hub.checkpointCount(refA), 1);
+
+        vm.warp(
+            block.timestamp + 1 weeks
+        );
+
+        vm.recordLogs();
+
+        hub.applyFlush(
+            messageId,
+            CHAIN_BASE,
+            spokeVault,
+            payload
+        );
+
+        assertEq(vm.getRecordedLogs().length, 1);
+        assertEq(hub.lastReportWeekOf(source, refA), buildWeek);
+        assertEq(hub.globalReferredScore(refA), 6_000 * 1e6);
+        assertEq(hub.globalSelfScore(refA), 250 * 1e6);
+        assertEq(hub.checkpointCount(refA), 1);
+    }
+
+    function test_applyFlush_replayAfterExpiry_doesNotReviveSource()
+        public
+    {
+        uint256 stamp = block.timestamp;
+
+        uint256 buildWeek = block.timestamp / WEEK;
+
+        bytes memory payload = _scoresPayload(
+            refA,
+            stamp,
+            refA,
+            6_000 * 1e6,
+            250 * 1e6
+        );
+
+        bytes32 messageId = bytes32(
+            uint256(0x72)
+        );
+
+        _receiveFlushAs(
+            messageId,
+            payload
+        );
+
+        hub.applyFlush(
+            messageId,
+            CHAIN_BASE,
+            spokeVault,
+            payload
+        );
+
+        bytes32 source = _remoteSourceOf(
+            CHAIN_BASE,
+            spokeVault
+        );
+
+        vm.warp(
+            block.timestamp + 2 weeks
+        );
+
+        vm.expectEmit(
+            true,
+            true,
+            false,
+            true,
+            address(hub)
+        );
+
+        emit SourceReportExpired(
+            source,
+            refA,
+            6_000 * 1e6,
+            250 * 1e6
+        );
+
+        hub.reportScores(
+            refA,
+            HIGH_SCORE,
+            0
+        );
+
+        assertEq(hub.globalReferredScore(refA), HIGH_SCORE);
+
+        vm.recordLogs();
+
+        hub.applyFlush(
+            messageId,
+            CHAIN_BASE,
+            spokeVault,
+            payload
+        );
+
+        (
+            uint256 referredAfter,
+            uint256 selfAfter
+        ) = hub.lastReportOfSource(
+            source,
+            refA
+        );
+
+        assertEq(_scoresReportedCount(), 0);
+        assertEq(referredAfter, 0);
+        assertEq(selfAfter, 0);
+        assertEq(hub.lastReportWeekOf(source, refA), buildWeek);
+        assertEq(hub.globalReferredScore(refA), HIGH_SCORE);
+        assertEq(hub.globalSelfScore(refA), 0);
+        assertEq(hub.appliedScoreStamp(source, refA), stamp);
+        assertEq(hub.sourceCountOf(refA), 2);
+    }
+
+    function test_applyFlush_staleEnvelope_dropsScoresPricesCrumbsAndTouches()
+        public
+    {
+        uint256 week = _establishTier6(
+            refA
+        );
+
+        uint256 stamp = block.timestamp;
+
+        bytes memory payload = _crumbPayload(
+            refA,
+            stamp,
+            refA,
+            6_000 * 1e6,
+            250 * 1e6,
+            week,
+            _word(TIER6_QUANTITY, 0, 0)
+        );
+
+        bytes32 messageId = bytes32(
+            uint256(0x73)
+        );
+
+        _receiveFlushAs(
+            messageId,
+            payload
+        );
+
+        vm.warp(
+            block.timestamp + 2 weeks
+        );
+
+        bytes32 localSource = hub.sourceKeyOf(
+            block.chainid,
+            address(this)
+        );
+
+        bytes32 source = _remoteSourceOf(
+            CHAIN_BASE,
+            spokeVault
+        );
+
+        vm.expectEmit(
+            true,
+            true,
+            false,
+            true,
+            address(hub)
+        );
+
+        emit SourceReportExpired(
+            localSource,
+            refA,
+            HIGH_SCORE,
+            0
+        );
+
+        vm.recordLogs();
+
+        hub.applyFlush(
+            messageId,
+            CHAIN_BASE,
+            spokeVault,
+            payload
+        );
+
+        (
+            uint256 referredAfter,
+            uint256 selfAfter
+        ) = hub.lastReportOfSource(
+            source,
+            refA
+        );
+
+        (
+            uint256 checkpointWeek,
+            uint256 checkpointReferred,
+            uint256 checkpointSelf
+        ) = hub.checkpointAt(
+            refA,
+            hub.checkpointCount(refA) - 1
+        );
+
+        assertEq(_scoresReportedCount(), 0);
+        assertEq(hub.claimable(CHAIN_BASE, refA), TIER6_PAID);
+        assertEq(referredAfter, 0);
+        assertEq(selfAfter, 0);
+        assertEq(hub.sourceCountOf(refA), 1);
+        assertEq(hub.appliedScoreStamp(source, refA), stamp);
+        assertEq(hub.globalReferredScore(refA), 0);
+        assertEq(hub.globalSelfScore(refA), 0);
+        assertEq(checkpointWeek, week + 2);
+        assertEq(checkpointReferred, 0);
+        assertEq(checkpointSelf, 0);
+    }
+
+    function test_applyFlush_oneWeekOldEnvelope_landsScoresUnderBuildWeek()
+        public
+    {
+        uint256 buildWeek = block.timestamp / WEEK;
+
+        bytes memory payload = _scoresPayload(
+            refA,
+            block.timestamp,
+            refA,
+            6_000 * 1e6,
+            250 * 1e6
+        );
+
+        bytes32 messageId = bytes32(
+            uint256(0x74)
+        );
+
+        _receiveFlushAs(
+            messageId,
+            payload
+        );
+
+        vm.warp(
+            block.timestamp + 1 weeks
+        );
+
+        hub.applyFlush(
+            messageId,
+            CHAIN_BASE,
+            spokeVault,
+            payload
+        );
+
+        bytes32 source = _remoteSourceOf(
+            CHAIN_BASE,
+            spokeVault
+        );
+
+        (
+            uint256 referred,
+            uint256 selfScore
+        ) = hub.lastReportOfSource(
+            source,
+            refA
+        );
+
+        assertEq(referred, 6_000 * 1e6);
+        assertEq(selfScore, 250 * 1e6);
+        assertEq(hub.lastReportWeekOf(source, refA), buildWeek);
+        assertEq(hub.globalReferredScore(refA), 6_000 * 1e6);
+        assertEq(hub.sourceCountOf(refA), 1);
+
+        vm.warp(
+            block.timestamp + 1 weeks
+        );
+
+        vm.expectEmit(
+            true,
+            true,
+            false,
+            true,
+            address(hub)
+        );
+
+        emit SourceReportExpired(
+            source,
+            refA,
+            6_000 * 1e6,
+            250 * 1e6
+        );
+
+        hub.reportScores(
+            refA,
+            HIGH_SCORE,
+            0
+        );
+
+        assertEq(hub.globalReferredScore(refA), HIGH_SCORE);
+    }
+
+    function test_applyFlush_laggingLocalSourceCountsThroughRetainedRemoteReport()
+        public
+    {
+        uint256 buildWeek = block.timestamp / WEEK;
+
+        hub.reportScores(
+            refA,
+            1_000 * 1e6,
+            0
+        );
+
+        bytes memory first = _scoresPayload(
+            refA,
+            block.timestamp,
+            refA,
+            6_000 * 1e6,
+            250 * 1e6
+        );
+
+        bytes32 firstId = bytes32(
+            uint256(0x75)
+        );
+
+        _receiveFlushAs(
+            firstId,
+            first
+        );
+
+        hub.applyFlush(
+            firstId,
+            CHAIN_BASE,
+            spokeVault,
+            first
+        );
+
+        assertEq(hub.globalReferredScore(refA), 7_000 * 1e6);
+
+        vm.warp(
+            block.timestamp + 1 weeks
+        );
+
+        bytes memory second = _scoresPayload(
+            refA,
+            block.timestamp,
+            refA,
+            6_500 * 1e6,
+            250 * 1e6
+        );
+
+        bytes32 secondId = bytes32(
+            uint256(0x76)
+        );
+
+        _receiveFlushAs(
+            secondId,
+            second
+        );
+
+        hub.applyFlush(
+            secondId,
+            CHAIN_BASE,
+            spokeVault,
+            second
+        );
+
+        bytes32 source = _remoteSourceOf(
+            CHAIN_BASE,
+            spokeVault
+        );
+
+        (
+            uint256 retainedWeek,
+            uint256 retainedReferred,
+            uint256 retainedSelf
+        ) = hub.previousReportOfSource(
+            source,
+            refA
+        );
+
+        assertEq(retainedWeek, buildWeek);
+        assertEq(retainedReferred, 6_000 * 1e6);
+        assertEq(retainedSelf, 250 * 1e6);
+        assertEq(hub.lastReportWeekOf(source, refA), buildWeek + 1);
+        assertEq(hub.globalReferredScore(refA), 7_000 * 1e6);
+
+        hub.reportScores(
+            refA,
+            1_000 * 1e6,
+            0
+        );
+
+        assertEq(hub.globalReferredScore(refA), 7_500 * 1e6);
+    }
+
+    function test_applyFlush_bankedEnvelope_cannotRefreshAfterExpiry()
+        public
+    {
+        uint256 firstStamp = block.timestamp;
+
+        uint256 bankedStamp = block.timestamp + 100;
+
+        bytes memory firstPayload = _scoresPayload(
+            refA,
+            firstStamp,
+            refA,
+            6_000 * 1e6,
+            250 * 1e6
+        );
+
+        bytes memory bankedPayload = _scoresPayload(
+            refA,
+            bankedStamp,
+            refA,
+            6_000 * 1e6,
+            250 * 1e6
+        );
+
+        _receiveFlushAs(
+            bytes32(uint256(0x75)),
+            firstPayload
+        );
+
+        _receiveFlushAs(
+            bytes32(uint256(0x76)),
+            bankedPayload
+        );
+
+        hub.applyFlush(
+            bytes32(uint256(0x75)),
+            CHAIN_BASE,
+            spokeVault,
+            firstPayload
+        );
+
+        bytes32 source = _remoteSourceOf(
+            CHAIN_BASE,
+            spokeVault
+        );
+
+        vm.warp(
+            block.timestamp + 2 weeks
+        );
+
+        hub.reportScores(
+            refA,
+            HIGH_SCORE,
+            0
+        );
+
+        assertEq(hub.globalReferredScore(refA), HIGH_SCORE);
+
+        hub.applyFlush(
+            bytes32(uint256(0x76)),
+            CHAIN_BASE,
+            spokeVault,
+            bankedPayload
+        );
+
+        (
+            uint256 referredAfter,
+            uint256 selfAfter
+        ) = hub.lastReportOfSource(
+            source,
+            refA
+        );
+
+        assertEq(referredAfter, 0);
+        assertEq(selfAfter, 0);
+        assertEq(hub.appliedScoreStamp(source, refA), bankedStamp);
+        assertEq(hub.globalReferredScore(refA), HIGH_SCORE);
+        assertEq(hub.globalSelfScore(refA), 0);
+
+        vm.recordLogs();
+
+        hub.applyFlush(
+            bytes32(uint256(0x75)),
+            CHAIN_BASE,
+            spokeVault,
+            firstPayload
+        );
+
+        assertEq(vm.getRecordedLogs().length, 1);
+        assertEq(hub.appliedScoreStamp(source, refA), bankedStamp);
+        assertEq(hub.globalReferredScore(refA), HIGH_SCORE);
+    }
+
     function test_applyFlush_staleScoreStamp_skipsScoresStillPricesCrumbs()
         public
     {
@@ -2413,7 +2945,9 @@ contract ReferralHubMailboxTest is Test {
     function test_designationPush_farFutureSetAt_skipsBoundaryApplies()
         public
     {
-        uint256 tooFar = block.timestamp + 1 hours + 1;
+        uint256 tooFar = block.timestamp
+            + 1 hours
+            + 1;
 
         vm.expectEmit(
             true,
