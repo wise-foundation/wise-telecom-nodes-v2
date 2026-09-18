@@ -47,6 +47,14 @@ contract ReferralHubIntakeTest is Test {
         uint256 selfDropped
     );
 
+    event SourceReportRetained(
+        bytes32 indexed source,
+        address indexed referrer,
+        uint256 week,
+        uint256 referredScore,
+        uint256 selfScore
+    );
+
     event CrumbPriced(
         bytes32 indexed source,
         address indexed referrer,
@@ -103,6 +111,8 @@ contract ReferralHubIntakeTest is Test {
     address internal reporter1 = address(0xD1);
 
     address internal reporter2 = address(0xD2);
+
+    address internal reporter3 = address(0xD3);
 
     address internal stranger = address(0xC1);
 
@@ -450,7 +460,11 @@ contract ReferralHubIntakeTest is Test {
 
         uint256 claimableAfterFirst = hub.claimable(block.chainid, refA);
 
-        (uint256 y1Before, uint256 y2Before, uint256 mBefore) = hub.paidCursorAt(
+        (
+            uint256 y1Before,
+            uint256 y2Before,
+            uint256 mBefore
+        ) = hub.paidCursorAt(
             address(this),
             refA,
             week
@@ -465,7 +479,11 @@ contract ReferralHubIntakeTest is Test {
 
         assertEq(hub.claimable(block.chainid, refA), claimableAfterFirst);
 
-        (uint256 y1After, uint256 y2After, uint256 mAfter) = hub.paidCursorAt(
+        (
+            uint256 y1After,
+            uint256 y2After,
+            uint256 mAfter
+        ) = hub.paidCursorAt(
             address(this),
             refA,
             week
@@ -1390,7 +1408,9 @@ contract ReferralHubIntakeTest is Test {
             HIGH_SCORE
         );
 
-        uint256 total = _d1 + _d2 + _d3;
+        uint256 total = _d1
+            + _d2
+            + _d3;
 
         _deliverCrumbAs(
             address(this),
@@ -1419,7 +1439,7 @@ contract ReferralHubIntakeTest is Test {
         );
     }
 
-    // ---- score aggregation: max self, freshness expiry ----
+    // ---- score aggregation: vouch-week buckets, max self, freshness expiry ----
 
     function _localSourceOf(
         address _reporter
@@ -1449,6 +1469,50 @@ contract ReferralHubIntakeTest is Test {
                 ++count;
             }
         }
+    }
+
+    function _retainedCount()
+        internal
+        returns (uint256 count)
+    {
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        bytes32 topic = keccak256(
+            "SourceReportRetained(bytes32,address,uint256,uint256,uint256)"
+        );
+
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].topics[0] == topic) {
+                ++count;
+            }
+        }
+    }
+
+    function _reportTourWeek(
+        address _departing,
+        address _arriving
+    )
+        internal
+    {
+        vm.prank(
+            _departing
+        );
+
+        hub.reportScores(
+            refA,
+            HIGH_SCORE,
+            0
+        );
+
+        vm.prank(
+            _arriving
+        );
+
+        hub.reportScores(
+            refA,
+            0,
+            0
+        );
     }
 
     function test_reportScores_selfAggregatesAsMaxAcrossReporters()
@@ -1600,7 +1664,7 @@ contract ReferralHubIntakeTest is Test {
         assertEq(hub.sourceCountOf(refA), 2);
     }
 
-    function test_reportScores_oneWeekOldReportStaysFresh()
+    function test_reportScores_oneWeekOldReportStaysFreshInTheEarlierBucket()
         public
     {
         hub.setAllowedReporter(
@@ -1635,8 +1699,331 @@ contract ReferralHubIntakeTest is Test {
         );
 
         assertEq(_expiredCount(), 0);
+        assertEq(hub.globalReferredScore(refA), 2_000 * 1e6);
+        assertEq(hub.globalSelfScore(refA), 300 * 1e6);
+
+        vm.prank(
+            reporter1
+        );
+
+        hub.reportScores(
+            refA,
+            1_000 * 1e6,
+            300 * 1e6
+        );
+
         assertEq(hub.globalReferredScore(refA), 3_000 * 1e6);
         assertEq(hub.globalSelfScore(refA), 300 * 1e6);
+    }
+
+    function test_reportScores_laterWeekReportRetainsDisplacedReport()
+        public
+    {
+        vm.prank(
+            reporter1
+        );
+
+        hub.reportScores(
+            refA,
+            1_000 * 1e6,
+            300 * 1e6
+        );
+
+        bytes32 source1 = _localSourceOf(
+            reporter1
+        );
+
+        uint256 reportWeek = block.timestamp / WEEK;
+
+        vm.recordLogs();
+
+        vm.prank(
+            reporter1
+        );
+
+        hub.reportScores(
+            refA,
+            1_500 * 1e6,
+            300 * 1e6
+        );
+
+        (
+            uint256 retainedWeek,
+            uint256 retainedReferred,
+            uint256 retainedSelf
+        ) = hub.previousReportOfSource(
+            source1,
+            refA
+        );
+
+        assertEq(_retainedCount(), 0);
+        assertEq(retainedWeek, 0);
+        assertEq(retainedReferred, 0);
+        assertEq(retainedSelf, 0);
+
+        vm.warp(
+            block.timestamp + 1 weeks
+        );
+
+        vm.expectEmit(
+            true,
+            true,
+            false,
+            true,
+            address(hub)
+        );
+
+        emit SourceReportRetained(
+            source1,
+            refA,
+            reportWeek,
+            1_500 * 1e6,
+            300 * 1e6
+        );
+
+        vm.prank(
+            reporter1
+        );
+
+        hub.reportScores(
+            refA,
+            2_000 * 1e6,
+            300 * 1e6
+        );
+
+        (
+            retainedWeek,
+            retainedReferred,
+            retainedSelf
+        ) = hub.previousReportOfSource(
+            source1,
+            refA
+        );
+
+        assertEq(retainedWeek, reportWeek);
+        assertEq(retainedReferred, 1_500 * 1e6);
+        assertEq(retainedSelf, 300 * 1e6);
+        assertEq(hub.globalReferredScore(refA), 2_000 * 1e6);
+    }
+
+    function test_reportScores_displacedZeroReportIsNotRetained()
+        public
+    {
+        vm.prank(
+            reporter1
+        );
+
+        hub.reportScores(
+            refA,
+            1_000 * 1e6,
+            300 * 1e6
+        );
+
+        vm.prank(
+            reporter1
+        );
+
+        hub.reportScores(
+            refA,
+            0,
+            0
+        );
+
+        vm.warp(
+            block.timestamp + 1 weeks
+        );
+
+        vm.recordLogs();
+
+        vm.prank(
+            reporter1
+        );
+
+        hub.reportScores(
+            refA,
+            500 * 1e6,
+            0
+        );
+
+        bytes32 source1 = _localSourceOf(
+            reporter1
+        );
+
+        (
+            uint256 retainedWeek,
+            uint256 retainedReferred,
+        ) = hub.previousReportOfSource(
+            source1,
+            refA
+        );
+
+        assertEq(_retainedCount(), 0);
+        assertEq(retainedWeek, 0);
+        assertEq(retainedReferred, 0);
+        assertEq(hub.globalReferredScore(refA), 500 * 1e6);
+    }
+
+    function test_reportScores_laggingSourceCountsThroughRetainedReport()
+        public
+    {
+        hub.setAllowedReporter(
+            reporter2,
+            true
+        );
+
+        vm.prank(
+            reporter1
+        );
+
+        hub.reportScores(
+            refA,
+            1_000 * 1e6,
+            0
+        );
+
+        vm.prank(
+            reporter2
+        );
+
+        hub.reportScores(
+            refA,
+            2_000 * 1e6,
+            0
+        );
+
+        assertEq(hub.globalReferredScore(refA), 3_000 * 1e6);
+
+        vm.warp(
+            block.timestamp + 1 weeks
+        );
+
+        vm.prank(
+            reporter2
+        );
+
+        hub.reportScores(
+            refA,
+            2_500 * 1e6,
+            0
+        );
+
+        assertEq(hub.globalReferredScore(refA), 3_000 * 1e6);
+
+        vm.prank(
+            reporter1
+        );
+
+        hub.reportScores(
+            refA,
+            1_000 * 1e6,
+            0
+        );
+
+        assertEq(hub.globalReferredScore(refA), 3_500 * 1e6);
+    }
+
+    function test_reportScores_retainedReportOlderThanOneWeekDoesNotCount()
+        public
+    {
+        vm.prank(
+            reporter1
+        );
+
+        hub.reportScores(
+            refA,
+            1_000 * 1e6,
+            0
+        );
+
+        bytes32 source1 = _localSourceOf(
+            reporter1
+        );
+
+        uint256 reportWeek = block.timestamp / WEEK;
+
+        vm.warp(
+            block.timestamp + 2 weeks
+        );
+
+        vm.prank(
+            reporter1
+        );
+
+        hub.reportScores(
+            refA,
+            700 * 1e6,
+            0
+        );
+
+        (
+            uint256 retainedWeek,
+            uint256 retainedReferred,
+        ) = hub.previousReportOfSource(
+            source1,
+            refA
+        );
+
+        assertEq(retainedWeek, reportWeek);
+        assertEq(retainedReferred, 1_000 * 1e6);
+        assertEq(hub.globalReferredScore(refA), 700 * 1e6);
+    }
+
+    function test_reportScores_touredStakeCountsOnceAcrossWeeks()
+        public
+    {
+        hub.setAllowedReporter(
+            reporter2,
+            true
+        );
+
+        hub.setAllowedReporter(
+            reporter3,
+            true
+        );
+
+        uint256 weekX = block.timestamp / WEEK;
+
+        _reportTourWeek(
+            reporter3,
+            reporter1
+        );
+
+        vm.warp(
+            block.timestamp + 1 weeks
+        );
+
+        _reportTourWeek(
+            reporter1,
+            reporter2
+        );
+
+        vm.warp(
+            block.timestamp + 1 weeks
+        );
+
+        _reportTourWeek(
+            reporter2,
+            reporter3
+        );
+
+        vm.warp(
+            block.timestamp + 1 weeks
+        );
+
+        _reportTourWeek(
+            reporter3,
+            reporter1
+        );
+
+        (
+            uint256 referredInput,
+        ) = hub.ladderInputsAt(
+            refA,
+            weekX + 4
+        );
+
+        assertEq(hub.globalReferredScore(refA), HIGH_SCORE);
+        assertEq(referredInput, HIGH_SCORE);
     }
 
     function test_reportScores_sameValuesLaterWeekRefreshStamp()
