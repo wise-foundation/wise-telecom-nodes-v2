@@ -168,6 +168,7 @@ contract WiseTelecomNodesCohortMoveCarryNegativeTest is TwoVaultCohortHarness {
         address indexed user,
         address indexed srcVault,
         address indexed referrer,
+        address carriedReferrer,
         uint256 trackedDelta,
         uint256 year1,
         uint256 year2,
@@ -562,7 +563,7 @@ contract WiseTelecomNodesCohortMoveCarryNegativeTest is TwoVaultCohortHarness {
 
         bytes32[5] memory cohortTopics = [
             keccak256("CohortCarryStaged(address,address,address,uint256,uint256,uint256,uint256,uint256)"),
-            keccak256("CohortCarryApplied(address,address,address,uint256,uint256,uint256,uint256,uint256)"),
+            keccak256("CohortCarryApplied(address,address,address,address,uint256,uint256,uint256,uint256,uint256)"),
             keccak256("CohortCarrySkipped(address,address)"),
             keccak256("CohortCarryDiscarded(address,address,uint256)"),
             keccak256("CohortContributionSynced(address,address,uint256,uint256)")
@@ -618,6 +619,7 @@ contract WiseTelecomNodesCohortMoveCarryNegativeTest is TwoVaultCohortHarness {
         emit CohortCarryApplied(
             user1,
             address(vaultA),
+            address(0),
             address(0),
             DEPOSIT,
             0,
@@ -702,6 +704,7 @@ contract WiseTelecomNodesCohortMoveCarryNegativeTest is TwoVaultCohortHarness {
         emit CohortCarryApplied(
             user1,
             address(vaultA),
+            address(0),
             address(0),
             MOVE_AMOUNT,
             0,
@@ -846,6 +849,7 @@ contract WiseTelecomNodesCohortMoveCarryNegativeTest is TwoVaultCohortHarness {
         emit CohortCarryApplied(
             user1,
             address(vaultA),
+            address(0),
             address(0),
             MOVE_AMOUNT,
             0,
@@ -1241,7 +1245,7 @@ contract WiseTelecomNodesCohortMoveCarryNegativeTest is TwoVaultCohortHarness {
         );
 
         payload[1] = CohortWeeks.packCarryAmounts(
-            1_000 * 1e6,
+            CohortWeeks.RING_LANE_MAX,
             0
         );
 
@@ -1274,7 +1278,7 @@ contract WiseTelecomNodesCohortMoveCarryNegativeTest is TwoVaultCohortHarness {
 
         MoveFacet(address(vaultB)).mintFromPeer(
             user1,
-            100 * 1e6
+            CohortWeeks.RING_LANE_MAX
         );
 
         (
@@ -1304,7 +1308,7 @@ contract WiseTelecomNodesCohortMoveCarryNegativeTest is TwoVaultCohortHarness {
 
         assertEq(
             _recorderOf(vaultB).getTrackedContribution(user1),
-            DEPOSIT + 1_000 * 1e6
+            DEPOSIT + CohortWeeks.RING_LANE_MAX
         );
     }
 
