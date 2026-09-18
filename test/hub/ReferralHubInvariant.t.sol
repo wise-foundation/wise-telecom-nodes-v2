@@ -826,7 +826,9 @@ contract ReferralHubInvariantHandler is Test {
  * ({ReferralHub} / {ReferralHubIntake} / {ReferralHubRates} /
  * {ReferralHubCheckpoints}), driven by {ReferralHubInvariantHandler}.
  * I3 pins the source-report/global-aggregate identity that
- * `_applyScoreReport`'s diff-and-apply arithmetic must preserve; I4
+ * `_refreshAggregates` must preserve at every mutation (the larger
+ * of the two vouch-week buckets, displaced reports retained for the
+ * earlier one, evaluated at the referrer's last checkpoint week); I4
  * pins cursor idempotency and exact pricing
  * (replayed, reordered or partially-overlapping deliveries must accrue
  * exactly once, at exactly the rate the ladder implies); I5 pins
@@ -856,6 +858,13 @@ contract ReferralHubInvariantTest is Test {
     ReferralHub internal hub;
 
     ReferralHubInvariantHandler internal handler;
+
+    struct BucketSums {
+        uint256 week;
+        uint256 currentSum;
+        uint256 previousSum;
+        uint256 maxSelf;
+    }
 
     function setUp()
         public
@@ -927,15 +936,14 @@ contract ReferralHubInvariantTest is Test {
         public
         view
     {
-        bytes32 remoteSource = hub.sourceKeyOf(
-            handler.REMOTE_CHAIN_ID(),
-            handler.REMOTE_VAULT()
-        );
-
-        address[3] memory reporters = [
-            address(0xD1),
-            address(0xD2),
-            address(0xD3)
+        bytes32[4] memory sources = [
+            hub.sourceKeyOf(block.chainid, address(0xD1)),
+            hub.sourceKeyOf(block.chainid, address(0xD2)),
+            hub.sourceKeyOf(block.chainid, address(0xD3)),
+            hub.sourceKeyOf(
+                handler.REMOTE_CHAIN_ID(),
+                handler.REMOTE_VAULT()
+            )
         ];
 
         address[6] memory referrers = [
@@ -949,50 +957,80 @@ contract ReferralHubInvariantTest is Test {
 
         for (uint256 i; i < referrers.length; ++i) {
 
-            address referrer = referrers[i];
+            uint256 count = hub.checkpointCount(referrers[i]);
 
-            uint256 sumReferred;
-            uint256 sumSelf;
-
-            for (uint256 j; j < reporters.length; ++j) {
-
-                (
-                    uint256 referred,
-                    uint256 selfScore
-                ) = hub.lastReportOf(reporters[j], referrer);
-
-                sumReferred += referred;
-
-                if (selfScore > sumSelf) {
-                    sumSelf = selfScore;
-                }
+            if (count == 0) {
+                continue;
             }
+
+            BucketSums memory sums;
 
             (
-                uint256 remoteReferred,
-                uint256 remoteSelf
-            ) = hub.lastReportOfSource(
-                remoteSource,
-                referrer
-            );
+                sums.week,
+                ,
+            ) = hub.checkpointAt(referrers[i], count - 1);
 
-            sumReferred += remoteReferred;
-
-            if (remoteSelf > sumSelf) {
-                sumSelf = remoteSelf;
+            for (uint256 j; j < sources.length; ++j) {
+                _bucketSource(
+                    sources[j],
+                    referrers[i],
+                    sums
+                );
             }
 
             assertEq(
-                hub.globalReferredScore(referrer),
-                sumReferred,
-                "I3: globalReferredScore != sum(lastReportOf.referred)"
+                hub.globalReferredScore(referrers[i]),
+                sums.currentSum > sums.previousSum
+                    ? sums.currentSum
+                    : sums.previousSum,
+                "I3: globalReferredScore != max(current bucket, previous bucket)"
             );
 
             assertEq(
-                hub.globalSelfScore(referrer),
-                sumSelf,
+                hub.globalSelfScore(referrers[i]),
+                sums.maxSelf,
                 "I3: globalSelfScore != max(lastReportOf.self)"
             );
+        }
+    }
+
+    function _bucketSource(
+        bytes32 _source,
+        address _referrer,
+        BucketSums memory _sums
+    )
+        internal
+        view
+    {
+        uint256 reportWeek = hub.lastReportWeekOf(_source, _referrer);
+
+        (
+            uint256 referred,
+            uint256 selfScore
+        ) = hub.lastReportOfSource(_source, _referrer);
+
+        if (reportWeek + 1 < _sums.week) {
+            return;
+        }
+
+        if (selfScore > _sums.maxSelf) {
+            _sums.maxSelf = selfScore;
+        }
+
+        if (reportWeek < _sums.week) {
+            _sums.previousSum += referred;
+            return;
+        }
+
+        _sums.currentSum += referred;
+
+        (
+            uint256 retainedWeek,
+            uint256 retainedReferred,
+        ) = hub.previousReportOfSource(_source, _referrer);
+
+        if (retainedWeek + 1 == _sums.week) {
+            _sums.previousSum += retainedReferred;
         }
     }
 
