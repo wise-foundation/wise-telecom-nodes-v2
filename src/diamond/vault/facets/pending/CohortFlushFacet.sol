@@ -13,28 +13,35 @@ import {IReferralFlushHub} from "../../interfaces/pending/IReferralFlushHub.sol"
 /**
  * @dev CohortFlushFacet: the routed flush transport of the cohort
  * recorder: it carries this vault's referral book (the referred score
- * time-weighted over the last seven days, the absolute self score,
- * frozen weekly crumb words, compressed dormant gap
- * records, and the referrer's own-chain payout designation) to the
- * mainnet referral hub. Two delivery modes behind one planner: a
- * nonzero `flushHubChainSelector` packs a versioned flush envelope
- * (codec and caps in {CohortWeeks}) and sends it as a data-only CCIP
- * message to the hub's cross-chain mailbox, caller-paid with excess
- * refunded; a zero selector means the hub lives on this chain and
- * every entry is delivered by direct call through
- * {IReferralFlushHub}; the vault itself is the hub's allowed
- * reporter, no envelope or designation word exists on that path, and
- * hub reverts bubble on purpose. While the flush-hub pointer is
- * unset every flush entrypoint reverts {FlushHubNotSet}, so a live
- * diamond with virgin tail storage behaves byte-for-byte as today.
+ * as the book's presence during the completed previous week, the
+ * self score as the referrer's tracked contribution clamped to the
+ * balance it still holds, frozen weekly crumb words, compressed
+ * dormant gap records, and the referrer's own-chain payout
+ * designation) to the mainnet referral hub. Two delivery modes
+ * behind one planner: a nonzero `flushHubChainSelector` packs a
+ * versioned flush envelope (codec and caps in {CohortWeeks}) and
+ * sends it as a data-only CCIP message to the hub's cross-chain
+ * mailbox, caller-paid with excess refunded; a zero selector means
+ * the hub lives on this chain and every entry is delivered by direct
+ * call through {IReferralFlushHub}; the vault itself is the hub's
+ * allowed reporter, no envelope or designation word exists on that
+ * path, and hub reverts bubble on purpose. While the flush-hub
+ * pointer is unset every flush entrypoint reverts {FlushHubNotSet},
+ * so a live diamond with virgin tail storage behaves byte-for-byte
+ * as today.
  *
  * Everything sent is STORAGE-DERIVED: the caller chooses only which
  * referrers to flush and when, never a single payload byte. Before
  * planning, each referrer's book is settled to the second through
  * the `COHORT_SETTLE_SELECTOR` engine-slice entrypoint (no engine
  * code is compiled here, so the flush path can never diverge from
- * the hook path); while the recorder is disarmed the settle stub
- * no-ops and the flush carries the frozen book unchanged. A
+ * the hook path). While the recorder is disarmed both flush
+ * entrypoints revert {CohortSyncDisabled}, as the recorder's
+ * registry-driven and master-driven entrypoints do (the
+ * permissionless `syncReferee` and `advanceBook` stubs no-op
+ * instead), so no flush is accepted while the book is frozen; the
+ * frozen span is settled and reported by the first flush after
+ * re-arm, and the views keep planning on storage throughout. A
  * referrer's own-book flush is ungated forever; flushing someone
  * else's book requires the `allowedFlushBot` whitelist or the
  * `publicFlushEnabled` switch; the hub prices the courier's
@@ -45,7 +52,14 @@ import {IReferralFlushHub} from "../../interfaces/pending/IReferralFlushHub.sol"
  * the per-referrer cursors here (`flushedThroughWeek`, and the
  * gap-log index plus intra-record resume week packed into
  * `flushGapCursor`) are pure fee optimizations that only ever
- * advance (window re-sends keep the maximum). Bounds, each enforced
+ * advance (window re-sends keep the maximum). The batch path
+ * advances them for any permitted caller but always resumes at the
+ * stored cursor (a virgin cursor at the edge of the 104-week scan
+ * window), so it can only mark weeks it actually scanned; a window
+ * sent by a third party (allowlisted bot or public flush) delivers
+ * its slice but never writes a cursor, so only the referrer's own
+ * window can choose the week a cursor jumps to, and the next own
+ * flush re-sends that slice at a zero hub price. Bounds, each enforced
  * where the loop runs: at most MAX_FLUSH_ENTRIES referrers per
  * batch; the crumb scan covers at most MAX_SETTLE_BOUNDARIES weeks
  * per entry (a long-idle cursor catches up one window per flush);
@@ -70,20 +84,38 @@ import {IReferralFlushHub} from "../../interfaces/pending/IReferralFlushHub.sol"
  * size its next envelope.
  *
  * The referred score of an entry is the lower of the instantaneous
- * book and its rolling seven-day average from the previous and
- * current week crumbs (`_referredScoreCohort`), so a snapshot can
- * never claim more presence than the book had: a stake toured
- * through vaults counts at most once across them, a book that left
- * reports its lower instantaneous value at once, and a book that
- * just arrived counts by its presence share until it has been held
- * a full week (a mid-week arrival is pro-rated across its arrival
- * week). The rolling average reads the crumbs the settle just wrote;
- * when the previous week sits inside a compressed dormant span it
- * reads that span's constant mature principal instead, and a week
- * that has neither (the book was empty) counts as absent, so an old
- * span can never vouch for a book that left and came back. While the
- * recorder is disarmed the frozen book is reported as is, since
- * nothing can move while it is off.
+ * book and the book's presence during the completed previous week
+ * (`_referredScoreCohort`: that week's crumb seconds over one week),
+ * so every report vouched in one week measures the same span and a
+ * snapshot can never claim more presence than the book had: a stake
+ * toured through vaults counts at most once across them on the hub,
+ * a book that left reports its lower instantaneous value at once, a
+ * book that just arrived reports nothing until it has been held
+ * through a completed week, and a mid-week arrival is pro-rated
+ * across its arrival week and reported from the week after. The
+ * crumb read is the one the settle just wrote; when the previous
+ * week sits inside a compressed dormant span it reads that span's
+ * constant mature principal instead, and a week that has neither
+ * (the book was empty) counts as absent, so an old span can never
+ * vouch for a book that left and came back. The presence floor is
+ * read the same way while the recorder is disarmed, so a quote or
+ * preview taken during a disarm window reports zero once the last
+ * completed week has no crumb. The operator rule is to keep disarm
+ * windows shorter than one hub week and to re-arm before flushing:
+ * the hub expires a source report after one week without a refresh
+ * and freezes each week's ladder inputs at its opening, so a longer
+ * silence lowers the priced rates of a multi-vault referrer for
+ * good, and the first flush after re-arm settles and reports the
+ * whole frozen span at the book it froze with. The self score
+ * (`_selfScoreCohort`) is the referrer's tracked contribution
+ * clamped to the balance it holds at the read, so a stake
+ * transferred away in the same block as the flush is never reported
+ * as still held even though the transfer hook only parks the sender
+ * and the ledger catches up at the next hook entry; a parked
+ * sender's ledger lags until that drain, the report never does. The
+ * read is an instant sample that can only understate the stake, and
+ * a referrer caught mid-rebalance refreshes it with its next own
+ * flush.
  */
 contract CohortFlushFacet is FacetBase {
 
@@ -112,6 +144,11 @@ contract CohortFlushFacet is FacetBase {
     {
         _checkFlushBatch(
             _referrers.length
+        );
+
+        require(
+            cohortSyncEnabled,
+            CohortSyncDisabled()
         );
 
         for (uint256 i; i < _referrers.length; ++i) {
@@ -158,6 +195,11 @@ contract CohortFlushFacet is FacetBase {
             FlushHubNotSet()
         );
 
+        require(
+            cohortSyncEnabled,
+            CohortSyncDisabled()
+        );
+
         _checkFlushCaller(
             _referrer
         );
@@ -188,9 +230,11 @@ contract CohortFlushFacet is FacetBase {
             CohortWeeks.MAX_FLUSH_WORK
         );
 
-        _advanceFlushCursors(
-            entries[0]
-        );
+        if (msg.sender == _referrer) {
+            _advanceFlushCursors(
+                entries[0]
+            );
+        }
 
         _dispatchFlush(
             entries
@@ -477,6 +521,30 @@ contract CohortFlushFacet is FacetBase {
         }
     }
 
+    function _selfScoreCohort(
+        address _referrer
+    )
+        internal
+        view
+        returns (uint256)
+    {
+        uint256 tracked = trackedContribution[_referrer];
+
+        uint256 held = balanceOf(
+            _referrer
+        );
+
+        if (held < tracked) {
+            tracked = held;
+        }
+
+        uint256 scoreCeiling = 3 * CohortWeeks.LANE_MASK_80;
+
+        return tracked < scoreCeiling
+            ? tracked
+            : scoreCeiling;
+    }
+
     function _referredScoreCohort(
         address _referrer,
         uint256 _book
@@ -489,31 +557,14 @@ contract CohortFlushFacet is FacetBase {
             + CohortWeeks.laneY2(_book)
             + CohortWeeks.laneM(_book);
 
-        if (cohortSyncEnabled == false) {
-            return instant;
-        }
-
-        uint256 week = block.timestamp / CohortWeeks.WEEK;
-
-        uint256 elapsed = block.timestamp - week * CohortWeeks.WEEK;
-
-        uint256 current = _crumbSecondsCohort(
-            cohortWeekLog[_referrer][week]
-        );
-
-        uint256 previous = _previousWeekSecondsCohort(
+        uint256 settled = _previousWeekSecondsCohort(
             _referrer,
-            week - 1
-        );
-
-        uint256 rolling = (
-            current
-                + previous * (CohortWeeks.WEEK - elapsed) / CohortWeeks.WEEK
+            block.timestamp / CohortWeeks.WEEK - 1
         ) / CohortWeeks.WEEK;
 
-        return instant < rolling
+        return instant < settled
             ? instant
-            : rolling;
+            : settled;
     }
 
     function _previousWeekSecondsCohort(
@@ -582,13 +633,9 @@ contract CohortFlushFacet is FacetBase {
             book
         );
 
-        uint256 tracked = trackedContribution[_referrer];
-
-        uint256 scoreCeiling = 3 * CohortWeeks.LANE_MASK_80;
-
-        entry.selfScore = tracked < scoreCeiling
-            ? tracked
-            : scoreCeiling;
+        entry.selfScore = _selfScoreCohort(
+            _referrer
+        );
 
         entry.designationWord = _readDesignationWord(
             _referrer
@@ -624,6 +671,23 @@ contract CohortFlushFacet is FacetBase {
         entry.workUsed = crumbWork + gapWork;
     }
 
+    function _scanEnd(
+        uint256 _fromWeek,
+        uint256 _currentWeek
+    )
+        internal
+        pure
+        returns (uint256)
+    {
+        uint256 scanCap = _fromWeek
+            + CohortWeeks.MAX_SETTLE_BOUNDARIES
+            - 1;
+
+        return scanCap < _currentWeek
+            ? scanCap
+            : _currentWeek;
+    }
+
     function _planCrumbs(
         address _referrer,
         uint256 _fromWeek,
@@ -640,9 +704,10 @@ contract CohortFlushFacet is FacetBase {
     {
         uint256 currentWeek = block.timestamp / CohortWeeks.WEEK;
 
-        uint256 scanEnd = _fromWeek + CohortWeeks.MAX_SETTLE_BOUNDARIES - 1 < currentWeek
-            ? _fromWeek + CohortWeeks.MAX_SETTLE_BOUNDARIES - 1
-            : currentWeek;
+        uint256 scanEnd = _scanEnd(
+            _fromWeek,
+            currentWeek
+        );
 
         uint256 count;
 
@@ -843,13 +908,17 @@ contract CohortFlushFacet is FacetBase {
     {
         uint256 stored = flushedThroughWeek[_referrer];
 
-        if (stored == 0) {
-            return _currentWeek >= CohortWeeks.MAX_SETTLE_BOUNDARIES
-                ? _currentWeek - CohortWeeks.MAX_SETTLE_BOUNDARIES + 1
-                : 0;
+        if (stored > 0) {
+            return stored + 1;
         }
 
-        return stored + 1;
+        if (_currentWeek < CohortWeeks.MAX_SETTLE_BOUNDARIES) {
+            return 0;
+        }
+
+        return _currentWeek
+            - CohortWeeks.MAX_SETTLE_BOUNDARIES
+            + 1;
     }
 
     function _readDesignationWord(
