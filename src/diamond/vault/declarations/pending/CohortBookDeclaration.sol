@@ -22,8 +22,14 @@ pragma solidity =0.8.36;
  * 80-bit token-second lanes + written bit 252). `cohortGapLog` packs
  * dormant fast-forward spans as `fromWeek | toWeekExclusive << 32 |
  * maturePrincipal << 64`; one record requires a preceding full
- * 104-boundary walk, so its growth is bounded and not attacker
- * inflatable.
+ * 104-boundary walk inside a single settle, so at most one record
+ * forms per settle and the log holds at most one record per 104
+ * dormant weeks. A caller who keeps the book current with the
+ * permissionless `advanceBook` poke prevents the record and produces
+ * one crumb word per week instead: the same flush work budget and the
+ * same hub pricing per week at a larger wire size (two envelope words
+ * per crumb week against one per gap slice of at most 104 weeks) plus
+ * one hub log per crumb week, paid by whoever flushes.
  *
  * Saturation policy (the hook path must never revert): ring
  * lanes saturate at uint64 max, crumb and book and gap-mature lanes at
