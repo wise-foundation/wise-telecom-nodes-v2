@@ -75,6 +75,7 @@ contract WiseTelecomNodesCohortMoveRoundTripTest is TwoVaultCohortHarness {
         address indexed user,
         address indexed srcVault,
         address indexed referrer,
+        address carriedReferrer,
         uint256 trackedDelta,
         uint256 year1,
         uint256 year2,
@@ -240,6 +241,7 @@ contract WiseTelecomNodesCohortMoveRoundTripTest is TwoVaultCohortHarness {
         emit CohortCarryApplied(
             user1,
             address(_src),
+            _referrer,
             _referrer,
             _trackedDelta,
             _year1,
