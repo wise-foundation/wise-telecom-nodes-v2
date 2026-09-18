@@ -26,8 +26,18 @@ import {IReferralRegistry} from "../../interfaces/pending/IReferralRegistry.sol"
  * clamp is one-way and idempotent, a no-op unless the user's balance
  * is below their tracked contribution). `advanceBook` lets anyone
  * pre-walk a dormant referrer book in bounded chunks so the transfer
- * hook path stays cheap in practice. Views decode the
- * packed lanes via {CohortWeeks}; the referrer score is
+ * hook path stays cheap in practice. The walk writes one crumb per
+ * crossed boundary for any non-empty book, so a book whose settle
+ * cursor the poke keeps within MAX_SETTLE_BOUNDARIES of the present
+ * (chunks large enough to keep up) never forms a gap record: a poker
+ * can only trade the span's single record for one crumb word per
+ * week. The flush work budget charges one unit per crumb week or per
+ * gap week alike and the hub prices both the same, so the trade
+ * changes the envelope size and the hub's per-week logging (one
+ * `CrumbPriced` per crumb week instead of one `GapPriced` per span)
+ * and nothing else: the poke cannot inflate a referrer's presence,
+ * only the calldata, decode and log gas the flusher pays. Views
+ * decode the packed lanes via {CohortWeeks}; the referrer score is
  * definitionally the book lane sum, so `getCohortScore` cannot desync
  * from `getCohortBook`. Installed post-launch only, via the
  * `cohortRecorderSelectors()` group in the upgrade script, never by
