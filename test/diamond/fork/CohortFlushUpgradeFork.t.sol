@@ -98,6 +98,13 @@ interface IWtnFlushVault {
         view
         returns (uint256);
 
+    function balanceOf(
+        address user
+    )
+        external
+        view
+        returns (uint256);
+
     function getCohortScore(
         address referrer
     )
@@ -997,7 +1004,7 @@ abstract contract CohortFlushUpgradeForkBase is CcipForkHarness {
             _spokeBookSum(
                 _referrer
             ),
-            IWtnFlushVault(src.diamond).getTrackedContribution(
+            _spokeSelfScore(
                 _referrer
             )
         );
@@ -1059,30 +1066,40 @@ abstract contract CohortFlushUpgradeForkBase is CcipForkHarness {
             _referrer
         );
 
-        uint256 week = block.timestamp / CohortWeeks.WEEK;
-
-        uint256 elapsed = block.timestamp - week * CohortWeeks.WEEK;
-
-        uint256 current = _crumbSecondsOnSpoke(
-            IWtnFlushVault(src.diamond).getCohortWeekCrumb(
-                _referrer,
-                week
-            )
-        );
-
-        uint256 previous = _previousWeekSecondsOnSpoke(
+        uint256 settled = _previousWeekSecondsOnSpoke(
             _referrer,
-            week - 1
-        );
-
-        uint256 rolling = (
-            current
-                + previous * (CohortWeeks.WEEK - elapsed) / CohortWeeks.WEEK
+            block.timestamp / CohortWeeks.WEEK - 1
         ) / CohortWeeks.WEEK;
 
-        return instant < rolling
+        return instant < settled
             ? instant
-            : rolling;
+            : settled;
+    }
+
+    function _spokeSelfScore(
+        address _referrer
+    )
+        internal
+        view
+        returns (uint256)
+    {
+        uint256 tracked = IWtnFlushVault(src.diamond).getTrackedContribution(
+            _referrer
+        );
+
+        uint256 held = IWtnFlushVault(src.diamond).balanceOf(
+            _referrer
+        );
+
+        if (held < tracked) {
+            tracked = held;
+        }
+
+        uint256 scoreCeiling = 3 * CohortWeeks.LANE_MASK_80;
+
+        return tracked < scoreCeiling
+            ? tracked
+            : scoreCeiling;
     }
 
     function _previousWeekSecondsOnSpoke(
