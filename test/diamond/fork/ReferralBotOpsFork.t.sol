@@ -95,7 +95,16 @@ contract FlushRouterRecorder {
  * weeks this suite prices. One batched apply pins both checkpoints
  * to a single week by construction, and checkpoint-anchored warps
  * keep the priced weeks inside the rate window wherever that week
- * actually landed.
+ * actually landed. Run this suite ONE TEST AT A TIME: the hub stores
+ * a score report under the build week of its envelope and drops one
+ * that is already older than its freshness window at apply, so a
+ * sibling test that has warped the shared destination-fork clock
+ * weeks ahead of the spoke turns the batched baseline scores into a
+ * dropped stale report (a zero-score checkpoint, every rate zero)
+ * where the same flow passes alone. Aligning the spoke clock up to
+ * the hub before every build does not rescue the parallel run (the
+ * routed wire then stops byte-matching its reconstruction), so one
+ * test at a time is the supported mode.
  *
  * The second scenario overlaps the envelopes on purpose: two flushes
  * an hour apart inside one week re-ship the same in-progress crumb
@@ -855,7 +864,7 @@ abstract contract ReferralBotOpsForkBase is CohortFlushUpgradeForkBase {
             _spokeBookSum(
                 _run.refA
             ),
-            IWtnFlushVault(src.diamond).getTrackedContribution(
+            _spokeSelfScore(
                 _run.refA
             )
         );
@@ -871,7 +880,7 @@ abstract contract ReferralBotOpsForkBase is CohortFlushUpgradeForkBase {
             _spokeBookSum(
                 _run.refB
             ),
-            IWtnFlushVault(src.diamond).getTrackedContribution(
+            _spokeSelfScore(
                 _run.refB
             )
         );
