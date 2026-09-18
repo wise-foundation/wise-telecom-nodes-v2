@@ -417,6 +417,7 @@ abstract contract WiseTelecomNodesDiamondEvents {
         address indexed user,
         address indexed srcVault,
         address indexed referrer,
+        address carriedReferrer,
         uint256 trackedDelta,
         uint256 year1,
         uint256 year2,
@@ -433,6 +434,15 @@ abstract contract WiseTelecomNodesDiamondEvents {
         address indexed user,
         address indexed srcVault,
         uint256 stagedAt
+    );
+
+    event CohortCarryBookDropped(
+        address indexed user,
+        address indexed srcVault,
+        address carriedReferrer,
+        uint256 trackedDelta,
+        uint256 mature,
+        uint256 pairCount
     );
 
     event CohortReferrerFlipApplied(
