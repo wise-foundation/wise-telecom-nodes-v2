@@ -38,8 +38,17 @@ import {CohortWeeks} from "../../diamond/shared/pending/CohortWeeks.sol";
  *   u112 is structurally unreachable: one source's report is bounded
  *   at intake to `3 × LANE_MASK_80` and a u112 fits ~1.4e9 such
  *   sources, so no guard (and no untestable revert arm) is needed.
- * - lastSourceReport entry: `referred << 128 | self` (both bounded to
- *   `3 × LANE_MASK_80` at intake, so each fits u128 exactly).
+ * - lastSourceReport entry: `week << 224 | referred << 128 | self`
+ *   (u32 | u96 | u128; both scores bounded to `3 × LANE_MASK_80` at
+ *   intake). The week is the one the source vouched in: the hub week
+ *   for a local reporter, the envelope's build week for a mailbox
+ *   delivery; it drives the freshness expiry, and an expired entry
+ *   keeps its week with both scores zeroed.
+ * - previousSourceReport entry: the `lastSourceReport` word that a
+ *   report vouched in a newer week displaced, copied verbatim when
+ *   it still carried a score. It keeps a source counting in the
+ *   earlier of the two aggregate buckets ({ReferralHubIntake})
+ *   until its newer report lands; a stale copy is simply ignored.
  * - dwellMinLog entry: `effectiveFromWeek << 1 | enabled`. Append-only
  *   and future-only exactly like `rateTables`, so the dwell setting
  *   that priced any week whose opening boundary has passed can never
@@ -69,7 +78,8 @@ import {CohortWeeks} from "../../diamond/shared/pending/CohortWeeks.sol";
  * internals under the reserved remote source key
  * `keccak256(chainId, vault)`. Because envelopes may apply in any
  * order, `appliedScoreStamp` gates each entry's absolute score
- * report by the envelope's build stamp; crumbs, gaps and
+ * report by the envelope's build stamp, and the stamp's week becomes
+ * the report's freshness week; crumbs, gaps and
  * designations need no such gate (cursors and designation stamps
  * already order them). A designation push applies inline on receive
  * (one stamped write, idempotent; replays need no guard).
@@ -109,6 +119,9 @@ abstract contract ReferralHubDeclarations is OwnableMaster {
     uint256 internal constant REPORT_WEEK_SHIFT = 224;
 
     uint256 internal constant REPORT_WEEK_MASK = (1 << 32) - 1;
+
+    uint256 internal constant REPORT_SCORES_MASK = REPORT_VALUE_MASK
+        | (REPORT_REFERRED_MASK << REPORT_REFERRED_SHIFT);
 
     uint256 internal constant REPORT_FRESHNESS_WEEKS = 1;
 
@@ -152,6 +165,8 @@ abstract contract ReferralHubDeclarations is OwnableMaster {
     mapping(bytes32 => mapping(address => uint256)) internal lastSourceReport;
 
     mapping(address => bytes32[]) internal sourcesOf;
+
+    mapping(bytes32 => mapping(address => uint256)) internal previousSourceReport;
 
     // ---- Week-versioned rate tables ----
 
@@ -209,6 +224,14 @@ abstract contract ReferralHubDeclarations is OwnableMaster {
         address indexed referrer,
         uint256 referredDropped,
         uint256 selfDropped
+    );
+
+    event SourceReportRetained(
+        bytes32 indexed source,
+        address indexed referrer,
+        uint256 week,
+        uint256 referredScore,
+        uint256 selfScore
     );
 
     event ReferrerCheckpointed(
