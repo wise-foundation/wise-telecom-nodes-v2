@@ -799,7 +799,9 @@ abstract contract ReferralRegistryUpgradeForkBase is Test {
 
         uint256 stampAmount = v.graceThresholdAmount();
 
-        uint256 liftedCap = v.totalSupply() + 40 * baseAmount + 2 * stampAmount;
+        uint256 liftedCap = v.totalSupply()
+            + 40 * baseAmount
+            + 2 * stampAmount;
 
         vm.prank(
             master
