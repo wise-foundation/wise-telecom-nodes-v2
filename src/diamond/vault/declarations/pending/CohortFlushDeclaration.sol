@@ -13,7 +13,11 @@ pragma solidity =0.8.36;
  * low 128 bits, intra-record resume week in the high 128) are
  * per-referrer send cursors: pure fee optimizations, because the
  * hub's paid-cursors make every re-send idempotent; they only mark
- * what has already been carried so builders skip it.
+ * what has already been carried so builders skip it. A batch flush
+ * by any permitted caller advances them from the stored cursor; a
+ * window sent by a bot or a public flusher delivers but never moves
+ * a cursor, so only the referrer's own window can pick the week a
+ * cursor jumps to.
  * `allowedFlushBot` + `publicFlushEnabled` gate flushing OTHER
  * referrers' books (a referrer's own-book flush is ungated forever);
  * `flushGasLimit` is the CCIP destination gas budget (zero =
