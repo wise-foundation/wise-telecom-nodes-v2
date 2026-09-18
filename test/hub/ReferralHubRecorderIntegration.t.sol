@@ -286,7 +286,9 @@ contract ReferralHubRecorderIntegrationTest is DiamondTestHarness {
             _week
         );
 
-        return y1Cursor + y2Cursor + mCursor;
+        return y1Cursor
+            + y2Cursor
+            + mCursor;
     }
 
     function _expectedPay(
@@ -319,7 +321,9 @@ contract ReferralHubRecorderIntegrationTest is DiamondTestHarness {
     )
         internal
     {
-        uint256 count = _toWeekInclusive - _fromWeekInclusive + 1;
+        uint256 count = _toWeekInclusive
+            - _fromWeekInclusive
+            + 1;
 
         uint256[] memory weeksBatch = new uint256[](count);
 
