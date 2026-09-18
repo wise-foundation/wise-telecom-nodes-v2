@@ -873,27 +873,42 @@ abstract contract CcipForkHarness is Test {
 
         uint256 offset = 69;
 
-        (message.onRampAddress, offset) = _readWireBytes8(
+        (
+            message.onRampAddress,
+            offset
+        ) = _readWireBytes8(
             _encoded,
             offset
         );
 
-        (message.offRampAddress, offset) = _readWireBytes8(
+        (
+            message.offRampAddress,
+            offset
+        ) = _readWireBytes8(
             _encoded,
             offset
         );
 
-        (message.sender, offset) = _readWireBytes8(
+        (
+            message.sender,
+            offset
+        ) = _readWireBytes8(
             _encoded,
             offset
         );
 
-        (message.receiver, offset) = _readWireBytes8(
+        (
+            message.receiver,
+            offset
+        ) = _readWireBytes8(
             _encoded,
             offset
         );
 
-        (message.destBlob, offset) = _readWireBytes16(
+        (
+            message.destBlob,
+            offset
+        ) = _readWireBytes16(
             _encoded,
             offset
         );
@@ -912,7 +927,10 @@ abstract contract CcipForkHarness is Test {
 
         message.tokenTransfer = new CcipV2Shapes.TokenTransferV1[](0);
 
-        (message.data, offset) = _readWireBytes16(
+        (
+            message.data,
+            offset
+        ) = _readWireBytes16(
             _encoded,
             offset
         );
