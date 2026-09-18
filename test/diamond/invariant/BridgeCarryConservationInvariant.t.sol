@@ -907,7 +907,9 @@ contract BridgeCarryHandler is Test {
     {
         uint256 offset = (_slot + 52 - ((_fromWeek + 1) % 52)) % 52;
 
-        return _fromWeek + 1 + offset;
+        return _fromWeek
+            + 1
+            + offset;
     }
 
     function _settleLedger(
