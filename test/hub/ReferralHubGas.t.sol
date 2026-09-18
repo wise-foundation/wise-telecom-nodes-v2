@@ -65,11 +65,11 @@ import {CohortWeeks} from "../../src/diamond/shared/pending/CohortWeeks.sol";
  * regression shows in the review diff, not only in a failing
  * assertion; they are re-measured (and this table re-pasted) after
  * ANY change to the hub sources: reportScores first-ever (cell 1)
- * 102,258; reportScores same-week repeat (cell 2) 48,424;
- * deliverCrumbs single week/word (cell 3) 114,865; deliverGap
- * 10-week window 413,549, 60-week window 2,105,387, marginal
- * per-week (cell 4) 33,836; ccipReceive max envelope (cell 5)
- * 168,988.
+ * 150,336; reportScores same-week repeat (cell 2) 56,138;
+ * deliverCrumbs single week/word (cell 3) 115,106; deliverGap
+ * 10-week window 413,770, 60-week window 2,105,708, marginal
+ * per-week (cell 4) 33,838; ccipReceive max envelope (cell 5)
+ * 168,990.
  */
 contract ReferralHubGasTest is Test {
 
