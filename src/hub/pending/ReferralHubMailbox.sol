@@ -24,10 +24,14 @@ import {CohortWeeks} from "../../diamond/shared/pending/CohortWeeks.sol";
  * cursors absorb crumb and gap re-sends, absolute score reports are
  * gated per (source, referrer) by the envelope's build stamp
  * (`appliedScoreStamp`, greater-or-equal so a re-apply of the
- * freshest envelope still lands), and designations apply latest-wins
- * by their own stamps. The commitment entry is therefore kept
- * forever and apply never marks anything consumed; re-applying is
- * always safe and pays nothing twice.
+ * freshest envelope still reaches the intake) and stored under the
+ * build stamp's WEEK as their freshness week, so a re-applied
+ * envelope lands as the same report (a no-op) or, once its week has
+ * aged past the intake's freshness window, as a dropped one: no
+ * replay can re-stamp a source as fresh; and designations apply
+ * latest-wins by their own stamps. The commitment entry is therefore
+ * kept forever and apply never marks anything consumed; re-applying
+ * is always safe and pays nothing twice.
  *
  * Validation is wholesale and strict: version and crumb-version
  * bytes, reserved bits, entry count, exact payload length, per-slice
@@ -238,7 +242,8 @@ abstract contract ReferralHubMailbox is ReferralHubIntake {
                 ),
                 CohortWeeks.flushScoreSelf(
                     scoresWord
-                )
+                ),
+                _context.stamp / CohortWeeks.WEEK
             );
         }
 
