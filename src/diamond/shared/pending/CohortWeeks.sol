@@ -38,15 +38,18 @@ pragma solidity =0.8.36;
  * most `MAX_CARRY_PAIRS` (52 slots per ring, both rings), so a payload
  * is at most `MAX_CARRY_WORDS`; amounts fit their lanes by
  * construction (ring lanes are uint64, book lanes 80-bit, tracked is
- * bounded by the vault deposit cap). SAME-CHAIN-ONLY ASSUMPTION: pairs
- * address ring slots by index, which is meaningful only while source
- * and destination share `block.timestamp` inside one atomic move
- * transaction. The cross-chain bridge carry MUST NOT reuse this
- * encoding: it carries the three aggregate lanes instead, landing
- * them at the oldest live position, and applies at all only when the
- * destination recipient equals the source owner (a different
- * recipient is an ownership change; the credit is destroyed, not
- * carried).
+ * bounded by the vault deposit cap); the destination enforces the
+ * same conservation ceiling as the bridge codec below, the lane sum
+ * (pairs plus mature) at most trackedDelta and trackedDelta at most
+ * the mover's post-mint headroom, checked wholesale before any lane
+ * is touched. SAME-CHAIN-ONLY ASSUMPTION: pairs address ring slots by
+ * index, which is meaningful only while source and destination share
+ * `block.timestamp` inside one atomic move transaction. The
+ * cross-chain bridge carry MUST NOT reuse this encoding: it carries
+ * the three aggregate lanes instead, landing them at the oldest live
+ * position, and applies at all only when the destination recipient
+ * equals the source owner (a different recipient is an ownership
+ * change; the credit is destroyed, not carried).
  *
  * Bridge carry codec (cross-chain ONLY): the aggregate payload that
  * rides the bridge wire's `referralData` field is exactly four packed
@@ -92,7 +95,10 @@ pragma solidity =0.8.36;
  * `block.timestamp` at build time (the hub's per-referrer score
  * staleness gate: envelopes may be stored and applied lazily in
  * any order, so absolute score reports need a freshness order that
- * message transport cannot provide). Each entry is, in order: the
+ * message transport cannot provide; the stamp's week is also the
+ * freshness week the hub stores for the entry's scores, so an
+ * envelope applied late or replayed can never present its scores
+ * as newer than its build). Each entry is, in order: the
  * entry word `referrer(160) | crumbCount(8 at 160) | gapCount(8 at
  * 168) | flags(8 at 176)` with bits 184+ zero and flag bit 0 =
  * designation word present; the scores word `selfScore(112) |
