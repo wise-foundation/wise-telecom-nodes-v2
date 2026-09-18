@@ -50,13 +50,18 @@ import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
  * liability, so the accrual anchor stays monotonic.
  *
  * Score honesty: reports expire after `REPORT_FRESHNESS_WEEKS`
- * without a refresh, the referred aggregate sums the fresh reports
- * (each already time-weighted over the last seven days by the
- * reporting vault) and the self aggregate takes the largest fresh
- * self report (an own stake sits in one vault at a time). A stake
- * relocated between vaults therefore counts once, and a vacated
- * source stops counting on its own even though an emptied book is
- * never worth flushing.
+ * without a refresh (a refresh is a report vouched in a newer week;
+ * mailbox reports carry their envelope's build week, so re-applying
+ * an archived envelope never counts as one). Every vault reports
+ * its book's presence during the completed week before its vouch
+ * week; the referred aggregate sums the fresh reports per vouch
+ * week and takes the larger of the current week's bucket and the
+ * week before's (a source's displaced report is retained for that
+ * earlier bucket, `previousReportOfSource`), and the self aggregate
+ * takes the largest fresh self report (an own stake sits in one
+ * vault at a time). A stake relocated between vaults therefore
+ * counts once, and a vacated source stops counting on its own even
+ * though an emptied book is never worth flushing.
  * `sourceCountOf` / `sourceOfAt` enumerate a referrer's sources and
  * `lastReportWeekOf` exposes the freshness stamp.
  *
@@ -175,7 +180,8 @@ contract ReferralHub is
             source,
             _referrer,
             _referredScore,
-            _selfScore
+            _selfScore,
+            block.timestamp / CohortWeeks.WEEK
         );
     }
 
@@ -650,6 +656,27 @@ contract ReferralHub is
         returns (uint256)
     {
         return lastSourceReport[_source][_referrer] >> REPORT_WEEK_SHIFT;
+    }
+
+    function previousReportOfSource(
+        bytes32 _source,
+        address _referrer
+    )
+        external
+        view
+        returns (
+            uint256 week,
+            uint256 referredScore,
+            uint256 selfScore
+        )
+    {
+        uint256 packed = previousSourceReport[_source][_referrer];
+
+        return (
+            packed >> REPORT_WEEK_SHIFT,
+            (packed >> REPORT_REFERRED_SHIFT) & REPORT_REFERRED_MASK,
+            packed & REPORT_VALUE_MASK
+        );
     }
 
     function sourceCountOf(
