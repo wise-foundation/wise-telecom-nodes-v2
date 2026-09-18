@@ -22,26 +22,49 @@ import {CohortWeeks} from "../../diamond/shared/pending/CohortWeeks.sol";
  *
  * Scores are ABSOLUTE per source, not deltas: `_applyScoreReport`
  * stores the reported values under `lastSourceReport` stamped with
- * the hub week of the report and rebuilds the global aggregates
+ * the week the source vouched for them (the executing chain's
+ * current week for a local reporter, the envelope's build week for
+ * a mailbox delivery, which is what makes the stamp replay-proof:
+ * the same envelope applied again in a later week packs the same
+ * word and is a no-op) and rebuilds the global aggregates
  * from every source the referrer has ever reported through
  * (`sourcesOf`, a short list bounded by the registered reporters
- * and flush sources). Two hub-side rules keep the aggregates honest
- * (the reporting vault already time-weights the referred value it
- * sends, see {CohortFlushFacet}, so a snapshot can never claim more
- * presence than the book actually had over the last seven days).
+ * and flush sources). The reporting vault sends a referred value
+ * that is its book's presence during the completed week before the
+ * vouch week (see {CohortFlushFacet}), so every report vouched in
+ * one week measures the same span, and a stake is present in only
+ * one vault during a span. The hub composes reports by span: fresh
+ * reports vouched in the current hub week form one bucket (a report
+ * vouched ahead of it by seconds of source-chain skew joins it),
+ * reports vouched one week earlier form the other, each bucket is
+ * summed, and the referred aggregate is the LARGER bucket, never
+ * the sum of both, because the buckets measure different spans and
+ * one stake may appear in each. When a newer report displaces a
+ * source's report that still carried a score, the displaced word is
+ * retained in `previousSourceReport` ({SourceReportRetained}) and
+ * counts in the earlier bucket while its vouch week is exactly that
+ * bucket's, so a source whose report for the current week has not
+ * landed yet, or whose sibling flushed first, is not lost from the
+ * earlier bucket; a stale retained word is ignored without a write.
  * A report older than `REPORT_FRESHNESS_WEEKS` at the time of any
  * later mutation for the same referrer expires to zero
  * ({SourceReportExpired}), so a source that stops flushing, which is
  * exactly what an emptied source does because an empty flush prices
  * nothing, stops counting instead of freezing its last value into
- * the ladder forever. The referred aggregate is the sum of the fresh
- * bounded reports and the self aggregate is the LARGEST fresh self
+ * the ladder forever. The self aggregate is the LARGEST fresh self
  * report, because a person's own stake can only sit in one vault at
- * a time, so touring it through vaults cannot stack it. Same-week
- * re-reports of identical values are no-ops; a later-week re-report
- * refreshes the stamp with a zero diff. Ordering is load-bearing:
- * the aggregate rebuild precedes the checkpoint (post-mutation
- * closing value).
+ * a time, so touring it through vaults cannot stack it. Identical
+ * re-reports (same values, same vouch week) are no-ops; a local
+ * re-report of the same values in a later week refreshes the stamp
+ * with a zero diff. A report that is already older than
+ * `REPORT_FRESHNESS_WEEKS` when it arrives (an envelope applied
+ * late, or an archived one replayed after its source expired) is
+ * dropped unstored, but it still rebuilds the aggregates and
+ * checkpoints against the current week, so a referrer who only ever
+ * lands stale reports is priced from expired aggregates, never from
+ * the last fresh checkpoint. Ordering is load-bearing: the aggregate
+ * rebuild runs against the current hub week and precedes the
+ * checkpoint (post-mutation closing value).
  *
  * Cursors enforce exactly-once accrual:
  * `paidCursor[source][referrer][week]` stores the
@@ -105,7 +128,8 @@ abstract contract ReferralHubIntake is ReferralHubRates {
         bytes32 _source,
         address _referrer,
         uint256 _referredAbs,
-        uint256 _selfAbs
+        uint256 _selfAbs,
+        uint256 _reportWeek
     )
         internal
     {
@@ -117,7 +141,7 @@ abstract contract ReferralHubIntake is ReferralHubRates {
 
         uint256 week = block.timestamp / CohortWeeks.WEEK;
 
-        uint256 packed = (week << REPORT_WEEK_SHIFT)
+        uint256 packed = (_reportWeek << REPORT_WEEK_SHIFT)
             | (_referredAbs << REPORT_REFERRED_SHIFT)
             | _selfAbs;
 
@@ -127,13 +151,39 @@ abstract contract ReferralHubIntake is ReferralHubRates {
             return;
         }
 
-        if (previous == 0) {
-            sourcesOf[_referrer].push(
-                _source
+        if (_reportWeek + REPORT_FRESHNESS_WEEKS >= week) {
+
+            if (previous == 0) {
+                sourcesOf[_referrer].push(
+                    _source
+                );
+            }
+
+            if (
+                previous >> REPORT_WEEK_SHIFT != _reportWeek
+                    && previous & REPORT_SCORES_MASK != 0
+            ) {
+
+                previousSourceReport[_source][_referrer] = previous;
+
+                emit SourceReportRetained(
+                    _source,
+                    _referrer,
+                    previous >> REPORT_WEEK_SHIFT,
+                    (previous >> REPORT_REFERRED_SHIFT) & REPORT_REFERRED_MASK,
+                    previous & REPORT_VALUE_MASK
+                );
+            }
+
+            lastSourceReport[_source][_referrer] = packed;
+
+            emit SourceScoresReported(
+                _source,
+                _referrer,
+                _referredAbs,
+                _selfAbs
             );
         }
-
-        lastSourceReport[_source][_referrer] = packed;
 
         _refreshAggregates(
             _referrer,
@@ -142,13 +192,6 @@ abstract contract ReferralHubIntake is ReferralHubRates {
 
         _checkpointReferrer(
             _referrer
-        );
-
-        emit SourceScoresReported(
-            _source,
-            _referrer,
-            _referredAbs,
-            _selfAbs
         );
     }
 
@@ -160,7 +203,9 @@ abstract contract ReferralHubIntake is ReferralHubRates {
     {
         bytes32[] storage sources = sourcesOf[_referrer];
 
-        uint256 sumReferred;
+        uint256 currentSum;
+
+        uint256 previousSum;
 
         uint256 maxSelf;
 
@@ -192,16 +237,47 @@ abstract contract ReferralHubIntake is ReferralHubRates {
                 continue;
             }
 
-            sumReferred = sumReferred + referred;
+            if (packed >> REPORT_WEEK_SHIFT < _week) {
+                previousSum = previousSum + referred;
+            } else {
+                currentSum = currentSum + referred;
+
+                previousSum = previousSum + _retainedReferred(
+                    source,
+                    _referrer,
+                    _week
+                );
+            }
 
             if (selfScore > maxSelf) {
                 maxSelf = selfScore;
             }
         }
 
-        globalReferredScore[_referrer] = sumReferred;
+        globalReferredScore[_referrer] = _max(
+            currentSum,
+            previousSum
+        );
 
         globalSelfScore[_referrer] = maxSelf;
+    }
+
+    function _retainedReferred(
+        bytes32 _source,
+        address _referrer,
+        uint256 _week
+    )
+        internal
+        view
+        returns (uint256)
+    {
+        uint256 packed = previousSourceReport[_source][_referrer];
+
+        if ((packed >> REPORT_WEEK_SHIFT) + REPORT_FRESHNESS_WEEKS != _week) {
+            return 0;
+        }
+
+        return (packed >> REPORT_REFERRED_SHIFT) & REPORT_REFERRED_MASK;
     }
 
     function _deliverCrumb(
