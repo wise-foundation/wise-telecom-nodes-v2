@@ -37,6 +37,67 @@ contract OversizeCarryRegistry {
 }
 
 /**
+ * @dev Hostile registry mock for the destination side of the move
+ * carry: `consumeCarry` serves whatever payload the test staged with
+ * a fresh `stagedAt`, so the payload validates, while the referrer
+ * lookup either reverts or answers the zero address, the two ways the
+ * destination's own resolution can come back empty after a valid
+ * payload was consumed.
+ */
+contract MoveInLookupRegistry {
+
+    bool internal immutable revertLookup;
+
+    uint256[] internal payload;
+
+    constructor(
+        bool _revertLookup
+    )
+    {
+        revertLookup = _revertLookup;
+    }
+
+    function setPayload(
+        uint256[] calldata _payload
+    )
+        external
+    {
+        payload = _payload;
+    }
+
+    function consumeCarry(
+        address,
+        address
+    )
+        external
+        view
+        returns (
+            uint256 stagedAt,
+            uint256[] memory served
+        )
+    {
+        stagedAt = block.timestamp;
+
+        served = payload;
+    }
+
+    function effectiveReferrerOf(
+        address,
+        address
+    )
+        external
+        view
+        returns (address)
+    {
+        if (revertLookup) {
+            revert("MoveInLookupRegistry: reverts");
+        }
+
+        return address(0);
+    }
+}
+
+/**
  * @dev Engine-level suite for the same-chain move-carry machinery in
  * {CohortRecorderBase}, driven through two standalone
  * {CohortCarryHarness} instances sharing ONE {ReferralRegistry}, the
@@ -53,7 +114,10 @@ contract OversizeCarryRegistry {
  * source to byte-identical rings/book/tracked. Section C covers the
  * failure doctrine: every arm must degrade without reverting and
  * without blocking: pointer unset (clamp-as-unreferred + skip),
- * lookup failure (full retry semantics, nothing mutated), revoked
+ * lookup failure on the source (full retry semantics, nothing
+ * mutated) and on the destination (the tracked delta lands, the
+ * lanes drop unattributed, and a tracked-only envelope never asks
+ * the registry at all), revoked
  * allowlist (clamp lands, staging skipped), stale payloads
  * (discarded), malformed payloads (validator rejects wholesale),
  * empty mailbox, codeless registry; plus the per-component floor
@@ -62,7 +126,12 @@ contract OversizeCarryRegistry {
  * sixty weeks (so Year-2 pairs arise through the credit-triggered
  * settle) and an arbitrary partial amount, asserting exact per-slot
  * relocation after the first leg and byte-identical rings, book and
- * tracked after the return.
+ * tracked after the return. Section C also pins the conservation
+ * ceiling of the destination validator: a lane sum above the tracked
+ * delta or a tracked delta above the mover's post-mint headroom is
+ * discarded wholesale, the equal case lands at the ceiling, and every
+ * direct apply mints the headroom first, as production mints before
+ * the move-in.
  */
 contract WiseTelecomNodesCohortCarryEngineTest is Test {
 
@@ -81,6 +150,7 @@ contract WiseTelecomNodesCohortCarryEngineTest is Test {
         address indexed user,
         address indexed srcVault,
         address indexed referrer,
+        address carriedReferrer,
         uint256 trackedDelta,
         uint256 year1,
         uint256 year2,
@@ -97,6 +167,26 @@ contract WiseTelecomNodesCohortCarryEngineTest is Test {
         address indexed user,
         address indexed srcVault,
         uint256 stagedAt
+    );
+
+    event CohortCarryBookDropped(
+        address indexed user,
+        address indexed srcVault,
+        address carriedReferrer,
+        uint256 trackedDelta,
+        uint256 mature,
+        uint256 pairCount
+    );
+
+    event CohortReferrerLookupFailed(
+        address indexed user
+    );
+
+    event CohortLaneSaturated(
+        address indexed referrer,
+        uint256 laneKind,
+        uint256 index,
+        uint256 clippedAmount
     );
 
     uint256 internal constant BASE_WEEK = 3_000;
@@ -730,6 +820,7 @@ contract WiseTelecomNodesCohortCarryEngineTest is Test {
         emit CohortCarryApplied(
             user1,
             address(harnessA),
+            refA,
             refA,
             3_500 * 1e6,
             3_500 * 1e6,
@@ -1482,6 +1573,11 @@ contract WiseTelecomNodesCohortCarryEngineTest is Test {
 
         uint256 stagedTime = block.timestamp;
 
+        harnessB.harnessMintBalance(
+            user1,
+            3_000 * 1e6
+        );
+
         vm.warp(
             block.timestamp + 1
         );
@@ -1668,6 +1764,26 @@ contract WiseTelecomNodesCohortCarryEngineTest is Test {
                 11,
                 CohortWeeks.CARRY_RING_YEAR1
             )
+        );
+
+        bads[2][1] = CohortWeeks.packCarryAmounts(
+            1_000,
+            0
+        );
+
+        bads[3][1] = CohortWeeks.packCarryAmounts(
+            1_000,
+            0
+        );
+
+        bads[4][1] = CohortWeeks.packCarryAmounts(
+            1_000,
+            0
+        );
+
+        harnessB.harnessMintBalance(
+            user1,
+            1_000
         );
 
         for (uint256 i; i < bads.length; ++i) {
@@ -2051,6 +2167,13 @@ contract WiseTelecomNodesCohortCarryEngineTest is Test {
     function test_applyMoveIn_zeroAmountPairSkipped()
         public
     {
+        _referUser1();
+
+        harnessB.harnessMintBalance(
+            user1,
+            7
+        );
+
         uint256[] memory payload = new uint256[](3);
 
         payload[0] = CohortWeeks.packCarryEnvelope(
@@ -2099,9 +2222,67 @@ contract WiseTelecomNodesCohortCarryEngineTest is Test {
         );
     }
 
-    function test_applyMoveIn_matureOverflow_clipsBookLane()
+    function _assertPayloadDiscarded(
+        uint256[] memory _payload
+    )
+        internal
+    {
+        registry.stageCarry(
+            address(harnessB),
+            user1,
+            _payload
+        );
+
+        vm.expectEmit(
+            true,
+            true,
+            false,
+            true,
+            address(harnessB)
+        );
+
+        emit CohortCarryDiscarded(
+            user1,
+            address(this),
+            block.timestamp
+        );
+
+        harnessB.exposedApplyMoveIn(
+            user1,
+            address(this)
+        );
+
+        assertEq(
+            harnessB.viewAttributed(user1),
+            0
+        );
+
+        _assertCarryDrained(
+            address(this),
+            address(harnessB)
+        );
+    }
+
+    function test_applyMoveIn_trackedAboveHeadroom_discards()
         public
     {
+        _referUser1();
+
+        harnessB.harnessMintBalance(
+            user1,
+            1_000 * 1e6
+        );
+
+        harnessB.harnessSetTracked(
+            user1,
+            400 * 1e6
+        );
+
+        harnessB.harnessSetAttributed(
+            user1,
+            0
+        );
+
         uint256[] memory payload = new uint256[](2);
 
         payload[0] = CohortWeeks.packCarryEnvelope(
@@ -2110,14 +2291,386 @@ contract WiseTelecomNodesCohortCarryEngineTest is Test {
         );
 
         payload[1] = CohortWeeks.packCarryAmounts(
-            1 << 100,
-            1 << 100
+            600 * 1e6 + 1,
+            0
         );
 
         registry.stageCarry(
             address(harnessB),
             user1,
             payload
+        );
+
+        vm.expectEmit(
+            true,
+            true,
+            false,
+            true,
+            address(harnessB)
+        );
+
+        emit CohortCarryDiscarded(
+            user1,
+            address(this),
+            block.timestamp
+        );
+
+        harnessB.exposedApplyMoveIn(
+            user1,
+            address(this)
+        );
+
+        assertEq(
+            harnessB.viewTracked(user1),
+            400 * 1e6
+        );
+
+        payload[1] = CohortWeeks.packCarryAmounts(
+            600 * 1e6,
+            0
+        );
+
+        registry.stageCarry(
+            address(harnessB),
+            user1,
+            payload
+        );
+
+        harnessB.exposedApplyMoveIn(
+            user1,
+            address(this)
+        );
+
+        assertEq(
+            harnessB.viewTracked(user1),
+            1_000 * 1e6
+        );
+    }
+
+    function test_applyMoveIn_deficitAboveHeadroom_discardsHonestCarry()
+        public
+    {
+        _referUser1();
+
+        harnessB.harnessMintBalance(
+            user1,
+            1_000 * 1e6
+        );
+
+        harnessB.harnessSetTracked(
+            user1,
+            1_500 * 1e6
+        );
+
+        uint256[] memory payload = new uint256[](3);
+
+        payload[0] = CohortWeeks.packCarryEnvelope(
+            refA,
+            1
+        );
+
+        payload[1] = CohortWeeks.packCarryAmounts(
+            100 * 1e6,
+            0
+        );
+
+        payload[2] = CohortWeeks.packCarryPair(
+            100 * 1e6,
+            BASE_WEEK % CohortWeeks.RING_SLOTS,
+            CohortWeeks.CARRY_RING_YEAR1
+        );
+
+        registry.stageCarry(
+            address(harnessB),
+            user1,
+            payload
+        );
+
+        vm.expectEmit(
+            true,
+            true,
+            false,
+            true,
+            address(harnessB)
+        );
+
+        emit CohortCarryDiscarded(
+            user1,
+            address(this),
+            block.timestamp
+        );
+
+        harnessB.exposedApplyMoveIn(
+            user1,
+            address(this)
+        );
+
+        assertEq(
+            harnessB.viewTracked(user1),
+            1_500 * 1e6
+        );
+
+        assertEq(
+            harnessB.viewBookWord(refA),
+            0
+        );
+    }
+
+    function test_applyMoveIn_lanesAboveTracked_discards()
+        public
+    {
+        _referUser1();
+
+        harnessB.harnessMintBalance(
+            user1,
+            10_000 * 1e6
+        );
+
+        uint256 slot = BASE_WEEK % CohortWeeks.RING_SLOTS;
+
+        uint256[] memory payload = new uint256[](3);
+
+        payload[0] = CohortWeeks.packCarryEnvelope(
+            refA,
+            1
+        );
+
+        payload[1] = CohortWeeks.packCarryAmounts(
+            1_000 * 1e6,
+            0
+        );
+
+        payload[2] = CohortWeeks.packCarryPair(
+            1_000 * 1e6 + 1,
+            slot,
+            CohortWeeks.CARRY_RING_YEAR1
+        );
+
+        _assertPayloadDiscarded(
+            payload
+        );
+
+        payload[1] = CohortWeeks.packCarryAmounts(
+            1_000 * 1e6,
+            1
+        );
+
+        payload[2] = CohortWeeks.packCarryPair(
+            1_000 * 1e6,
+            slot,
+            CohortWeeks.CARRY_RING_YEAR1
+        );
+
+        _assertPayloadDiscarded(
+            payload
+        );
+
+        payload[0] = CohortWeeks.packCarryEnvelope(
+            refA,
+            2
+        );
+
+        payload[1] = CohortWeeks.packCarryAmounts(
+            1_000 * 1e6,
+            0
+        );
+
+        payload[2] = CohortWeeks.packCarryPairsWord(
+            CohortWeeks.packCarryPair(
+                500 * 1e6,
+                slot,
+                CohortWeeks.CARRY_RING_YEAR1
+            ),
+            CohortWeeks.packCarryPair(
+                500 * 1e6 + 1,
+                slot,
+                CohortWeeks.CARRY_RING_YEAR2
+            )
+        );
+
+        _assertPayloadDiscarded(
+            payload
+        );
+
+        assertEq(
+            harnessB.viewTracked(user1),
+            0
+        );
+
+        assertEq(
+            harnessB.viewRingYear1(
+                refA,
+                slot
+            ),
+            0
+        );
+
+        assertEq(
+            harnessB.viewRingYear2(
+                refA,
+                slot
+            ),
+            0
+        );
+
+        assertEq(
+            harnessB.viewBookWord(refA),
+            0
+        );
+    }
+
+    function test_applyMoveIn_lanesEqualTracked_appliesAtCeiling()
+        public
+    {
+        _referUser1();
+
+        harnessB.harnessMintBalance(
+            user1,
+            10_000 * 1e6
+        );
+
+        uint256 slot = BASE_WEEK % CohortWeeks.RING_SLOTS;
+
+        uint256[] memory payload = new uint256[](3);
+
+        payload[0] = CohortWeeks.packCarryEnvelope(
+            refA,
+            2
+        );
+
+        payload[1] = CohortWeeks.packCarryAmounts(
+            1_000 * 1e6,
+            100 * 1e6
+        );
+
+        payload[2] = CohortWeeks.packCarryPairsWord(
+            CohortWeeks.packCarryPair(
+                600 * 1e6,
+                slot,
+                CohortWeeks.CARRY_RING_YEAR1
+            ),
+            CohortWeeks.packCarryPair(
+                300 * 1e6,
+                slot,
+                CohortWeeks.CARRY_RING_YEAR2
+            )
+        );
+
+        registry.stageCarry(
+            address(harnessB),
+            user1,
+            payload
+        );
+
+        vm.expectEmit(
+            true,
+            true,
+            true,
+            true,
+            address(harnessB)
+        );
+
+        emit CohortCarryApplied(
+            user1,
+            address(this),
+            refA,
+            refA,
+            1_000 * 1e6,
+            600 * 1e6,
+            300 * 1e6,
+            100 * 1e6,
+            2
+        );
+
+        harnessB.exposedApplyMoveIn(
+            user1,
+            address(this)
+        );
+
+        assertEq(
+            harnessB.viewTracked(user1),
+            1_000 * 1e6
+        );
+
+        assertEq(
+            harnessB.viewAttributed(user1),
+            1_000 * 1e6
+        );
+
+        assertEq(
+            harnessB.viewRingYear1(
+                refA,
+                slot
+            ),
+            600 * 1e6
+        );
+
+        assertEq(
+            harnessB.viewRingYear2(
+                refA,
+                slot
+            ),
+            300 * 1e6
+        );
+
+        assertEq(
+            harnessB.viewBookWord(refA),
+            CohortWeeks.packLanes(
+                600 * 1e6,
+                300 * 1e6,
+                100 * 1e6
+            )
+        );
+    }
+
+    function test_applyMoveIn_matureOverflow_clipsBookLane()
+        public
+    {
+        _referUser1();
+
+        harnessB.harnessMintBalance(
+            user1,
+            100
+        );
+
+        harnessB.harnessSetBookLanes(
+            refA,
+            0,
+            0,
+            CohortWeeks.LANE_MASK_80 - 5
+        );
+
+        uint256[] memory payload = new uint256[](2);
+
+        payload[0] = CohortWeeks.packCarryEnvelope(
+            refA,
+            0
+        );
+
+        payload[1] = CohortWeeks.packCarryAmounts(
+            100,
+            100
+        );
+
+        registry.stageCarry(
+            address(harnessB),
+            user1,
+            payload
+        );
+
+        vm.expectEmit(
+            true,
+            false,
+            false,
+            true,
+            address(harnessB)
+        );
+
+        emit CohortLaneSaturated(
+            refA,
+            2,
+            0,
+            95
         );
 
         harnessB.exposedApplyMoveIn(
@@ -2136,7 +2689,12 @@ contract WiseTelecomNodesCohortCarryEngineTest is Test {
 
         assertEq(
             harnessB.viewTracked(user1),
-            1 << 100
+            100
+        );
+
+        assertEq(
+            harnessB.viewAttributed(user1),
+            100
         );
     }
 
@@ -2173,6 +2731,209 @@ contract WiseTelecomNodesCohortCarryEngineTest is Test {
                 CohortWeeks.carryPairLo(payload[2])
             ),
             CohortWeeks.RING_LANE_MAX
+        );
+    }
+
+    // ---- Section D: destination resolution ----
+
+    function _lanePayload(
+        uint256 _amount
+    )
+        internal
+        view
+        returns (uint256[] memory payload)
+    {
+        payload = new uint256[](3);
+
+        payload[0] = CohortWeeks.packCarryEnvelope(
+            refA,
+            1
+        );
+
+        payload[1] = CohortWeeks.packCarryAmounts(
+            _amount,
+            0
+        );
+
+        payload[2] = CohortWeeks.packCarryPair(
+            _amount,
+            BASE_WEEK % CohortWeeks.RING_SLOTS,
+            CohortWeeks.CARRY_RING_YEAR1
+        );
+    }
+
+    function _assertBookDropped(
+        MoveInLookupRegistry _hostile,
+        uint256 _amount,
+        bool _expectLookupFailed
+    )
+        internal
+    {
+        harnessB.harnessSetRegistry(
+            address(_hostile)
+        );
+
+        _hostile.setPayload(
+            _lanePayload(
+                _amount
+            )
+        );
+
+        harnessB.harnessMintBalance(
+            user1,
+            _amount
+        );
+
+        if (_expectLookupFailed) {
+
+            vm.expectEmit(
+                true,
+                false,
+                false,
+                true,
+                address(harnessB)
+            );
+
+            emit CohortReferrerLookupFailed(
+                user1
+            );
+        }
+
+        vm.expectEmit(
+            true,
+            true,
+            false,
+            true,
+            address(harnessB)
+        );
+
+        emit CohortCarryBookDropped(
+            user1,
+            address(harnessA),
+            refA,
+            _amount,
+            0,
+            1
+        );
+
+        harnessB.exposedApplyMoveIn(
+            user1,
+            address(harnessA)
+        );
+
+        assertEq(
+            harnessB.viewTracked(user1),
+            _amount
+        );
+
+        assertEq(
+            harnessB.viewAttributed(user1),
+            0
+        );
+
+        assertEq(
+            harnessB.viewBookWord(refA),
+            0
+        );
+
+        assertEq(
+            harnessB.viewRingYear1(
+                refA,
+                BASE_WEEK % CohortWeeks.RING_SLOTS
+            ),
+            0
+        );
+    }
+
+    function test_applyMoveIn_destinationLookupReverts_bookDroppedTrackedLands()
+        public
+    {
+        _assertBookDropped(
+            new MoveInLookupRegistry(
+                true
+            ),
+            2_500 * 1e6,
+            true
+        );
+    }
+
+    function test_applyMoveIn_destinationLookupZero_bookDroppedTrackedLands()
+        public
+    {
+        _assertBookDropped(
+            new MoveInLookupRegistry(
+                false
+            ),
+            2_500 * 1e6,
+            false
+        );
+    }
+
+    function test_applyMoveIn_referredTrackedOnlyPayload_landsWithoutLookup()
+        public
+    {
+        MoveInLookupRegistry hostile = new MoveInLookupRegistry(
+            true
+        );
+
+        harnessB.harnessSetRegistry(
+            address(hostile)
+        );
+
+        uint256[] memory payload = new uint256[](2);
+
+        payload[0] = CohortWeeks.packCarryEnvelope(
+            refA,
+            0
+        );
+
+        payload[1] = CohortWeeks.packCarryAmounts(
+            900 * 1e6,
+            0
+        );
+
+        hostile.setPayload(
+            payload
+        );
+
+        harnessB.harnessMintBalance(
+            user1,
+            900 * 1e6
+        );
+
+        vm.expectEmit(
+            true,
+            true,
+            true,
+            true,
+            address(harnessB)
+        );
+
+        emit CohortCarryApplied(
+            user1,
+            address(harnessA),
+            address(0),
+            refA,
+            900 * 1e6,
+            0,
+            0,
+            0,
+            0
+        );
+
+        harnessB.exposedApplyMoveIn(
+            user1,
+            address(harnessA)
+        );
+
+        assertEq(
+            harnessB.viewTracked(user1),
+            900 * 1e6
+        );
+
+        assertEq(
+            harnessB.viewAttributed(user1),
+            0
         );
     }
 }
