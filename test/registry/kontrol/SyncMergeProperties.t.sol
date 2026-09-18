@@ -658,7 +658,9 @@ contract SyncMergePropertiesTest is Test {
             MAX_RANK
         );
 
-        uint256 laneSum = _year1 + _year2 + _mature;
+        uint256 laneSum = _year1
+            + _year2
+            + _mature;
 
         _mintAmount = bound(
             _mintAmount,
@@ -731,7 +733,9 @@ contract SyncMergePropertiesTest is Test {
             MAX_RANK
         );
 
-        uint256 laneSum = _year1 + _year2 + _mature;
+        uint256 laneSum = _year1
+            + _year2
+            + _mature;
 
         _mintAmount = bound(
             _mintAmount,
