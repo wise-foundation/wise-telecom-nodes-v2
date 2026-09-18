@@ -66,8 +66,12 @@ import {IReferralRegistry} from "../../interfaces/pending/IReferralRegistry.sol"
  * Never-block guarantee: the settle walk is
  * capped at MAX_SETTLE_BOUNDARIES = 104 steps (after 104 rotations
  * both rings are provably empty, so anything further is a closed-form
- * mature-only gap record plus one partial segment), and no function
- * here has a revert path: every lane operation saturates via
+ * mature-only gap record plus one partial segment; the gap record is
+ * a wire-size compression and never a bound anyone can be forced
+ * into, because the permissionless `advanceBook` poke keeps a book in
+ * the per-week crumb channel, which the flush charges and the hub
+ * prices exactly like the record), and no function here has a
+ * revert path: every lane operation saturates via
  * {CohortWeeks} and reports clips through {CohortLaneSaturated}
  * instead of reverting, because this code runs inside the transfer
  * hook where a revert would veto the transfer itself. The common
@@ -105,7 +109,10 @@ import {IReferralRegistry} from "../../interfaces/pending/IReferralRegistry.sol"
  * over-credit once the hub prices it), and
  * `_creditContributionCohort` credits nobody for that deposit while
  * still tracking the contribution, and attributes nothing, so no
- * later clamp can charge any referrer for it. Every failed lookup emits
+ * later clamp can charge any referrer for it, and
+ * `_applyCarryPayloadCohort` lands the tracked delta while dropping
+ * the carried lanes ({CohortCarryBookDropped}) for the same reason.
+ * Every failed lookup emits
  * {CohortReferrerLookupFailed} for monitoring. The routed
  * {ReferralFacet} view getter deliberately does NOT use this guarded
  * seam; a view revert DoSes nothing.
@@ -126,6 +133,18 @@ import {IReferralRegistry} from "../../interfaces/pending/IReferralRegistry.sol"
  * `_applyMoveInCohort` drains the mailbox and replants: same slots,
  * same rings, same `block.timestamp`, a byte-identical graduation
  * schedule, which is what makes wash-moving A→B→A provably a no-op.
+ * The lanes land under the referrer THIS vault's registry seam
+ * answers for the mover, never under the name the source wrote into
+ * the envelope: the two vaults of one chain keep separate flip
+ * markers, and a migration deferred on only one of them (a disarmed
+ * vault, an out-of-gas poke, a flip selector not yet routed) leaves
+ * the source naming one referrer while every later clamp on the
+ * destination charges another, so credit planted under the carried
+ * name would sit in a book no clamp on this vault ever reduces,
+ * phantom principal the hub would price. A failed or empty
+ * destination lookup lands the tracked delta and drops the lanes
+ * with {CohortCarryBookDropped}, the same attribution-loss
+ * degradation the bridge landing applies.
  * Every mover carries the full deficit slice as tracked contribution
  * (the self-stake ladder input survives relocation, referred and
  * unreferred alike); the lanes carry only the attributed slice, which
@@ -146,12 +165,39 @@ import {IReferralRegistry} from "../../interfaces/pending/IReferralRegistry.sol"
  * synchronous inside one move transaction), which makes every orphan
  * from a not-yet-carry-aware or unarmed counterparty structurally
  * inert; `_carryPayloadValid` then rejects any malformed word
- * wholesale before a single lane is touched. Replants go through the
- * saturating helpers with {CohortLaneSaturated} on clip, never a
- * revert, because a destination revert would revert the source's
- * entire move. Loop bounds: capture and replant walk at most
- * MAX_CARRY_PAIRS = 104 pairs (52 per ring), payloads at most
- * MAX_CARRY_WORDS = 54 words, cited from {CohortWeeks} at each site.
+ * wholesale before a single lane is touched and holds the same
+ * conservation ceiling the bridge landing holds: the carried lane
+ * sum (pairs plus mature) may not exceed the carried tracked delta,
+ * and the tracked delta may not exceed the mover's post-mint headroom
+ * (the balance held here minus the tracked contribution already held
+ * here), which is the tracked-never-exceeds-held law evaluated after
+ * the destination mint. The moved amount itself is not visible to
+ * the hook, so that headroom is the ceiling the destination can
+ * compute; an honest payload always fits (per-component floor
+ * scaling, caps only lower, the tracked delta is at most the burned
+ * amount scaled and the mint is exactly that scaled amount; the
+ * argument rests on the entry contract clamping before it mints, as
+ * `_executeMintFromPeer` does: sync, mint, then this landing). A
+ * payload above either ceiling is discarded wholesale with
+ * {CohortCarryDiscarded}, tracked delta included. The one honest
+ * payload that can fail is a move whose destination clamp was
+ * deferred by a failed lookup while the mover holds below tracked:
+ * the standing deficit eats the headroom, the carried lanes and
+ * ladder input are lost, and because the mint then covers that
+ * deficit the one-way clamp never charges it, so up to the smaller
+ * of the deficit and the mover's attributed contribution stays in
+ * the referrer's book here uncharged (an applied carry would have
+ * kept that deficit visible for the next successful clamp). Both
+ * sides of that trade are bounded by the mover's own prior stake on
+ * this vault, it exists only while the registry pointer fails, and
+ * it is the price of a ceiling the hook can compute without seeing
+ * the moved amount.
+ * Replants go through the saturating helpers with
+ * {CohortLaneSaturated} on clip, never a revert, because a
+ * destination revert would revert the source's entire move. Loop
+ * bounds: capture and replant walk at most MAX_CARRY_PAIRS = 104
+ * pairs (52 per ring), payloads at most MAX_CARRY_WORDS = 54 words,
+ * cited from {CohortWeeks} at each site.
  *
  * Bridge carry: a cross-chain bridge is the same system relocation in
  * aggregate form. `_captureBridgeOutCohort` mirrors the move capture
@@ -742,7 +788,9 @@ abstract contract CohortRecorderBase is FacetBase {
                 matureTotal
             );
 
-        uint256 clippedTotal = clippedYear1 + clippedYear2 + clippedMature;
+        uint256 clippedTotal = clippedYear1
+            + clippedYear2
+            + clippedMature;
 
         if (clippedTotal > 0) {
             emit CohortLaneSaturated(
@@ -819,14 +867,20 @@ abstract contract CohortRecorderBase is FacetBase {
 
         if (graduatingYear2 > 0) {
 
-            (mature, clipped) = CohortWeeks.saturatingAdd80(
+            (
+                mature,
+                clipped
+            ) = CohortWeeks.saturatingAdd80(
                 mature,
                 graduatingYear2
             );
 
             clippedTotal += clipped;
 
-            (year2, clipped) = CohortWeeks.saturatingSub(
+            (
+                year2,
+                clipped
+            ) = CohortWeeks.saturatingSub(
                 year2,
                 graduatingYear2
             );
@@ -836,14 +890,20 @@ abstract contract CohortRecorderBase is FacetBase {
 
         if (graduatingYear1 > 0) {
 
-            (year2, clipped) = CohortWeeks.saturatingAdd80(
+            (
+                year2,
+                clipped
+            ) = CohortWeeks.saturatingAdd80(
                 year2,
                 graduatingYear1
             );
 
             clippedTotal += clipped;
 
-            (year1, clipped) = CohortWeeks.saturatingSub(
+            (
+                year1,
+                clipped
+            ) = CohortWeeks.saturatingSub(
                 year1,
                 graduatingYear1
             );
@@ -995,7 +1055,10 @@ abstract contract CohortRecorderBase is FacetBase {
 
         if (fromYear1 > 0) {
 
-            (year1, clipped) = CohortWeeks.saturatingSub(
+            (
+                year1,
+                clipped
+            ) = CohortWeeks.saturatingSub(
                 year1,
                 fromYear1
             );
@@ -1005,7 +1068,10 @@ abstract contract CohortRecorderBase is FacetBase {
 
         if (fromYear2 > 0) {
 
-            (year2, clipped) = CohortWeeks.saturatingSub(
+            (
+                year2,
+                clipped
+            ) = CohortWeeks.saturatingSub(
                 year2,
                 fromYear2
             );
@@ -1015,7 +1081,10 @@ abstract contract CohortRecorderBase is FacetBase {
 
         if (remaining > 0) {
 
-            (mature, clipped) = CohortWeeks.saturatingSub(
+            (
+                mature,
+                clipped
+            ) = CohortWeeks.saturatingSub(
                 mature,
                 remaining
             );
@@ -1467,7 +1536,10 @@ abstract contract CohortRecorderBase is FacetBase {
         if (
             consumeOk == false
             || stagedAt != block.timestamp
-            || _carryPayloadValid(payload) == false
+            || _carryPayloadValid(
+                _user,
+                payload
+            ) == false
         ) {
 
             emit CohortCarryDiscarded(
@@ -1493,70 +1565,107 @@ abstract contract CohortRecorderBase is FacetBase {
     )
         internal
     {
-        address referrer = CohortWeeks.carryEnvelopeReferrer(
+        CarryStage memory stage;
+
+        address carriedReferrer = CohortWeeks.carryEnvelopeReferrer(
             _payload[0]
         );
 
-        uint256 pairCount = CohortWeeks.carryEnvelopePairCount(
+        stage.pairCount = CohortWeeks.carryEnvelopePairCount(
             _payload[0]
         );
 
-        uint256 trackedDelta = CohortWeeks.carryTrackedDelta(
+        stage.trackedDelta = CohortWeeks.carryTrackedDelta(
             _payload[1]
         );
 
-        uint256 mature = CohortWeeks.carryMature(
+        stage.mature = CohortWeeks.carryMature(
             _payload[1]
         );
 
-        trackedContribution[_user] += trackedDelta;
+        trackedContribution[_user] += stage.trackedDelta;
 
-        uint256 year1Sum;
+        if (carriedReferrer == ZERO_ADDRESS || (stage.pairCount == 0 && stage.mature == 0)) {
 
-        uint256 year2Sum;
-
-        if (referrer != ZERO_ADDRESS && (pairCount > 0 || mature > 0)) {
-
-            _settleBookCohort(
-                referrer
+            emit CohortCarryApplied(
+                _user,
+                _srcVault,
+                ZERO_ADDRESS,
+                carriedReferrer,
+                stage.trackedDelta,
+                0,
+                0,
+                stage.mature,
+                stage.pairCount
             );
 
-            (
-                year1Sum,
-                year2Sum
-            ) = _replantRingsCohort(
-                referrer,
-                _payload,
-                pairCount
-            );
-
-            _replantBookCohort(
-                referrer,
-                year1Sum,
-                year2Sum,
-                mature
-            );
-
-            attributedContribution[_user] += year1Sum + year2Sum + mature;
+            return;
         }
+
+        (
+            bool lookupOk,
+            address referrer
+        ) = _cohortReferrerOf(
+            _user
+        );
+
+        if (lookupOk == false || referrer == ZERO_ADDRESS) {
+
+            emit CohortCarryBookDropped(
+                _user,
+                _srcVault,
+                carriedReferrer,
+                stage.trackedDelta,
+                stage.mature,
+                stage.pairCount
+            );
+
+            return;
+        }
+
+        _settleBookCohort(
+            referrer
+        );
+
+        (
+            stage.year1Sum,
+            stage.year2Sum
+        ) = _replantRingsCohort(
+            referrer,
+            _payload,
+            stage.pairCount
+        );
+
+        _replantBookCohort(
+            referrer,
+            stage.year1Sum,
+            stage.year2Sum,
+            stage.mature
+        );
+
+        attributedContribution[_user] += stage.year1Sum
+            + stage.year2Sum
+            + stage.mature;
 
         emit CohortCarryApplied(
             _user,
             _srcVault,
             referrer,
-            trackedDelta,
-            year1Sum,
-            year2Sum,
-            mature,
-            pairCount
+            carriedReferrer,
+            stage.trackedDelta,
+            stage.year1Sum,
+            stage.year2Sum,
+            stage.mature,
+            stage.pairCount
         );
     }
 
     function _carryPayloadValid(
+        address _user,
         uint256[] memory _payload
     )
         private
-        pure
+        view
         returns (bool)
     {
         if (_payload.length < 2) {
@@ -1585,6 +1694,10 @@ abstract contract CohortRecorderBase is FacetBase {
             return false;
         }
 
+        uint256 laneSum = CohortWeeks.carryMature(
+            _payload[1]
+        );
+
         for (uint256 i; i < pairCount; ++i) {
 
             uint256 word = _payload[2 + i / 2];
@@ -1600,6 +1713,10 @@ abstract contract CohortRecorderBase is FacetBase {
             if (CohortWeeks.carryPairRing(pair) > CohortWeeks.CARRY_RING_YEAR2) {
                 return false;
             }
+
+            laneSum += CohortWeeks.carryPairAmount(
+                pair
+            );
         }
 
         if (pairCount % 2 == 1) {
@@ -1609,6 +1726,22 @@ abstract contract CohortRecorderBase is FacetBase {
             if (CohortWeeks.carryPairHi(lastWord) != 0) {
                 return false;
             }
+        }
+
+        uint256 trackedDelta = CohortWeeks.carryTrackedDelta(
+            _payload[1]
+        );
+
+        if (laneSum > trackedDelta) {
+            return false;
+        }
+
+        uint256 held = balanceOf(
+            _user
+        );
+
+        if (trackedContribution[_user] + trackedDelta > held) {
+            return false;
         }
 
         return true;
@@ -2055,7 +2188,9 @@ abstract contract CohortRecorderBase is FacetBase {
             stage
         );
 
-        attributedContribution[_user] += stage.year1 + stage.year2 + stage.mature;
+        attributedContribution[_user] += stage.year1
+            + stage.year2
+            + stage.mature;
 
         emit CohortBridgeCarryApplied(
             _user,
