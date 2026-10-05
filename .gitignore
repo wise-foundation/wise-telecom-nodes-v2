@@ -27,3 +27,5 @@ data/*.tmp
 
 # solidity-auditor skill working directory (run reports, scan memory)
 .solidity-auditor/
+# solidity-auditor per-scan scratch bundles
+.audit-*/
