@@ -27,7 +27,7 @@ fs_permissions = [
 [rpc_endpoints]
 mainnet          = "${MAINNET_RPC_URL}"
 arbitrum         = "${ARBITRUM_RPC_URL}"
-base             = "https://mainnet.base.org"
+base             = "${BASE_RPC_URL}"
 sepolia           = "${SEPOLIA_RPC_URL}"
 arbitrum_sepolia  = "${ARBITRUM_SEPOLIA_RPC_URL}"
 base_sepolia      = "https://sepolia.base.org"
