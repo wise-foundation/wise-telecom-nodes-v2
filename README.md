@@ -125,8 +125,10 @@ forge test --match-path "test/diamond/fork/ReferralRegistryUpgradeFork.t.sol" --
 
 # payout rehearsal: replays the referral-payout round (three selector batches + the
 # slot-80 hub pointer clock + a real-USD claim through the live vault's pool) on a
-# mainnet fork, plus the default-off half on a base fork, and the registry latch phase
-# mirrored on both forks (inside the hub pointer clock on the payout vault)
+# mainnet fork, plus the default-off half on a base fork, the registry latch phase
+# mirrored on both forks (inside the hub pointer clock on the payout vault), the registry master
+# handoff on both forks, the payout route wiring of the registry deploy script on the base fork,
+# and the payout selector routing the hub wiring script requires
 forge test --match-path "test/diamond/fork/ReferralPayoutUpgradeFork.t.sol"
 
 # flush-transport rehearsal: installs the full flush round on a live spoke fork and the
