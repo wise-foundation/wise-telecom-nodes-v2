@@ -24,3 +24,6 @@ data/.refresh-lock/
 data/.verify-lock/
 data/.que-verified-*
 data/*.tmp
+
+# solidity-auditor skill working directory (run reports, scan memory)
+.solidity-auditor/
