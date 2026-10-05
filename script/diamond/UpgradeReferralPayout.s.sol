@@ -51,7 +51,10 @@ import {WiseTelecomNodesDiamondSelectors} from "./WiseTelecomNodesDiamondSelecto
 /// while nothing is booked, and the hub in accrual-only mode (no payout vault wired) books
 /// nothing and catches up through `bookLiability()` once wired. Rollback: pre-execute
 /// abort(); post-wire, proposing the zero pointer detaches the hub after one more 3-day
-/// clock.
+/// clock. After liability is booked, a detached vault freezes the booked claims once the
+/// hub unwires ({PotClosed}), and a re-attach runs proposeHub(), the 3-day clock,
+/// executeHub() and the hub-side wire() again, because the hub probe refuses a vault
+/// whose getPayoutHub() does not name it.
 ///
 /// Per-vault invocation (product via VAULT_PRODUCT env, chain via --rpc-url):
 ///   VAULT_PRODUCT=usdc forge script script/diamond/UpgradeReferralPayout.s.sol --sig "propose()" --rpc-url mainnet --broadcast
