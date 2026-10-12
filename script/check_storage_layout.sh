@@ -23,6 +23,7 @@ FACETS=(
     CashedInterestFacet
     CohortBridgeHookFacet
     CohortFlushFacet
+    CohortFlushPolicyFacet
     CohortHookFacet
     CohortMoveHookFacet
     CohortRecorderFacet
@@ -141,7 +142,45 @@ sys.exit(bad)
     fi
 done
 
+# Hub diamond: the referral hub is a diamond proxy too (five facets
+# over the shared ReferralHubDeclarations shard); same proof, its own
+# snapshot.
+HUB_DIAMOND="src/hub/pending/ReferralHub.sol:ReferralHub"
+HUB_SNAPSHOT="test/hub/storage_snapshot/hub_layout.json"
+HUB_FACETS=(
+    ReferralHubCheckpointsFacet
+    ReferralHubRatesFacet
+    ReferralHubIntakeFacet
+    ReferralHubMailboxFacet
+    ReferralHubPayoutFacet
+)
+
+forge inspect "$HUB_DIAMOND" storage-layout --json | normalize > "$tmp/hub.txt"
+
+for name in "${HUB_FACETS[@]}"; do
+    forge inspect "src/hub/pending/$name.sol:$name" storage-layout --json         | normalize > "$tmp/$name.hub.txt"
+    if ! diff -u "$tmp/hub.txt" "$tmp/$name.hub.txt" > "$tmp/$name.hub.diff"; then
+        echo "HUB STORAGE LAYOUT DRIFT: $name != ReferralHub"
+        cat "$tmp/$name.hub.diff"
+        fail=1
+    fi
+done
+
+if [ -f "$HUB_SNAPSHOT" ]; then
+    normalize < "$HUB_SNAPSHOT" > "$tmp/hubsnapshot.txt"
+    if ! diff -u "$tmp/hubsnapshot.txt" "$tmp/hub.txt" > "$tmp/hubsnapshot.diff"; then
+        echo "HUB SNAPSHOT DRIFT: $HUB_SNAPSHOT no longer matches the compiled hub."
+        echo "If the layout change is intentional, regenerate with:"
+        echo "  forge inspect $HUB_DIAMOND storage-layout --json > $HUB_SNAPSHOT"
+        cat "$tmp/hubsnapshot.diff"
+        fail=1
+    fi
+else
+    echo "HUB SNAPSHOT MISSING: $HUB_SNAPSHOT (regenerate with the line above)"
+    fail=1
+fi
+
 if [ "$fail" -eq 0 ]; then
-    echo "storage layout OK: diamond + ${#FACETS[@]} facets identical, ${#PINNED_FACETS[@]} slim facets pinned correctly, snapshot matches ($(wc -l < "$tmp/diamond.txt") entries)"
+    echo "storage layout OK: diamond + ${#FACETS[@]} facets identical, ${#PINNED_FACETS[@]} slim facets pinned correctly, snapshot matches ($(wc -l < "$tmp/diamond.txt") entries); hub + ${#HUB_FACETS[@]} facets identical, hub snapshot matches ($(wc -l < "$tmp/hub.txt") entries)"
 fi
 exit "$fail"
