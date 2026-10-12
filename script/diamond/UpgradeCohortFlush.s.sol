@@ -8,6 +8,7 @@ import {WiseTelecomNodesDiamond} from "../../src/diamond/vault/WiseTelecomNodesD
 
 import {AdminFacet} from "../../src/diamond/vault/facets/AdminFacet.sol";
 import {CohortFlushFacet} from "../../src/diamond/vault/facets/pending/CohortFlushFacet.sol";
+import {CohortFlushPolicyFacet} from "../../src/diamond/vault/facets/pending/CohortFlushPolicyFacet.sol";
 import {CohortHookFacet} from "../../src/diamond/vault/facets/pending/CohortHookFacet.sol";
 
 import {WiseTelecomNodesDiamondSelectors} from "./WiseTelecomNodesDiamondSelectors.sol";
@@ -102,6 +103,7 @@ contract UpgradeCohortFlush is VaultConfig {
 
         address adminFacet = address(new AdminFacet());
         address cohortFlushFacet = address(new CohortFlushFacet());
+        address cohortFlushPolicyFacet = address(new CohortFlushPolicyFacet());
         address cohortHookFacet = address(new CohortHookFacet());
 
         _proposeGroup(
@@ -116,6 +118,12 @@ contract UpgradeCohortFlush is VaultConfig {
             cohortFlushFacet
         );
 
+        _proposeGroup(
+            diamond,
+            WiseTelecomNodesDiamondSelectors.cohortFlushPolicySelectors(),
+            cohortFlushPolicyFacet
+        );
+
         AdminFacet(diamond).proposeTransferHookFacet(
             cohortHookFacet
         );
@@ -123,9 +131,10 @@ contract UpgradeCohortFlush is VaultConfig {
         vm.stopBroadcast();
 
         console2.log("proposed cohort-flush upgrade on diamond", diamond);
-        console2.log("  AdminFacet      ", adminFacet);
-        console2.log("  CohortFlushFacet", cohortFlushFacet);
-        console2.log("  CohortHookFacet ", cohortHookFacet);
+        console2.log("  AdminFacet             ", adminFacet);
+        console2.log("  CohortFlushFacet       ", cohortFlushFacet);
+        console2.log("  CohortFlushPolicyFacet ", cohortFlushPolicyFacet);
+        console2.log("  CohortHookFacet        ", cohortHookFacet);
         console2.log("earliest execute()", block.timestamp + 3 days);
     }
 
@@ -154,6 +163,11 @@ contract UpgradeCohortFlush is VaultConfig {
         _executeGroup(
             diamond,
             WiseTelecomNodesDiamondSelectors.cohortFlushSelectors()
+        );
+
+        _executeGroup(
+            diamond,
+            WiseTelecomNodesDiamondSelectors.cohortFlushPolicySelectors()
         );
 
         if (WiseTelecomNodesDiamond(payable(diamond)).transferHookChangeQueuedAt() > 0) {
@@ -340,6 +354,11 @@ contract UpgradeCohortFlush is VaultConfig {
         );
 
         console2.log(
+            "cohortFlushPolicy group facet",
+            d.selectorToFacet(WiseTelecomNodesDiamondSelectors.cohortFlushPolicySelectors()[0])
+        );
+
+        console2.log(
             "transferHookFacet",
             d.transferHookFacet()
         );
@@ -365,16 +384,16 @@ contract UpgradeCohortFlush is VaultConfig {
             );
         }
 
-        if (d.selectorToFacet(CohortFlushFacet.getPublicFlushEnabled.selector) != address(0)) {
+        if (d.selectorToFacet(CohortFlushPolicyFacet.getPublicFlushEnabled.selector) != address(0)) {
 
             console2.log(
                 "publicFlushEnabled",
-                CohortFlushFacet(diamond).getPublicFlushEnabled()
+                CohortFlushPolicyFacet(diamond).getPublicFlushEnabled()
             );
 
             console2.log(
                 "flushGasLimit",
-                CohortFlushFacet(diamond).getFlushGasLimit()
+                CohortFlushPolicyFacet(diamond).getFlushGasLimit()
             );
         }
     }
