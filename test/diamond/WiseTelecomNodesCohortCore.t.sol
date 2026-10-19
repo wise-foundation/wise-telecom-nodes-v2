@@ -109,13 +109,13 @@ contract WiseTelecomNodesCohortCoreTest is DiamondTestHarness {
         _wireOne(
             diamond,
             address(new ReferralFacet()),
-            WiseTelecomNodesDiamondSelectors.referralSelectors()
+            WiseTelecomNodesDiamondSelectors._referralSelectors()
         );
 
         _wireOne(
             diamond,
             address(new CohortRecorderFacet()),
-            WiseTelecomNodesDiamondSelectors.cohortRecorderSelectors()
+            WiseTelecomNodesDiamondSelectors._cohortRecorderSelectors()
         );
 
         AdminFacet(address(diamond)).proposeTransferHookFacet(
@@ -261,7 +261,9 @@ contract WiseTelecomNodesCohortCoreTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getCohortScore(_referrer),
+            _recorder().getCohortScore(
+                _referrer
+            ),
             year1 + year2 + mature,
             "I1: score != book total"
         );
@@ -319,9 +321,20 @@ contract WiseTelecomNodesCohortCoreTest is DiamondTestHarness {
             uint256 mature
         ) = _book(refA);
 
-        assertEq(year1, 0);
-        assertEq(year2, 5_000 * 1e6);
-        assertEq(mature, 0);
+        assertEq(
+            year1,
+            0
+        );
+
+        assertEq(
+            year2,
+            5_000 * 1e6
+        );
+
+        assertEq(
+            mature,
+            0
+        );
 
         (
             uint64[52] memory ring1,
@@ -363,9 +376,20 @@ contract WiseTelecomNodesCohortCoreTest is DiamondTestHarness {
             uint256 mature
         ) = _book(refA);
 
-        assertEq(year1, 0);
-        assertEq(year2, 0);
-        assertEq(mature, 5_000 * 1e6);
+        assertEq(
+            year1,
+            0
+        );
+
+        assertEq(
+            year2,
+            0
+        );
+
+        assertEq(
+            mature,
+            5_000 * 1e6
+        );
 
         (
             uint64[52] memory ring1,
@@ -425,7 +449,9 @@ contract WiseTelecomNodesCohortCoreTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getCohortScore(refA),
+            _recorder().getCohortScore(
+                refA
+            ),
             5_000 * 1e6
         );
     }
@@ -665,8 +691,15 @@ contract WiseTelecomNodesCohortCoreTest is DiamondTestHarness {
 
         ) = _book(refA);
 
-        assertEq(year1Before, 2_000 * 1e6);
-        assertEq(year2Before, 1_000 * 1e6);
+        assertEq(
+            year1Before,
+            2_000 * 1e6
+        );
+
+        assertEq(
+            year2Before,
+            1_000 * 1e6
+        );
 
         _transferAs(
             user1,
@@ -700,9 +733,20 @@ contract WiseTelecomNodesCohortCoreTest is DiamondTestHarness {
             uint256 mature
         ) = _book(refA);
 
-        assertEq(year1, 0);
-        assertEq(year2, 500 * 1e6);
-        assertEq(mature, 0);
+        assertEq(
+            year1,
+            0
+        );
+
+        assertEq(
+            year2,
+            500 * 1e6
+        );
+
+        assertEq(
+            mature,
+            0
+        );
     }
 
     function test_reduction_spillsIntoMature()
@@ -730,9 +774,20 @@ contract WiseTelecomNodesCohortCoreTest is DiamondTestHarness {
             uint256 matureBefore
         ) = _book(refA);
 
-        assertEq(year1Before, 500 * 1e6);
-        assertEq(year2Before, 0);
-        assertEq(matureBefore, 1_000 * 1e6);
+        assertEq(
+            year1Before,
+            500 * 1e6
+        );
+
+        assertEq(
+            year2Before,
+            0
+        );
+
+        assertEq(
+            matureBefore,
+            1_000 * 1e6
+        );
 
         _transferAs(
             user1,
@@ -766,9 +821,20 @@ contract WiseTelecomNodesCohortCoreTest is DiamondTestHarness {
             uint256 mature
         ) = _book(refA);
 
-        assertEq(year1, 0);
-        assertEq(year2, 0);
-        assertEq(mature, 300 * 1e6);
+        assertEq(
+            year1,
+            0
+        );
+
+        assertEq(
+            year2,
+            0
+        );
+
+        assertEq(
+            mature,
+            300 * 1e6
+        );
     }
 
     // ---- settle ordering ----

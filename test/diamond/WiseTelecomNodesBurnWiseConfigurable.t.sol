@@ -97,8 +97,8 @@ contract WiseTelecomNodesBurnWiseConfigurableTest is Test {
             _buildInitParams()
         );
 
-        bytes4[] memory adminSels = WiseTelecomNodesDiamondSelectors.adminSelectors();
-        bytes4[] memory burnSels = WiseTelecomNodesDiamondSelectors.burnWiseSelectors();
+        bytes4[] memory adminSels = WiseTelecomNodesDiamondSelectors._adminSelectors();
+        bytes4[] memory burnSels = WiseTelecomNodesDiamondSelectors._burnWiseSelectors();
 
         d.proposeSelectors(
             adminSels,
@@ -336,7 +336,9 @@ contract WiseTelecomNodesBurnWiseConfigurableTest is Test {
         );
 
         assertEq(
-            IERC20(address(wise)).balanceOf(address(diamond)),
+            IERC20(address(wise)).balanceOf(
+                address(diamond)
+            ),
             amount - expected
         );
 
@@ -362,7 +364,9 @@ contract WiseTelecomNodesBurnWiseConfigurableTest is Test {
         BurnWiseFacet(address(diamond)).burnWise();
 
         assertEq(
-            BurnWiseFacet(address(diamond)).lastBurnWiseAt(randomEOA),
+            BurnWiseFacet(address(diamond)).lastBurnWiseAt(
+                randomEOA
+            ),
             block.timestamp
         );
     }
@@ -438,7 +442,9 @@ contract WiseTelecomNodesBurnWiseConfigurableTest is Test {
         for (uint256 i; i < 7; ++i) {
             assertEq(
                 BurnWiseFacet(address(diamond)).getNextBurnPercentage(),
-                _pct(i)
+                _pct(
+                    i
+                )
             );
 
             vm.prank(

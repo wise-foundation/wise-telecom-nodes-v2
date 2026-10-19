@@ -119,7 +119,7 @@ contract WiseTelecomNodesAutoCompoundFacetTest is DiamondTestHarness {
         _wireOne(
             diamond,
             address(new InterestAdminFacet()),
-            WiseTelecomNodesDiamondSelectors.interestAdminSelectors()
+            WiseTelecomNodesDiamondSelectors._interestAdminSelectors()
         );
 
         facetInstance = address(
@@ -129,7 +129,7 @@ contract WiseTelecomNodesAutoCompoundFacetTest is DiamondTestHarness {
         _wireOne(
             diamond,
             facetInstance,
-            WiseTelecomNodesDiamondSelectors.autoCompoundSelectors()
+            WiseTelecomNodesDiamondSelectors._autoCompoundSelectors()
         );
 
         diamond.finalizeSetup();
@@ -221,7 +221,11 @@ contract WiseTelecomNodesAutoCompoundFacetTest is DiamondTestHarness {
         );
 
         uint256 totalBefore = _total();
-        uint256 vaultUsdBefore = usd.balanceOf(address(diamond));
+
+        uint256 vaultUsdBefore = usd.balanceOf(
+            address(diamond)
+        );
+
         uint256 supplyBefore = diamond.totalSupply();
 
         uint256 returned = _compound(
@@ -234,22 +238,30 @@ contract WiseTelecomNodesAutoCompoundFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.balanceOf(user),
+            diamond.balanceOf(
+                user
+            ),
             net
         );
 
         assertEq(
-            diamond.cashedInterest(user),
+            diamond.cashedInterest(
+                user
+            ),
             0
         );
 
         assertEq(
-            usd.balanceOf(bot),
+            usd.balanceOf(
+                bot
+            ),
             fee
         );
 
         assertEq(
-            usd.balanceOf(thirdPty),
+            usd.balanceOf(
+                thirdPty
+            ),
             net
         );
 
@@ -260,7 +272,9 @@ contract WiseTelecomNodesAutoCompoundFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            usd.balanceOf(address(diamond)),
+            usd.balanceOf(
+                address(diamond)
+            ),
             vaultUsdBefore - interest,
             "USD out must equal the cleared liability"
         );
@@ -333,12 +347,16 @@ contract WiseTelecomNodesAutoCompoundFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            usd.balanceOf(bot),
+            usd.balanceOf(
+                bot
+            ),
             0
         );
 
         assertEq(
-            diamond.balanceOf(user),
+            diamond.balanceOf(
+                user
+            ),
             interest
         );
     }
@@ -368,7 +386,9 @@ contract WiseTelecomNodesAutoCompoundFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            usd.balanceOf(bot),
+            usd.balanceOf(
+                bot
+            ),
             0
         );
     }
@@ -411,12 +431,16 @@ contract WiseTelecomNodesAutoCompoundFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.balanceOf(user),
+            diamond.balanceOf(
+                user
+            ),
             1_000 * 1e6 + net
         );
 
         assertEq(
-            diamond.cashedInterest(user),
+            diamond.cashedInterest(
+                user
+            ),
             0
         );
     }
@@ -444,7 +468,9 @@ contract WiseTelecomNodesAutoCompoundFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.lastLargeDepositAt(user),
+            diamond.lastLargeDepositAt(
+                user
+            ),
             block.timestamp,
             "net >= threshold must stamp the grace lock"
         );
@@ -488,7 +514,9 @@ contract WiseTelecomNodesAutoCompoundFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.lastLargeDepositAt(user),
+            diamond.lastLargeDepositAt(
+                user
+            ),
             0
         );
     }
@@ -516,7 +544,9 @@ contract WiseTelecomNodesAutoCompoundFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.lastLargeDepositAt(user),
+            diamond.lastLargeDepositAt(
+                user
+            ),
             0,
             "interest >= threshold > net must NOT stamp on the fee path"
         );
@@ -533,7 +563,9 @@ contract WiseTelecomNodesAutoCompoundFacetTest is DiamondTestHarness {
         UserFacet(address(diamond)).compoundInterest();
 
         assertEq(
-            diamond.lastLargeDepositAt(userB),
+            diamond.lastLargeDepositAt(
+                userB
+            ),
             block.timestamp,
             "the self-compound control mints the full interest and stamps"
         );
@@ -584,7 +616,9 @@ contract WiseTelecomNodesAutoCompoundFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.balanceOf(userB),
+            diamond.balanceOf(
+                userB
+            ),
             diamond.balanceOf(user) - fee
         );
 
@@ -764,7 +798,9 @@ contract WiseTelecomNodesAutoCompoundFacetTest is DiamondTestHarness {
         public
     {
         assertEq(
-            diamond.autoCompoundAllowed(user),
+            diamond.autoCompoundAllowed(
+                user
+            ),
             false
         );
 
@@ -785,7 +821,9 @@ contract WiseTelecomNodesAutoCompoundFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.autoCompoundAllowed(user),
+            diamond.autoCompoundAllowed(
+                user
+            ),
             true
         );
 
@@ -798,7 +836,9 @@ contract WiseTelecomNodesAutoCompoundFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.autoCompoundAllowed(user),
+            diamond.autoCompoundAllowed(
+                user
+            ),
             false
         );
     }
@@ -821,7 +861,9 @@ contract WiseTelecomNodesAutoCompoundFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.autoCompoundAllowed(user),
+            diamond.autoCompoundAllowed(
+                user
+            ),
             false,
             "opting out must never be blocked by a pause"
         );
@@ -850,7 +892,9 @@ contract WiseTelecomNodesAutoCompoundFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.isAutoCompoundBot(stranger),
+            diamond.isAutoCompoundBot(
+                stranger
+            ),
             true
         );
 
@@ -860,7 +904,9 @@ contract WiseTelecomNodesAutoCompoundFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.isAutoCompoundBot(stranger),
+            diamond.isAutoCompoundBot(
+                stranger
+            ),
             false
         );
     }
@@ -1015,12 +1061,16 @@ contract WiseTelecomNodesAutoCompoundFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            direct.isAutoCompoundBot(bot),
+            direct.isAutoCompoundBot(
+                bot
+            ),
             false
         );
 
         assertEq(
-            direct.autoCompoundAllowed(user),
+            direct.autoCompoundAllowed(
+                user
+            ),
             false
         );
 
@@ -1029,11 +1079,13 @@ contract WiseTelecomNodesAutoCompoundFacetTest is DiamondTestHarness {
             0
         );
 
-        bytes4[] memory sels = WiseTelecomNodesDiamondSelectors.autoCompoundSelectors();
+        bytes4[] memory sels = WiseTelecomNodesDiamondSelectors._autoCompoundSelectors();
 
         for (uint256 i = 0; i < sels.length; i++) {
             assertEq(
-                diamond.selectorToFacet(sels[i]),
+                diamond.selectorToFacet(
+                    sels[i]
+                ),
                 facetInstance,
                 "every auto-compound selector must be routed"
             );
@@ -1087,12 +1139,16 @@ contract WiseTelecomNodesAutoCompoundFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            usd.balanceOf(bot),
+            usd.balanceOf(
+                bot
+            ),
             fee
         );
 
         assertEq(
-            diamond.balanceOf(user),
+            diamond.balanceOf(
+                user
+            ),
             net
         );
 

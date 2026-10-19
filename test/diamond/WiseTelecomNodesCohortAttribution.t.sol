@@ -2,6 +2,7 @@
 
 pragma solidity =0.8.36;
 
+import {Vm} from "forge-std/Vm.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
 import {WiseTelecomNodesDiamond} from "../../src/diamond/vault/WiseTelecomNodesDiamond.sol";
@@ -10,6 +11,7 @@ import {UserFacet} from "../../src/diamond/vault/facets/UserFacet.sol";
 import {ReferralFacet} from "../../src/diamond/vault/facets/pending/ReferralFacet.sol";
 import {CohortHookFacet} from "../../src/diamond/vault/facets/pending/CohortHookFacet.sol";
 import {CohortBridgeHookFacet} from "../../src/diamond/vault/facets/pending/CohortBridgeHookFacet.sol";
+import {CohortMoveHookFacet} from "../../src/diamond/vault/facets/pending/CohortMoveHookFacet.sol";
 import {CohortRecorderFacet} from "../../src/diamond/vault/facets/pending/CohortRecorderFacet.sol";
 import {ReferralRegistry} from "../../src/registry/pending/ReferralRegistry.sol";
 import {WiseTelecomNodesDiamondSelectors} from "../../script/diamond/WiseTelecomNodesDiamondSelectors.sol";
@@ -54,7 +56,9 @@ contract MockUSD is ERC20 {
  * referral deposit that assigns the victim, then a balance drop
  * through the transfer hook or through the permissionless poke after
  * a master burn. In every case the victim keeps the credit earned
- * from other referees and loses exactly the attributed slice.
+ * from other referees and loses exactly the attributed slice. A
+ * clamp that charges nothing (an unattributed deficit) emits no
+ * attribution charge; the sync event alone carries it.
  */
 contract WiseTelecomNodesCohortAttributionTest is DiamondTestHarness {
 
@@ -99,19 +103,25 @@ contract WiseTelecomNodesCohortAttributionTest is DiamondTestHarness {
         _wireOne(
             diamond,
             address(new ReferralFacet()),
-            WiseTelecomNodesDiamondSelectors.referralSelectors()
+            WiseTelecomNodesDiamondSelectors._referralSelectors()
         );
 
         _wireOne(
             diamond,
             address(new CohortRecorderFacet()),
-            WiseTelecomNodesDiamondSelectors.cohortRecorderSelectors()
+            WiseTelecomNodesDiamondSelectors._cohortRecorderSelectors()
         );
 
         _wireOne(
             diamond,
             address(new CohortBridgeHookFacet()),
-            WiseTelecomNodesDiamondSelectors.cohortBridgeHookSelectors()
+            WiseTelecomNodesDiamondSelectors._cohortBridgeHookSelectors()
+        );
+
+        _wireOne(
+            diamond,
+            address(new CohortMoveHookFacet()),
+            WiseTelecomNodesDiamondSelectors._cohortMoveHookSelectors()
         );
 
         AdminFacet(address(diamond)).proposeTransferHookFacet(
@@ -261,12 +271,16 @@ contract WiseTelecomNodesCohortAttributionTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getCohortScore(victim),
+            _recorder().getCohortScore(
+                victim
+            ),
             5_001 * ONE
         );
 
         assertEq(
-            _recorder().getTrackedContribution(attacker),
+            _recorder().getTrackedContribution(
+                attacker
+            ),
             15_001 * ONE
         );
     }
@@ -285,7 +299,9 @@ contract WiseTelecomNodesCohortAttributionTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getCohortScore(victim),
+            _recorder().getCohortScore(
+                victim
+            ),
             5_001 * ONE
         );
 
@@ -295,22 +311,30 @@ contract WiseTelecomNodesCohortAttributionTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getCohortScore(victim),
+            _recorder().getCohortScore(
+                victim
+            ),
             5_000 * ONE
         );
 
         assertEq(
-            _recorder().getTrackedContribution(attacker),
+            _recorder().getTrackedContribution(
+                attacker
+            ),
             0
         );
 
         assertEq(
-            _recorder().getTrackedContribution(sink),
+            _recorder().getTrackedContribution(
+                sink
+            ),
             0
         );
 
         assertEq(
-            diamond.balanceOf(sink),
+            diamond.balanceOf(
+                sink
+            ),
             15_001 * ONE
         );
     }
@@ -332,12 +356,16 @@ contract WiseTelecomNodesCohortAttributionTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getCohortScore(victim),
+            _recorder().getCohortScore(
+                victim
+            ),
             5_000 * ONE
         );
 
         assertEq(
-            _recorder().getTrackedContribution(attacker),
+            _recorder().getTrackedContribution(
+                attacker
+            ),
             5_001 * ONE
         );
 
@@ -353,12 +381,16 @@ contract WiseTelecomNodesCohortAttributionTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getCohortScore(victim),
+            _recorder().getCohortScore(
+                victim
+            ),
             5_000 * ONE
         );
 
         assertEq(
-            _recorder().getTrackedContribution(attacker),
+            _recorder().getTrackedContribution(
+                attacker
+            ),
             0
         );
     }
@@ -369,12 +401,16 @@ contract WiseTelecomNodesCohortAttributionTest is DiamondTestHarness {
         _stageLateReferral();
 
         assertEq(
-            _recorder().getAttributedContribution(attacker),
+            _recorder().getAttributedContribution(
+                attacker
+            ),
             ONE
         );
 
         assertEq(
-            _recorder().getAttributedContribution(honest),
+            _recorder().getAttributedContribution(
+                honest
+            ),
             5_000 * ONE
         );
 
@@ -405,18 +441,26 @@ contract WiseTelecomNodesCohortAttributionTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getAttributedContribution(attacker),
+            _recorder().getAttributedContribution(
+                attacker
+            ),
             0
         );
 
         assertEq(
-            _recorder().getAttributedContribution(sink),
+            _recorder().getAttributedContribution(
+                sink
+            ),
             0
         );
 
         assertLe(
-            _recorder().getAttributedContribution(honest),
-            _recorder().getTrackedContribution(honest)
+            _recorder().getAttributedContribution(
+                honest
+            ),
+            _recorder().getTrackedContribution(
+                honest
+            )
         );
     }
 
@@ -442,17 +486,23 @@ contract WiseTelecomNodesCohortAttributionTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(attacker),
+            _recorder().getTrackedContribution(
+                attacker
+            ),
             700 * ONE
         );
 
         assertEq(
-            _recorder().getAttributedContribution(attacker),
+            _recorder().getAttributedContribution(
+                attacker
+            ),
             700 * ONE
         );
 
         assertEq(
-            _recorder().getCohortScore(victim),
+            _recorder().getCohortScore(
+                victim
+            ),
             5_700 * ONE
         );
 
@@ -468,12 +518,16 @@ contract WiseTelecomNodesCohortAttributionTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getCohortScore(victim),
+            _recorder().getCohortScore(
+                victim
+            ),
             5_000 * ONE
         );
 
         assertEq(
-            _recorder().getAttributedContribution(attacker),
+            _recorder().getAttributedContribution(
+                attacker
+            ),
             0
         );
     }
@@ -511,17 +565,23 @@ contract WiseTelecomNodesCohortAttributionTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(attacker),
+            _recorder().getTrackedContribution(
+                attacker
+            ),
             7_000 * ONE
         );
 
         assertEq(
-            _recorder().getAttributedContribution(attacker),
+            _recorder().getAttributedContribution(
+                attacker
+            ),
             5_000 * ONE
         );
 
         assertEq(
-            _recorder().getCohortScore(victim),
+            _recorder().getCohortScore(
+                victim
+            ),
             15_000 * ONE
         );
 
@@ -552,12 +612,16 @@ contract WiseTelecomNodesCohortAttributionTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getCohortScore(victim),
+            _recorder().getCohortScore(
+                victim
+            ),
             10_000 * ONE
         );
 
         assertEq(
-            _recorder().getAttributedContribution(attacker),
+            _recorder().getAttributedContribution(
+                attacker
+            ),
             0
         );
     }
@@ -575,7 +639,9 @@ contract WiseTelecomNodesCohortAttributionTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getCohortScore(victim),
+            _recorder().getCohortScore(
+                victim
+            ),
             5_001 * ONE
         );
 
@@ -588,12 +654,87 @@ contract WiseTelecomNodesCohortAttributionTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getCohortScore(victim),
+            _recorder().getCohortScore(
+                victim
+            ),
             5_000 * ONE
         );
 
         assertEq(
-            _recorder().getTrackedContribution(attacker),
+            _recorder().getTrackedContribution(
+                attacker
+            ),
+            0
+        );
+    }
+
+    function test_syncReferee_unattributedDeficit_emitsNoAttributionCharge()
+        public
+    {
+        _plainDepositAs(
+            attacker,
+            5_000 * ONE
+        );
+
+        _transferAs(
+            attacker,
+            sink,
+            2_000 * ONE
+        );
+
+        vm.recordLogs();
+
+        _pokeAs(
+            poker,
+            attacker
+        );
+
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        bytes32 charged = keccak256(
+            "CohortAttributionCharged(address,address,uint256,uint256)"
+        );
+
+        bytes32 synced = keccak256(
+            "CohortContributionSynced(address,address,uint256,uint256)"
+        );
+
+        uint256 chargedCount;
+
+        uint256 syncedCount;
+
+        for (uint256 i; i < logs.length; ++i) {
+
+            if (logs[i].topics[0] == charged) {
+                ++chargedCount;
+            }
+
+            if (logs[i].topics[0] == synced) {
+                ++syncedCount;
+            }
+        }
+
+        assertEq(
+            chargedCount,
+            0
+        );
+
+        assertEq(
+            syncedCount,
+            1
+        );
+
+        assertEq(
+            _recorder().getTrackedContribution(
+                attacker
+            ),
+            3_000 * ONE
+        );
+
+        assertEq(
+            _recorder().getAttributedContribution(
+                attacker
+            ),
             0
         );
     }

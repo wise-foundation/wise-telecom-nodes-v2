@@ -12,8 +12,10 @@ import {BridgeFacet} from "../../src/diamond/vault/facets/BridgeFacet.sol";
 import {ReferralFacet} from "../../src/diamond/vault/facets/pending/ReferralFacet.sol";
 import {CohortHookFacet} from "../../src/diamond/vault/facets/pending/CohortHookFacet.sol";
 import {CohortBridgeHookFacet} from "../../src/diamond/vault/facets/pending/CohortBridgeHookFacet.sol";
+import {CohortMoveHookFacet} from "../../src/diamond/vault/facets/pending/CohortMoveHookFacet.sol";
 import {CohortRecorderFacet} from "../../src/diamond/vault/facets/pending/CohortRecorderFacet.sol";
 import {CohortRecorderBase} from "../../src/diamond/vault/facets/pending/CohortRecorderBase.sol";
+import {FacetBase} from "../../src/diamond/vault/facets/FacetBase.sol";
 import {CohortWeeks} from "../../src/diamond/shared/pending/CohortWeeks.sol";
 import {ReferralRegistry} from "../../src/registry/pending/ReferralRegistry.sol";
 
@@ -22,6 +24,7 @@ import {WiseTelecomNodesDiamondErrors} from "../../src/diamond/vault/WiseTelecom
 import {WiseTelecomNodesDiamondSelectors} from "../../script/diamond/WiseTelecomNodesDiamondSelectors.sol";
 
 import {DiamondTestHarness} from "./utils/DiamondTestHarness.sol";
+import {BridgeCarryTestCodec} from "./utils/BridgeCarryTestCodec.sol";
 import {CarryMockUSD, CarryMockRouter} from "./WiseTelecomNodesCohortBridgeCarry.t.sol";
 
 /**
@@ -94,7 +97,9 @@ contract ShapeShiftPairRegistry {
  * `effectiveReferrerOf` honestly with a fixed local referrer but
  * reverts every `mergeReferrer`, standing in for a registry that
  * rejects the carried origin key. The guarded merge must swallow the
- * revert and the lanes must land under the local answer.
+ * revert and the lanes must land under the local answer. Its
+ * `syncPeerQuarantined` answers false for every chain, so the arrival
+ * seam's quarantine read passes and the merge is really attempted.
  */
 contract MergeRevertRegistry {
 
@@ -106,6 +111,16 @@ contract MergeRevertRegistry {
         LOCAL_ANSWER = _localAnswer;
     }
 
+    function syncPeerQuarantined(
+        uint64
+    )
+        external
+        pure
+        returns (bool)
+    {
+        return false;
+    }
+
     function mergeReferrer(
         address,
         address,
@@ -115,7 +130,9 @@ contract MergeRevertRegistry {
         external
         pure
     {
-        revert("MergeRevertRegistry: reverts");
+        revert(
+            "MergeRevertRegistry: reverts"
+        );
     }
 
     function effectiveReferrerOf(
@@ -135,11 +152,23 @@ contract MergeRevertRegistry {
  * calls so the merge attempt is observable) while every post-merge
  * `effectiveReferrerOf` lookup reverts: the shape of a registry that
  * breaks between the merge write and the landing read. The apply path
- * must keep the tracked delta and drop only the book lanes.
+ * must keep the tracked delta and drop only the book lanes. Its
+ * `syncPeerQuarantined` answers false for every chain, so the merge
+ * attempt the counter records is never skipped by the quarantine read.
  */
 contract LookupRevertRegistry {
 
     uint256 public mergeCalls;
+
+    function syncPeerQuarantined(
+        uint64
+    )
+        external
+        pure
+        returns (bool)
+    {
+        return false;
+    }
 
     function mergeReferrer(
         address,
@@ -160,7 +189,140 @@ contract LookupRevertRegistry {
         pure
         returns (address)
     {
-        revert("LookupRevertRegistry: reverts");
+        revert(
+            "LookupRevertRegistry: reverts"
+        );
+    }
+}
+
+/**
+ * @dev An honest registry stand-in for the arrival quarantine seam:
+ * `effectiveReferrerOf` answers a fixed local referrer, `mergeReferrer`
+ * counts calls so a merge attempt (or its absence) is observable, and
+ * `syncPeerQuarantined` answers a per-chain flag the test raises or
+ * lowers through `setQuarantined`, standing in for a registry whose
+ * master braked one peer chain with `removeSyncPeer`.
+ */
+contract QuarantineRegistry {
+
+    address public immutable LOCAL_ANSWER;
+
+    uint256 public mergeCalls;
+
+    mapping(uint64 => bool) public syncPeerQuarantined;
+
+    constructor(
+        address _localAnswer
+    ) {
+        LOCAL_ANSWER = _localAnswer;
+    }
+
+    function setQuarantined(
+        uint64 _chainSelector,
+        bool _quarantined
+    )
+        external
+    {
+        syncPeerQuarantined[_chainSelector] = _quarantined;
+    }
+
+    function mergeReferrer(
+        address,
+        address,
+        uint256,
+        uint256
+    )
+        external
+    {
+        mergeCalls += 1;
+    }
+
+    function effectiveReferrerOf(
+        address,
+        address
+    )
+        external
+        view
+        returns (address)
+    {
+        return LOCAL_ANSWER;
+    }
+}
+
+/**
+ * @dev A registry stand-in whose `syncPeerQuarantined` answers in
+ * exactly one hostile shape per deployed instance, selected by the
+ * immutable `MODE` in the register of {ShapeShiftPairRegistry}: 0
+ * returns 64 bytes instead of 32 (a first word of zero that a naive
+ * decode would read as not quarantined), 1 returns a dirty word of 2,
+ * and anything else reverts outright. `effectiveReferrerOf` answers a
+ * fixed local referrer honestly and `mergeReferrer` counts calls, so
+ * the pins observe that every hostile quarantine answer reads as a
+ * quarantine read failure that skips the merge while the lanes still
+ * land under the local answer.
+ */
+contract ShapeShiftQuarantineRegistry {
+
+    uint256 public immutable MODE;
+
+    address public immutable LOCAL_ANSWER;
+
+    uint256 public mergeCalls;
+
+    constructor(
+        uint256 _mode,
+        address _localAnswer
+    ) {
+        MODE = _mode;
+        LOCAL_ANSWER = _localAnswer;
+    }
+
+    function syncPeerQuarantined(
+        uint64
+    )
+        external
+        view
+        returns (bool)
+    {
+        uint256 mode = MODE;
+
+        assembly {
+            switch mode
+            case 0 {
+                mstore(0x00, 0)
+                mstore(0x20, 0)
+                return(0x00, 0x40)
+            }
+            case 1 {
+                mstore(0x00, 2)
+                return(0x00, 0x20)
+            }
+            default {
+                revert(0x00, 0x00)
+            }
+        }
+    }
+
+    function mergeReferrer(
+        address,
+        address,
+        uint256,
+        uint256
+    )
+        external
+    {
+        mergeCalls += 1;
+    }
+
+    function effectiveReferrerOf(
+        address,
+        address
+    )
+        external
+        view
+        returns (address)
+    {
+        return LOCAL_ANSWER;
     }
 }
 
@@ -169,15 +331,12 @@ contract LookupRevertRegistry {
  * bridge-carry capture/apply seam, following the
  * {CohortCarryHarness} register: deployed STANDALONE, no diamond and
  * no DELEGATECALL, storage layout identical to the diamond's via
- * {FacetBase}'s constructor, every `exposed*` forwarding verbatim
+ * {CohortPinnedBase}, every `exposed*` forwarding verbatim
  * into the inherited engine internal and every `harnessSet*` writer
  * touching exactly one declared field. It takes its registry as an
  * address (tests deploy and point it themselves) and embeds no
  * creation code, keeping the contract clear of the EIP-170 limit the
- * full-surface harness split was made for. `exposedCohortBridgeOut`
- * additionally forwards into the helper-chain stub so the stub's own
- * disarmed short-circuit (pre-guarded by its only production call
- * site and therefore reachable nowhere else) executes as real code.
+ * full-surface harness split was made for.
  */
 contract CohortBridgeSeamHarness is CohortRecorderBase {
 
@@ -219,25 +378,6 @@ contract CohortBridgeSeamHarness is CohortRecorderBase {
         );
     }
 
-    function exposedCohortBridgeOut(
-        address _user,
-        uint64 _dstChainSelector,
-        uint256 _burnedAmount,
-        uint256 _scaleNumerator,
-        uint256 _scaleDenominator
-    )
-        external
-        returns (bytes memory)
-    {
-        return _cohortBridgeOut(
-            _user,
-            _dstChainSelector,
-            _burnedAmount,
-            _scaleNumerator,
-            _scaleDenominator
-        );
-    }
-
     // ---- narrow storage writers (harness scaffolding only) ----
 
     function harnessSetRegistry(
@@ -276,7 +416,7 @@ contract CohortBridgeSeamHarness is CohortRecorderBase {
     )
         external
     {
-        cohortBook[_referrer] = CohortWeeks.packLanes(
+        cohortBook[_referrer] = CohortWeeks._packLanes(
             _y1,
             _y2,
             _m
@@ -289,10 +429,8 @@ contract CohortBridgeSeamHarness is CohortRecorderBase {
     )
         external
     {
-        _mint(
-            _user,
-            _amount
-        );
+        _balances[_user] = _balances[_user]
+            + _amount;
     }
 
     function harnessSetRingYear1(
@@ -376,12 +514,8 @@ contract CohortBridgeSeamHarness is CohortRecorderBase {
  * {CohortBridgeSeamHarness} so neither closure approaches the EIP-170
  * runtime limit, mirroring how {CohortLaneHarness} and
  * {CohortCarryHarness} split the same-chain surface. Same standalone
- * rules: layout parity via {FacetBase}'s constructor, `exposed*`
+ * rules: layout parity via {CohortPinnedBase}, `exposed*`
  * verbatim into the engine, `harnessSet*` one declared field each.
- * `exposedReplantPairs` forwards into the pair replant walk directly
- * so its zero-amount skip (defensive against a pair shape the
- * captured reduction walk itself never records) executes as real
- * code.
  */
 contract CohortFlipSeamHarness is CohortRecorderBase {
 
@@ -398,24 +532,6 @@ contract CohortFlipSeamHarness is CohortRecorderBase {
             _user,
             _oldReferrer,
             _newReferrer
-        );
-    }
-
-    function exposedReplantPairs(
-        address _referrer,
-        uint256[] memory _pairs,
-        uint256 _pairCount
-    )
-        external
-        returns (
-            uint256 year1Sum,
-            uint256 year2Sum
-        )
-    {
-        return _replantPairsCohort(
-            _referrer,
-            _pairs,
-            _pairCount
         );
     }
 
@@ -459,7 +575,7 @@ contract CohortFlipSeamHarness is CohortRecorderBase {
     )
         external
     {
-        cohortBook[_referrer] = CohortWeeks.packLanes(
+        cohortBook[_referrer] = CohortWeeks._packLanes(
             _y1,
             _y2,
             _m
@@ -472,10 +588,8 @@ contract CohortFlipSeamHarness is CohortRecorderBase {
     )
         external
     {
-        _mint(
-            _user,
-            _amount
-        );
+        _balances[_user] = _balances[_user]
+            + _amount;
     }
 
     // ---- view helpers ----
@@ -546,9 +660,10 @@ contract CohortFlipSeamHarness is CohortRecorderBase {
  * stands; the flip route bubbles its revert so the registry defers
  * the migration and restores the marker), an armed destination whose
  * bridge-in selector group was never routed (structural no-op plus
- * fallback), a transfer hook uninstalled through its own timelock
- * while the recorder stays armed (every sync poke becomes a silent
- * no-op and funds keep moving), and a lower-decimal peer whose
+ * fallback), a transfer hook pointer zeroed while the recorder stays
+ * armed (written directly, because the AdminFacet refuses to execute
+ * a zero hook while armed; every sync poke becomes a silent no-op and
+ * funds keep moving), and a lower-decimal peer whose
  * per-component floor scaling is asserted on the source-side wire
  * payload. Direct external calls to the three routed engine
  * entrypoints must revert {NotHookExecution}; the bracket only ever
@@ -556,17 +671,64 @@ contract CohortFlipSeamHarness is CohortRecorderBase {
  *
  * The two in-file harnesses drive the engine internals the
  * full-diamond fixture cannot reach: capture with an unset registry
- * pointer (clamp runs, carry skipped, nothing staged), a deficit
+ * pointer (a failed lookup reported once: clamp deferred, carry
+ * skipped, nothing staged), a deficit
  * whose scaled envelope collapses to zero (clamp runs, empty wire),
  * apply with an unset pointer or a post-merge lookup failure (tracked
  * applied, book lanes dropped), a rejected merge (lanes land under
  * the local answer), the flip migration's sale-like deficit clamp and
- * its saturating replant clip, and the replant walk's defensive
- * zero-amount pair skip. A scaled-down capture over a three-lane book
+ * its saturating landing clip at the pair's own slot. A scaled-down
+ * capture over a three-lane book
  * floors every lane on its own, so the carried tracked delta stays
  * strictly below the floored burn and a second harness lands each
  * floored lane under the mint without ever rounding up.
+ *
+ * Every harness apply first gives the user a balance of at least the
+ * tracked amount plus the carried delta, because the arrival seam
+ * discards a payload wholesale when the carried delta would lift
+ * tracked above the balance held after the mint; the headroom pins
+ * hold that ceiling on the harness and on a real diamond whose holder
+ * already sits above held. {QuarantineRegistry} and
+ * {ShapeShiftQuarantineRegistry} pin the quarantine read before the
+ * merge: an unquarantined source chain merges, a quarantined one (or a
+ * wrong-size, dirty or reverting answer, which reports its own
+ * quarantine read failure, never a failed referrer lookup) skips the
+ * merge while the lanes land under the local answer.
+ * The capture pins read the capture week and codec version 2 off the
+ * envelope word, a capture week ahead of the arrival clock lands
+ * without drift, and one boundary crossed in flight lands the year-1
+ * aggregate on the year-2 ring.
  */
+/**
+ * @dev Full-chain harness for the helper-chain bridge-out stub alone:
+ * deployed STANDALONE over {FacetBase}, so the stub's own disarmed
+ * short-circuit (pre-guarded by its only production call site and
+ * therefore reachable nowhere else) executes as real code. The stub
+ * lives in the helper chain, which the slim engine base does not
+ * inherit, so it cannot ride the seam harness.
+ */
+contract CohortBridgeOutStubHarness is FacetBase {
+
+    function exposedCohortBridgeOut(
+        address _user,
+        uint64 _dstChainSelector,
+        uint256 _burnedAmount,
+        uint256 _scaleNumerator,
+        uint256 _scaleDenominator
+    )
+        external
+        returns (bytes memory)
+    {
+        return _cohortBridgeOut(
+            _user,
+            _dstChainSelector,
+            _burnedAmount,
+            _scaleNumerator,
+            _scaleDenominator
+        );
+    }
+}
+
 contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
 
     uint256 internal constant BASE_TIME = 3_000 weeks + 1 hours;
@@ -589,8 +751,14 @@ contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
 
     bytes internal constant REVERT_CODE = hex"60006000fd";
 
+    bytes internal constant OOG_CODE = hex"5b600056";
+
+    uint256 internal constant TRANSFER_HOOK_SLOT = 45;
+
+    uint256 internal constant REFERRAL_REGISTRY_SLOT = 77;
+
     bytes32 internal constant SENT_TOPIC = keccak256(
-        "CohortBridgeCarrySent(address,uint64,address,uint256,uint256,uint256,uint256)"
+        "CohortBridgeCarrySent(address,uint64,address,uint256,uint256,uint256,uint256,address)"
     );
 
     address internal user1 = address(0xA1);
@@ -614,6 +782,7 @@ contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
 
     CohortBridgeSeamHarness internal seamHarness;
     CohortFlipSeamHarness internal flipHarness;
+    CohortBridgeOutStubHarness internal stubHarness;
 
     event CohortBridgeCarrySent(
         address indexed user,
@@ -622,7 +791,8 @@ contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
         uint256 trackedDelta,
         uint256 year1,
         uint256 year2,
-        uint256 mature
+        uint256 mature,
+        address bookReferrer
     );
 
     event CohortBridgeCarryApplied(
@@ -659,6 +829,11 @@ contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
         address indexed user
     );
 
+    event CohortQuarantineReadFailed(
+        address indexed user,
+        uint64 indexed srcChainSelector
+    );
+
     event CohortContributionSynced(
         address indexed user,
         address indexed referrer,
@@ -688,6 +863,11 @@ contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
         uint256 year2,
         uint256 mature,
         uint256 pairCount
+    );
+
+    event CohortBridgeCarryDiscarded(
+        address indexed user,
+        uint64 indexed srcChainSelector
     );
 
     event BridgeReferral(
@@ -779,6 +959,8 @@ contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
 
         flipHarness = new CohortFlipSeamHarness();
 
+        stubHarness = new CohortBridgeOutStubHarness();
+
         vm.deal(
             user1,
             100 ether
@@ -808,19 +990,19 @@ contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
         _wireOne(
             d,
             address(new BridgeFacet()),
-            WiseTelecomNodesDiamondSelectors.bridgeSelectors()
+            WiseTelecomNodesDiamondSelectors._bridgeSelectors()
         );
 
         _wireOne(
             d,
             address(new ReferralFacet()),
-            WiseTelecomNodesDiamondSelectors.referralSelectors()
+            WiseTelecomNodesDiamondSelectors._referralSelectors()
         );
 
         _wireOne(
             d,
             address(new CohortRecorderFacet()),
-            WiseTelecomNodesDiamondSelectors.cohortRecorderSelectors()
+            WiseTelecomNodesDiamondSelectors._cohortRecorderSelectors()
         );
 
         bridgeHookFacet = address(
@@ -830,7 +1012,13 @@ contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
         _wireOne(
             d,
             bridgeHookFacet,
-            WiseTelecomNodesDiamondSelectors.cohortBridgeHookSelectors()
+            WiseTelecomNodesDiamondSelectors._cohortBridgeHookSelectors()
+        );
+
+        _wireOne(
+            d,
+            address(new CohortMoveHookFacet()),
+            WiseTelecomNodesDiamondSelectors._cohortMoveHookSelectors()
         );
 
         AdminFacet(address(d)).proposeTransferHookFacet(
@@ -1009,14 +1197,159 @@ contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
         uint256 _mature
     )
         internal
+        view
+        returns (bytes memory)
+    {
+        return _packCarryFromWeek(
+            block.timestamp / 1 weeks,
+            _referrer,
+            _version,
+            _trackedDelta,
+            _assignedAt,
+            _rank,
+            _year1,
+            _year2,
+            _mature
+        );
+    }
+
+    function _packCarryFromWeek(
+        uint256 _captureWeek,
+        address _referrer,
+        uint256 _version,
+        uint256 _trackedDelta,
+        uint256 _assignedAt,
+        uint256 _rank,
+        uint256 _year1,
+        uint256 _year2,
+        uint256 _mature
+    )
+        internal
         pure
         returns (bytes memory)
     {
-        return abi.encode(
-            uint256(uint160(_referrer)) | (_version << 160),
-            _trackedDelta | (_assignedAt << 128) | (_rank << 192),
-            _year1 | (_year2 << 128),
+        return BridgeCarryTestCodec._pack(
+            _referrer,
+            _version,
+            _captureWeek,
+            _trackedDelta,
+            _assignedAt,
+            _rank,
+            _year1,
+            _year2,
             _mature
+        );
+    }
+
+    function _applyUnderQuarantineShape(
+        uint256 _mode
+    )
+        internal
+    {
+        ShapeShiftQuarantineRegistry hostile = new ShapeShiftQuarantineRegistry(
+            _mode,
+            refB
+        );
+
+        seamHarness.harnessSetRegistry(
+            address(hostile)
+        );
+
+        uint256 amount = 600 * 1e6;
+
+        uint256 slot = _creditSlot();
+
+        seamHarness.harnessMintBalance(
+            user1,
+            amount
+        );
+
+        bytes memory payload = _packCarry(
+            refA,
+            3,
+            amount,
+            block.timestamp - 1 days,
+            0,
+            amount,
+            0,
+            0
+        );
+
+        vm.expectEmit(
+            true,
+            true,
+            false,
+            true,
+            address(seamHarness)
+        );
+
+        emit CohortQuarantineReadFailed(
+            user1,
+            SELECTOR_A
+        );
+
+        vm.expectEmit(
+            true,
+            true,
+            true,
+            true,
+            address(seamHarness)
+        );
+
+        emit CohortBridgeCarryApplied(
+            user1,
+            SELECTOR_A,
+            refB,
+            refA,
+            amount,
+            amount,
+            0,
+            0
+        );
+
+        bool applied = seamHarness.exposedApplyBridgeIn(
+            user1,
+            SELECTOR_A,
+            amount,
+            payload
+        );
+
+        assertTrue(
+            applied
+        );
+
+        assertEq(
+            hostile.mergeCalls(),
+            0
+        );
+
+        assertEq(
+            seamHarness.viewTracked(
+                user1
+            ),
+            amount
+        );
+
+        assertEq(
+            uint256(seamHarness.viewRingYear1(
+                refB,
+                slot
+            )),
+            amount
+        );
+
+        assertEq(
+            seamHarness.viewBookWord(
+                refB
+            ),
+            amount
+        );
+
+        assertEq(
+            seamHarness.viewBookWord(
+                refA
+            ),
+            0
         );
     }
 
@@ -1132,23 +1465,37 @@ contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
             );
 
             assertEq(
-                _recorderOf(vaultA).getTrackedContribution(user1),
+                _recorderOf(
+                    vaultA
+                ).getTrackedContribution(
+                    user1
+                ),
                 DEPOSIT
             );
 
             assertEq(
-                _recorderOf(vaultA).getCohortScore(refA),
+                _recorderOf(
+                    vaultA
+                ).getCohortScore(
+                    refA
+                ),
                 DEPOSIT
             );
         }
 
         assertEq(
-            vaultB.balanceOf(user1),
+            vaultB.balanceOf(
+                user1
+            ),
             5 * SLICE
         );
 
         assertEq(
-            _recorderOf(vaultB).getTrackedContribution(user1),
+            _recorderOf(
+                vaultB
+            ).getTrackedContribution(
+                user1
+            ),
             0
         );
 
@@ -1162,12 +1509,20 @@ contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorderOf(vaultA).getTrackedContribution(user1),
+            _recorderOf(
+                vaultA
+            ).getTrackedContribution(
+                user1
+            ),
             DEPOSIT - 5 * SLICE
         );
 
         assertEq(
-            _recorderOf(vaultA).getCohortScore(refA),
+            _recorderOf(
+                vaultA
+            ).getCohortScore(
+                refA
+            ),
             DEPOSIT - 5 * SLICE
         );
     }
@@ -1185,11 +1540,11 @@ contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
         uint256 big = uint256(type(uint64).max) - 5;
         uint256 topUp = 100;
 
-        uint256 slot = _landSlot();
+        uint256 slot = _creditSlot();
 
         bytes memory first = _packCarry(
             fRef,
-            1,
+            3,
             big,
             block.timestamp,
             2,
@@ -1200,7 +1555,7 @@ contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
 
         bytes memory second = _packCarry(
             fRef,
-            1,
+            3,
             topUp,
             block.timestamp,
             2,
@@ -1281,7 +1636,11 @@ contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorderOf(vaultB).getTrackedContribution(fUser),
+            _recorderOf(
+                vaultB
+            ).getTrackedContribution(
+                fUser
+            ),
             big + topUp
         );
     }
@@ -1310,19 +1669,19 @@ contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
         _wireOne(
             vaultC,
             address(new BridgeFacet()),
-            WiseTelecomNodesDiamondSelectors.bridgeSelectors()
+            WiseTelecomNodesDiamondSelectors._bridgeSelectors()
         );
 
         _wireOne(
             vaultC,
             address(new ReferralFacet()),
-            WiseTelecomNodesDiamondSelectors.referralSelectors()
+            WiseTelecomNodesDiamondSelectors._referralSelectors()
         );
 
         _wireOne(
             vaultC,
             address(new CohortRecorderFacet()),
-            WiseTelecomNodesDiamondSelectors.cohortRecorderSelectors()
+            WiseTelecomNodesDiamondSelectors._cohortRecorderSelectors()
         );
 
         AdminFacet(address(vaultC)).proposeTransferHookFacet(
@@ -1364,7 +1723,7 @@ contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
 
         bytes memory payload = _packCarry(
             refA,
-            1,
+            3,
             amount,
             block.timestamp,
             0,
@@ -1409,17 +1768,25 @@ contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
         );
 
         assertEq(
-            vaultC.balanceOf(user1),
+            vaultC.balanceOf(
+                user1
+            ),
             amount
         );
 
         assertEq(
-            _recorderOf(vaultC).getTrackedContribution(user1),
+            _recorderOf(
+                vaultC
+            ).getTrackedContribution(
+                user1
+            ),
             0
         );
 
         assertEq(
-            registryC.referrerOf(user1),
+            registryC.referrerOf(
+                user1
+            ),
             address(0)
         );
     }
@@ -1440,7 +1807,7 @@ contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
 
         bytes memory payload = _packCarry(
             refA,
-            1,
+            3,
             amount,
             block.timestamp,
             0,
@@ -1490,18 +1857,131 @@ contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
         );
 
         assertEq(
-            vaultB.balanceOf(user1),
+            vaultB.balanceOf(
+                user1
+            ),
             amount
         );
 
         assertEq(
-            _recorderOf(vaultB).getTrackedContribution(user1),
+            _recorderOf(
+                vaultB
+            ).getTrackedContribution(
+                user1
+            ),
             0
         );
 
         assertEq(
-            _recorderOf(vaultB).getCohortScore(refA),
+            _recorderOf(
+                vaultB
+            ).getCohortScore(
+                refA
+            ),
             0
+        );
+    }
+
+    function test_ccipReceive_applyOutOfGas_revertsReceive()
+        public
+    {
+        _armDest();
+
+        BridgeFacet(address(vaultB)).setReferralEnabled(
+            true
+        );
+
+        uint256 amount = 1_000 * 1e6;
+
+        bytes memory payload = _packCarry(
+            refA,
+            3,
+            amount,
+            block.timestamp,
+            0,
+            amount,
+            0,
+            0
+        );
+
+        bytes memory realCode = bridgeHookFacetB.code;
+
+        vm.etch(
+            bridgeHookFacetB,
+            OOG_CODE
+        );
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                WiseTelecomNodesDiamondErrors.CohortBridgeInOutOfGas.selector,
+                user1,
+                SELECTOR_A
+            )
+        );
+
+        _deliverCarry(
+            0x729,
+            user1,
+            amount,
+            payload
+        );
+
+        assertEq(
+            vaultB.balanceOf(
+                user1
+            ),
+            0
+        );
+
+        assertEq(
+            _recorderOf(
+                vaultB
+            ).getTrackedContribution(
+                user1
+            ),
+            0
+        );
+
+        assertEq(
+            registryB.referrerOf(
+                user1
+            ),
+            address(0)
+        );
+
+        vm.etch(
+            bridgeHookFacetB,
+            realCode
+        );
+
+        _deliverCarry(
+            0x729,
+            user1,
+            amount,
+            payload
+        );
+
+        assertEq(
+            vaultB.balanceOf(
+                user1
+            ),
+            amount
+        );
+
+        assertEq(
+            _recorderOf(
+                vaultB
+            ).getTrackedContribution(
+                user1
+            ),
+            amount
+        );
+
+        assertEq(
+            registryB.referrerOf(
+                user1
+            ),
+            refA
         );
     }
 
@@ -1589,12 +2069,20 @@ contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorderOf(vaultB).getCohortScore(refB),
+            _recorderOf(
+                vaultB
+            ).getCohortScore(
+                refB
+            ),
             DEPOSIT_B + BRIDGE_AMOUNT
         );
 
         assertEq(
-            _recorderOf(vaultB).getCohortScore(refA),
+            _recorderOf(
+                vaultB
+            ).getCohortScore(
+                refA
+            ),
             0
         );
 
@@ -1631,12 +2119,20 @@ contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorderOf(vaultB).getCohortScore(refB),
+            _recorderOf(
+                vaultB
+            ).getCohortScore(
+                refB
+            ),
             0
         );
 
         assertEq(
-            _recorderOf(vaultB).getCohortScore(refA),
+            _recorderOf(
+                vaultB
+            ).getCohortScore(
+                refA
+            ),
             DEPOSIT_B + BRIDGE_AMOUNT
         );
     }
@@ -1656,15 +2152,15 @@ contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
             refA
         );
 
-        AdminFacet(address(vaultA)).proposeTransferHookFacet(
-            address(0)
-        );
-
         vm.warp(
             block.timestamp + 3 days + 1
         );
 
-        AdminFacet(address(vaultA)).executeTransferHookFacetChange();
+        vm.store(
+            address(vaultA),
+            bytes32(TRANSFER_HOOK_SLOT),
+            bytes32(0)
+        );
 
         vm.prank(
             user1
@@ -1680,17 +2176,27 @@ contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
         );
 
         assertEq(
-            vaultA.balanceOf(user1),
+            vaultA.balanceOf(
+                user1
+            ),
             DEPOSIT - 1_000 * 1e6
         );
 
         assertEq(
-            _recorderOf(vaultA).getTrackedContribution(user1),
+            _recorderOf(
+                vaultA
+            ).getTrackedContribution(
+                user1
+            ),
             DEPOSIT
         );
 
         assertEq(
-            _recorderOf(vaultA).getCohortScore(refA),
+            _recorderOf(
+                vaultA
+            ).getCohortScore(
+                refA
+            ),
             DEPOSIT
         );
     }
@@ -1749,7 +2255,8 @@ contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
             scaledDelta,
             scaledDelta,
             0,
-            0
+            0,
+            refA
         );
 
         _bridgeAs(
@@ -1800,6 +2307,13 @@ contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
 
         assertEq(
             (word0 >> 160) & 0xff,
+            3
+        );
+
+        assertEq(
+            CohortWeeks._bridgeCarryPairCount(
+                word0
+            ),
             1
         );
 
@@ -1814,27 +2328,41 @@ contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
         );
 
         assertEq(
-            word2 & ((uint256(1) << 128) - 1),
+            CohortWeeks._carryPairAmount(
+                CohortWeeks._carryPairLo(
+                    word3
+                )
+            ),
             scaledDelta
         );
 
         assertEq(
-            word2 >> 128,
+            CohortWeeks._carryPairHi(
+                word3
+            ),
             0
         );
 
         assertEq(
-            word3,
+            word2,
             0
         );
 
         assertEq(
-            _recorderOf(vaultA).getTrackedContribution(user1),
+            _recorderOf(
+                vaultA
+            ).getTrackedContribution(
+                user1
+            ),
             DEPOSIT - burnAmount
         );
 
         assertEq(
-            _recorderOf(vaultA).getCohortScore(refA),
+            _recorderOf(
+                vaultA
+            ).getCohortScore(
+                refA
+            ),
             DEPOSIT - burnAmount
         );
     }
@@ -1899,10 +2427,10 @@ contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
         );
     }
 
-    // ---- 9. capture with an unset registry pointer: clamp runs,
-    // carry skipped, nothing staged ----
+    // ---- 9. capture with an unset registry pointer: a failed lookup,
+    // clamp deferred, carry skipped, nothing staged ----
 
-    function test_captureBridgeOut_registryUnset_clampsAndSkips()
+    function test_captureBridgeOut_registryUnset_defersClampAndSkips()
         public
     {
         seamHarness.harnessMintBalance(
@@ -1917,17 +2445,14 @@ contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
 
         vm.expectEmit(
             true,
-            true,
+            false,
             false,
             true,
             address(seamHarness)
         );
 
-        emit CohortContributionSynced(
-            user1,
-            address(0),
-            800 * 1e6,
-            300 * 1e6
+        emit CohortReferrerLookupFailed(
+            user1
         );
 
         vm.expectEmit(
@@ -1957,8 +2482,68 @@ contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
         );
 
         assertEq(
-            seamHarness.viewTracked(user1),
+            seamHarness.viewTracked(
+                user1
+            ),
+            800 * 1e6
+        );
+
+        assertEq(
+            seamHarness.viewAttributed(
+                user1
+            ),
+            800 * 1e6
+        );
+    }
+
+    function test_captureBridgeOut_registryUnset_reportsOneLookupFailure()
+        public
+    {
+        seamHarness.harnessMintBalance(
+            user1,
             300 * 1e6
+        );
+
+        seamHarness.harnessSetTracked(
+            user1,
+            800 * 1e6
+        );
+
+        vm.recordLogs();
+
+        bytes memory payload = seamHarness.exposedCaptureBridgeOut(
+            user1,
+            SELECTOR_B,
+            500 * 1e6,
+            1,
+            1
+        );
+
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        assertEq(
+            payload.length,
+            0
+        );
+
+        assertEq(
+            _countTopic(
+                logs,
+                keccak256(
+                    "CohortReferrerLookupFailed(address)"
+                )
+            ),
+            1
+        );
+
+        assertEq(
+            _countTopic(
+                logs,
+                keccak256(
+                    "CohortBridgeCarrySkipped(address,uint64)"
+                )
+            ),
+            1
         );
     }
 
@@ -2020,12 +2605,16 @@ contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
         );
 
         assertEq(
-            seamHarness.viewTracked(user1),
+            seamHarness.viewTracked(
+                user1
+            ),
             1_000 * 1e6
         );
 
         assertEq(
-            seamHarness.viewBookWord(refA),
+            seamHarness.viewBookWord(
+                refA
+            ),
             0
         );
 
@@ -2112,45 +2701,63 @@ contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
         );
 
         assertEq(
-            seamHarness.viewTracked(user1),
+            seamHarness.viewTracked(
+                user1
+            ),
             1_000 * 1e6
         );
 
         assertEq(
-            seamHarness.viewAttributed(user1),
+            seamHarness.viewAttributed(
+                user1
+            ),
             0
         );
 
         assertEq(
-            seamHarness.viewBookWord(refA),
-            CohortWeeks.packLanes(
+            seamHarness.viewBookWord(
+                refA
+            ),
+            CohortWeeks._packLanes(
                 0,
                 0,
                 200
             )
         );
 
-        (
-            ,
-            uint256 word1,
-            uint256 word2,
-            uint256 word3
-        ) = CohortWeeks.unpackBridgeCarry(
+        uint256[] memory words = CohortWeeks._unpackBridgeCarry(
             payload
         );
 
+        uint256 word1 = words[1];
+
+        uint256 word3 = words[2];
+
+        (
+            uint256 pairYear1,
+            uint256 pairYear2
+        ) = CohortWeeks._carryPairSums(
+            words,
+            3,
+            CohortWeeks._bridgeCarryPairCount(
+                words[0]
+            )
+        );
+
         assertEq(
-            CohortWeeks.carryTrackedDelta(word1),
+            CohortWeeks._carryTrackedDelta(
+                word1
+            ),
             500
         );
 
         assertEq(
-            CohortWeeks.carryPairLo(word2),
+            pairYear1,
             0
         );
 
         assertEq(
-            CohortWeeks.carryPairHi(word2),
+            pairYear2,
             0
         );
 
@@ -2160,7 +2767,7 @@ contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
         );
 
         assertTrue(
-            CohortWeeks.bridgeCarryValid(
+            CohortWeeks._bridgeCarryValid(
                 payload,
                 500
             )
@@ -2221,36 +2828,52 @@ contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
         );
 
         assertEq(
-            seamHarness.viewTracked(user1),
+            seamHarness.viewTracked(
+                user1
+            ),
             1_000 * 1e6
         );
 
         assertEq(
-            seamHarness.viewBookWord(refA),
+            seamHarness.viewBookWord(
+                refA
+            ),
             0
         );
 
         assertEq(
             payload.length,
-            CohortWeeks.BRIDGE_CARRY_BYTES
+            CohortWeeks.BRIDGE_CARRY_HEADER_BYTES
         );
 
-        (
-            ,
-            uint256 word1,
-            uint256 word2,
-            uint256 word3
-        ) = CohortWeeks.unpackBridgeCarry(
+        uint256[] memory words = CohortWeeks._unpackBridgeCarry(
             payload
         );
 
+        uint256 word1 = words[1];
+
+        uint256 word3 = words[2];
+
+        (
+            uint256 pairYear1,
+            uint256 pairYear2
+        ) = CohortWeeks._carryPairSums(
+            words,
+            3,
+            CohortWeeks._bridgeCarryPairCount(
+                words[0]
+            )
+        );
+
         assertEq(
-            CohortWeeks.carryTrackedDelta(word1),
+            CohortWeeks._carryTrackedDelta(
+                word1
+            ),
             500
         );
 
         assertEq(
-            CohortWeeks.carryPairLo(word2),
+            pairYear1,
             0
         );
 
@@ -2265,9 +2888,14 @@ contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
     {
         uint256 carried = 400 * 1e6;
 
+        seamHarness.harnessMintBalance(
+            user1,
+            carried + 111 * 1e6
+        );
+
         bytes memory payload = _packCarry(
             address(0),
-            1,
+            3,
             carried,
             block.timestamp,
             0,
@@ -2276,7 +2904,9 @@ contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
             0
         );
 
-        uint256 before = seamHarness.viewTracked(user1);
+        uint256 before = seamHarness.viewTracked(
+            user1
+        );
 
         bool applied = seamHarness.exposedApplyBridgeIn(
             user1,
@@ -2303,9 +2933,14 @@ contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
     {
         uint256 amount = 700 * 1e6;
 
+        seamHarness.harnessMintBalance(
+            user1,
+            amount
+        );
+
         bytes memory payload = _packCarry(
             refA,
-            1,
+            3,
             amount,
             block.timestamp,
             3,
@@ -2343,12 +2978,16 @@ contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
         );
 
         assertEq(
-            seamHarness.viewTracked(user1),
+            seamHarness.viewTracked(
+                user1
+            ),
             amount
         );
 
         assertEq(
-            seamHarness.viewBookWord(refA),
+            seamHarness.viewBookWord(
+                refA
+            ),
             0
         );
     }
@@ -2369,11 +3008,16 @@ contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
 
         uint256 amount = 600 * 1e6;
 
-        uint256 slot = _landSlot();
+        uint256 slot = _creditSlot();
+
+        seamHarness.harnessMintBalance(
+            user1,
+            amount
+        );
 
         bytes memory payload = _packCarry(
             refA,
-            1,
+            3,
             amount,
             block.timestamp - 1 days,
             0,
@@ -2413,22 +3057,31 @@ contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
         );
 
         assertEq(
-            seamHarness.viewTracked(user1),
+            seamHarness.viewTracked(
+                user1
+            ),
             amount
         );
 
         assertEq(
-            uint256(seamHarness.viewRingYear1(refB, slot)),
+            uint256(seamHarness.viewRingYear1(
+                refB,
+                slot
+            )),
             amount
         );
 
         assertEq(
-            seamHarness.viewBookWord(refB),
+            seamHarness.viewBookWord(
+                refB
+            ),
             amount
         );
 
         assertEq(
-            seamHarness.viewBookWord(refA),
+            seamHarness.viewBookWord(
+                refA
+            ),
             0
         );
     }
@@ -2447,9 +3100,14 @@ contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
 
         uint256 amount = 500 * 1e6;
 
+        seamHarness.harnessMintBalance(
+            user1,
+            amount
+        );
+
         bytes memory payload = _packCarry(
             refA,
-            1,
+            3,
             amount,
             block.timestamp - 1 days,
             0,
@@ -2504,12 +3162,16 @@ contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
         );
 
         assertEq(
-            seamHarness.viewTracked(user1),
+            seamHarness.viewTracked(
+                user1
+            ),
             amount
         );
 
         assertEq(
-            seamHarness.viewBookWord(refA),
+            seamHarness.viewBookWord(
+                refA
+            ),
             0
         );
     }
@@ -2551,7 +3213,9 @@ contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
         );
 
         assertEq(
-            flipHarness.viewTracked(user1),
+            flipHarness.viewTracked(
+                user1
+            ),
             100 * 1e6
         );
     }
@@ -2632,18 +3296,24 @@ contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
         );
 
         assertEq(
-            flipHarness.viewTracked(user1),
+            flipHarness.viewTracked(
+                user1
+            ),
             300 * 1e6
         );
 
         assertEq(
-            flipHarness.viewAttributed(user1),
+            flipHarness.viewAttributed(
+                user1
+            ),
             50 * 1e6
         );
 
         assertEq(
-            flipHarness.viewBookWord(refA),
-            CohortWeeks.packLanes(
+            flipHarness.viewBookWord(
+                refA
+            ),
+            CohortWeeks._packLanes(
                 250 * 1e6,
                 0,
                 0
@@ -2651,8 +3321,10 @@ contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
         );
 
         assertEq(
-            flipHarness.viewBookWord(refB),
-            CohortWeeks.packLanes(
+            flipHarness.viewBookWord(
+                refB
+            ),
+            CohortWeeks._packLanes(
                 50 * 1e6,
                 0,
                 0
@@ -2728,28 +3400,48 @@ contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
         );
 
         assertEq(
-            flipHarness.viewTracked(user1),
+            flipHarness.viewTracked(
+                user1
+            ),
             300 * 1e6
         );
 
         assertEq(
-            flipHarness.viewBookWord(refA),
+            flipHarness.viewBookWord(
+                refA
+            ),
             0
         );
 
         assertEq(
-            uint256(flipHarness.viewRingYear1(refA, slot)),
+            uint256(flipHarness.viewRingYear1(
+                refA,
+                slot
+            )),
             0
         );
 
         assertEq(
-            flipHarness.viewBookWord(refB),
+            flipHarness.viewBookWord(
+                refB
+            ),
             300 * 1e6
         );
 
         assertEq(
-            uint256(flipHarness.viewRingYear1(refB, slot)),
+            uint256(flipHarness.viewRingYear1(
+                refB,
+                slot
+            )),
             300 * 1e6
+        );
+
+        assertEq(
+            uint256(flipHarness.viewRingYear1(
+                refB,
+                _landSlot()
+            )),
+            0
         );
     }
 
@@ -2830,80 +3522,36 @@ contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
         );
 
         assertEq(
-            uint256(flipHarness.viewRingYear1(refB, slot)),
+            uint256(flipHarness.viewRingYear1(
+                refB,
+                slot
+            )),
             uint256(type(uint64).max)
         );
 
         assertEq(
-            flipHarness.viewBookWord(refB),
+            flipHarness.viewBookWord(
+                refB
+            ),
             400
         );
 
         assertEq(
-            flipHarness.viewBookWord(refA),
+            flipHarness.viewBookWord(
+                refA
+            ),
             0
         );
     }
 
-    // ---- 17. the replant walk skips a zero-amount pair ----
-
-    function test_replantPairs_zeroAmountPair_skipped()
-        public
-    {
-        uint256 slot = _creditSlot();
-
-        uint256[] memory pairs = new uint256[](2);
-
-        pairs[0] = CohortWeeks.packCarryPair(
-            0,
-            slot,
-            CohortWeeks.CARRY_RING_YEAR1
-        );
-
-        pairs[1] = CohortWeeks.packCarryPair(
-            150,
-            slot,
-            CohortWeeks.CARRY_RING_YEAR2
-        );
-
-        (
-            uint256 year1Sum,
-            uint256 year2Sum
-        ) = flipHarness.exposedReplantPairs(
-            refB,
-            pairs,
-            2
-        );
-
-        assertEq(
-            year1Sum,
-            0
-        );
-
-        assertEq(
-            year2Sum,
-            150
-        );
-
-        assertEq(
-            uint256(flipHarness.viewRingYear1(refB, slot)),
-            0
-        );
-
-        assertEq(
-            uint256(flipHarness.viewRingYear2(refB, slot)),
-            150
-        );
-    }
-
-    // ---- 18. the bridge-out stub short-circuits while disarmed ----
+    // ---- 17. the bridge-out stub short-circuits while disarmed ----
 
     function test_cohortBridgeOut_syncDisabled_returnsEmpty()
         public
     {
         vm.recordLogs();
 
-        bytes memory payload = seamHarness.exposedCohortBridgeOut(
+        bytes memory payload = stubHarness.exposedCohortBridgeOut(
             user1,
             SELECTOR_B,
             SLICE,
@@ -2922,7 +3570,7 @@ contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
         );
     }
 
-    // ---- 19. a scaled-down capture over three lanes floors each lane
+    // ---- 18. a scaled-down capture over three lanes floors each lane
     // on its own and lands strictly under the mint ----
 
     function test_captureBridgeOut_scaleDownMultiLane_floorsPerLaneAndLandsUnderMint()
@@ -2993,7 +3641,8 @@ contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
             7,
             1,
             2,
-            3
+            3,
+            refA
         );
 
         bytes memory payload = seamHarness.exposedCaptureBridgeOut(
@@ -3005,51 +3654,73 @@ contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
         );
 
         assertEq(
-            seamHarness.viewTracked(user1),
+            seamHarness.viewTracked(
+                user1
+            ),
             1_000 * 1e6
         );
 
         assertEq(
-            seamHarness.viewBookWord(refA),
+            seamHarness.viewBookWord(
+                refA
+            ),
             0
         );
 
         assertEq(
-            uint256(seamHarness.viewRingYear1(refA, slot)),
+            uint256(seamHarness.viewRingYear1(
+                refA,
+                slot
+            )),
             0
         );
 
         assertEq(
-            uint256(seamHarness.viewRingYear2(refA, slot)),
+            uint256(seamHarness.viewRingYear2(
+                refA,
+                slot
+            )),
             0
         );
 
         assertEq(
             payload.length,
-            CohortWeeks.BRIDGE_CARRY_BYTES
+            CohortWeeks.BRIDGE_CARRY_HEADER_BYTES + 32
         );
 
-        (
-            ,
-            uint256 word1,
-            uint256 word2,
-            uint256 word3
-        ) = CohortWeeks.unpackBridgeCarry(
+        uint256[] memory words = CohortWeeks._unpackBridgeCarry(
             payload
         );
 
+        uint256 word1 = words[1];
+
+        uint256 word3 = words[2];
+
+        (
+            uint256 pairYear1,
+            uint256 pairYear2
+        ) = CohortWeeks._carryPairSums(
+            words,
+            3,
+            CohortWeeks._bridgeCarryPairCount(
+                words[0]
+            )
+        );
+
         assertEq(
-            CohortWeeks.carryTrackedDelta(word1),
+            CohortWeeks._carryTrackedDelta(
+                word1
+            ),
             7
         );
 
         assertEq(
-            CohortWeeks.carryPairLo(word2),
+            pairYear1,
             1
         );
 
         assertEq(
-            CohortWeeks.carryPairHi(word2),
+            pairYear2,
             2
         );
 
@@ -3059,14 +3730,14 @@ contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
         );
 
         assertTrue(
-            CohortWeeks.bridgeCarryValid(
+            CohortWeeks._bridgeCarryValid(
                 payload,
                 7
             )
         );
 
         assertFalse(
-            CohortWeeks.bridgeCarryValid(
+            CohortWeeks._bridgeCarryValid(
                 payload,
                 5
             )
@@ -3088,7 +3759,12 @@ contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
             address(destRegistry)
         );
 
-        uint256 landSlot = _landSlot();
+        dest.harnessMintBalance(
+            user1,
+            7
+        );
+
+        uint256 landSlot = slot;
 
         vm.expectEmit(
             true,
@@ -3121,18 +3797,24 @@ contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
         );
 
         assertEq(
-            dest.viewTracked(user1),
+            dest.viewTracked(
+                user1
+            ),
             7
         );
 
         assertLe(
-            dest.viewTracked(user1),
+            dest.viewTracked(
+                user1
+            ),
             7
         );
 
         assertEq(
-            dest.viewBookWord(refA),
-            CohortWeeks.packLanes(
+            dest.viewBookWord(
+                refA
+            ),
+            CohortWeeks._packLanes(
                 1,
                 2,
                 3
@@ -3140,18 +3822,1118 @@ contract WiseTelecomNodesCohortBridgeCarryNegativeTest is DiamondTestHarness {
         );
 
         assertEq(
-            uint256(dest.viewRingYear1(refA, landSlot)),
+            uint256(dest.viewRingYear1(
+                refA,
+                landSlot
+            )),
             1
         );
 
         assertEq(
-            uint256(dest.viewRingYear2(refA, landSlot)),
+            uint256(dest.viewRingYear2(
+                refA,
+                landSlot
+            )),
             2
         );
 
         assertEq(
-            destRegistry.referrerOf(user1),
+            destRegistry.referrerOf(
+                user1
+            ),
             refA
+        );
+    }
+
+    // ---- 19. a registry pointer cleared while armed reads as a failed
+    // lookup: the bridge-out carry is skipped and the clamp deferred ----
+
+    function test_bridgeOut_zeroRegistryPointerWhileArmed_skipsCarryWithoutClamp()
+        public
+    {
+        _armBoth();
+
+        _depositWithReferralOn(
+            vaultA,
+            user1,
+            DEPOSIT,
+            refA
+        );
+
+        uint256 attributedBefore = _recorderOf(vaultA).getAttributedContribution(
+            user1
+        );
+
+        vm.store(
+            address(vaultA),
+            bytes32(REFERRAL_REGISTRY_SLOT),
+            bytes32(0)
+        );
+
+        vm.expectEmit(
+            true,
+            false,
+            false,
+            true,
+            address(vaultA)
+        );
+
+        emit CohortReferrerLookupFailed(
+            user1
+        );
+
+        vm.expectEmit(
+            true,
+            true,
+            false,
+            true,
+            address(vaultA)
+        );
+
+        emit CohortBridgeCarrySkipped(
+            user1,
+            SELECTOR_B
+        );
+
+        _bridgeAs(
+            user1,
+            vaultA,
+            SELECTOR_B,
+            SLICE
+        );
+
+        assertEq(
+            _wireReferralBytes().length,
+            0
+        );
+
+        assertEq(
+            vaultA.balanceOf(
+                user1
+            ),
+            DEPOSIT - SLICE
+        );
+
+        assertEq(
+            vaultB.balanceOf(
+                user1
+            ),
+            SLICE
+        );
+
+        assertEq(
+            _recorderOf(
+                vaultA
+            ).getTrackedContribution(
+                user1
+            ),
+            DEPOSIT
+        );
+
+        assertEq(
+            _recorderOf(
+                vaultA
+            ).getAttributedContribution(
+                user1
+            ),
+            attributedBefore
+        );
+
+        assertEq(
+            _recorderOf(
+                vaultA
+            ).getCohortScore(
+                refA
+            ),
+            DEPOSIT
+        );
+
+        assertEq(
+            _recorderOf(
+                vaultB
+            ).getTrackedContribution(
+                user1
+            ),
+            0
+        );
+    }
+
+    // ---- 20. capture stamps the capture week and codec version 2 on
+    // the envelope word ----
+
+    function test_captureBridgeOut_stampsCaptureWeekAndVersionThree()
+        public
+    {
+        ReferralRegistry seamRegistry = new ReferralRegistry(
+            address(this),
+            0
+        );
+
+        seamRegistry.setAllowedVault(
+            address(this),
+            true
+        );
+
+        seamRegistry.assignReferrer(
+            user1,
+            refA
+        );
+
+        seamHarness.harnessSetRegistry(
+            address(seamRegistry)
+        );
+
+        seamHarness.harnessMintBalance(
+            user1,
+            1_000 * 1e6
+        );
+
+        seamHarness.harnessSetTracked(
+            user1,
+            1_000 * 1e6 + 500
+        );
+
+        seamHarness.harnessSetBookLanes(
+            refA,
+            0,
+            0,
+            500
+        );
+
+        bytes memory payload = seamHarness.exposedCaptureBridgeOut(
+            user1,
+            SELECTOR_B,
+            500,
+            1,
+            1
+        );
+
+        assertEq(
+            payload.length,
+            CohortWeeks.BRIDGE_CARRY_HEADER_BYTES
+        );
+
+        uint256[] memory words = CohortWeeks._unpackBridgeCarry(
+            payload
+        );
+
+        uint256 word0 = words[0];
+
+        uint256 word3 = words[2];
+
+        assertEq(
+            CohortWeeks._carryEnvelopeReferrer(
+                word0
+            ),
+            refA
+        );
+
+        assertEq(
+            CohortWeeks._carryEnvelopeVersion(
+                word0
+            ),
+            3
+        );
+
+        assertEq(
+            CohortWeeks._bridgeCarryCaptureWeek(
+                word0
+            ),
+            block.timestamp / 1 weeks
+        );
+
+        assertEq(
+            CohortWeeks._bridgeCarryCaptureWeek(
+                word0
+            ),
+            3_000
+        );
+
+        assertEq(
+            word0 >> 208,
+            0
+        );
+
+        assertEq(
+            word3,
+            500
+        );
+
+        assertTrue(
+            CohortWeeks._bridgeCarryValid(
+                payload,
+                500
+            )
+        );
+    }
+
+    // ---- 21. the carried capture week against the arrival clock ----
+
+    function test_applyBridgeIn_captureWeekInTheFuture_landsWithoutDrift()
+        public
+    {
+        ReferralRegistry destRegistry = new ReferralRegistry(
+            address(this),
+            1
+        );
+
+        destRegistry.setAllowedVault(
+            address(seamHarness),
+            true
+        );
+
+        seamHarness.harnessSetRegistry(
+            address(destRegistry)
+        );
+
+        uint256 amount = 400 * 1e6;
+
+        uint256 slot = _creditSlot();
+
+        seamHarness.harnessMintBalance(
+            user1,
+            amount
+        );
+
+        bytes memory payload = _packCarryFromWeek(
+            block.timestamp / 1 weeks + 5,
+            refA,
+            3,
+            amount,
+            block.timestamp - 1 days,
+            0,
+            amount,
+            0,
+            0
+        );
+
+        vm.expectEmit(
+            true,
+            true,
+            true,
+            true,
+            address(seamHarness)
+        );
+
+        emit CohortBridgeCarryApplied(
+            user1,
+            SELECTOR_A,
+            refA,
+            refA,
+            amount,
+            amount,
+            0,
+            0
+        );
+
+        bool applied = seamHarness.exposedApplyBridgeIn(
+            user1,
+            SELECTOR_A,
+            amount,
+            payload
+        );
+
+        assertTrue(
+            applied
+        );
+
+        assertEq(
+            uint256(seamHarness.viewRingYear1(
+                refA,
+                slot
+            )),
+            amount
+        );
+
+        assertEq(
+            uint256(seamHarness.viewRingYear2(
+                refA,
+                slot
+            )),
+            0
+        );
+
+        assertEq(
+            seamHarness.viewBookWord(
+                refA
+            ),
+            CohortWeeks._packLanes(
+                amount,
+                0,
+                0
+            )
+        );
+
+        assertEq(
+            destRegistry.referrerOf(
+                user1
+            ),
+            refA
+        );
+    }
+
+    function test_applyBridgeIn_oneBoundaryInFlight_year1KeepsItsSlot()
+        public
+    {
+        ReferralRegistry destRegistry = new ReferralRegistry(
+            address(this),
+            1
+        );
+
+        destRegistry.setAllowedVault(
+            address(seamHarness),
+            true
+        );
+
+        seamHarness.harnessSetRegistry(
+            address(destRegistry)
+        );
+
+        uint256 amount = 400 * 1e6;
+
+        uint256 slot = (block.timestamp / 1 weeks - 1) % 52;
+
+        seamHarness.harnessMintBalance(
+            user1,
+            amount
+        );
+
+        bytes memory payload = _packCarryFromWeek(
+            block.timestamp / 1 weeks - 1,
+            refA,
+            3,
+            amount,
+            block.timestamp - 1 days,
+            0,
+            amount,
+            0,
+            0
+        );
+
+        vm.expectEmit(
+            true,
+            true,
+            true,
+            true,
+            address(seamHarness)
+        );
+
+        emit CohortBridgeCarryApplied(
+            user1,
+            SELECTOR_A,
+            refA,
+            refA,
+            amount,
+            amount,
+            0,
+            0
+        );
+
+        bool applied = seamHarness.exposedApplyBridgeIn(
+            user1,
+            SELECTOR_A,
+            amount,
+            payload
+        );
+
+        assertTrue(
+            applied
+        );
+
+        assertEq(
+            uint256(seamHarness.viewRingYear1(
+                refA,
+                slot
+            )),
+            amount
+        );
+
+        for (uint256 i; i < 52; ++i) {
+            assertEq(
+                uint256(seamHarness.viewRingYear2(
+                    refA,
+                    i
+                )),
+                0
+            );
+        }
+
+        assertEq(
+            seamHarness.viewBookWord(
+                refA
+            ),
+            CohortWeeks._packLanes(
+                amount,
+                0,
+                0
+            )
+        );
+
+        assertEq(
+            seamHarness.viewAttributed(
+                user1
+            ),
+            amount
+        );
+    }
+
+    function test_applyBridgeIn_registryUnset_bookDroppedReportsUnagedLanes()
+        public
+    {
+        uint256 amount = 300 * 1e6;
+
+        seamHarness.harnessMintBalance(
+            user1,
+            amount
+        );
+
+        bytes memory payload = _packCarryFromWeek(
+            block.timestamp / 1 weeks - 1,
+            refA,
+            3,
+            amount,
+            block.timestamp - 1 days,
+            3,
+            amount,
+            0,
+            0
+        );
+
+        vm.expectEmit(
+            true,
+            true,
+            false,
+            true,
+            address(seamHarness)
+        );
+
+        emit CohortBridgeCarryBookDropped(
+            user1,
+            SELECTOR_A,
+            refA,
+            amount,
+            0,
+            0
+        );
+
+        bool applied = seamHarness.exposedApplyBridgeIn(
+            user1,
+            SELECTOR_A,
+            amount,
+            payload
+        );
+
+        assertTrue(
+            applied
+        );
+
+        assertEq(
+            seamHarness.viewTracked(
+                user1
+            ),
+            amount
+        );
+
+        assertEq(
+            seamHarness.viewAttributed(
+                user1
+            ),
+            0
+        );
+
+        assertEq(
+            seamHarness.viewBookWord(
+                refA
+            ),
+            0
+        );
+    }
+
+    // ---- 22. the quarantine read before the merge: a braked source
+    // chain or an unreadable answer skips the merge, the lanes land
+    // under the local answer ----
+
+    function test_applyBridgeIn_sourceNotQuarantined_mergeAttempted()
+        public
+    {
+        QuarantineRegistry registry = new QuarantineRegistry(
+            refB
+        );
+
+        registry.setQuarantined(
+            SELECTOR_B,
+            true
+        );
+
+        seamHarness.harnessSetRegistry(
+            address(registry)
+        );
+
+        uint256 amount = 600 * 1e6;
+
+        uint256 slot = _creditSlot();
+
+        seamHarness.harnessMintBalance(
+            user1,
+            amount
+        );
+
+        bytes memory payload = _packCarry(
+            refA,
+            3,
+            amount,
+            block.timestamp - 1 days,
+            0,
+            amount,
+            0,
+            0
+        );
+
+        bool applied = seamHarness.exposedApplyBridgeIn(
+            user1,
+            SELECTOR_A,
+            amount,
+            payload
+        );
+
+        assertTrue(
+            applied
+        );
+
+        assertFalse(
+            registry.syncPeerQuarantined(
+                SELECTOR_A
+            )
+        );
+
+        assertEq(
+            registry.mergeCalls(),
+            1
+        );
+
+        assertEq(
+            uint256(seamHarness.viewRingYear1(
+                refB,
+                slot
+            )),
+            amount
+        );
+
+        assertEq(
+            seamHarness.viewBookWord(
+                refB
+            ),
+            amount
+        );
+    }
+
+    function test_applyBridgeIn_sourceQuarantined_mergeSkippedLanesLandLocally()
+        public
+    {
+        QuarantineRegistry registry = new QuarantineRegistry(
+            refB
+        );
+
+        registry.setQuarantined(
+            SELECTOR_A,
+            true
+        );
+
+        seamHarness.harnessSetRegistry(
+            address(registry)
+        );
+
+        uint256 amount = 600 * 1e6;
+
+        uint256 slot = _creditSlot();
+
+        seamHarness.harnessMintBalance(
+            user1,
+            amount
+        );
+
+        bytes memory payload = _packCarry(
+            refA,
+            3,
+            amount,
+            block.timestamp - 1 days,
+            0,
+            amount,
+            0,
+            0
+        );
+
+        vm.recordLogs();
+
+        vm.expectEmit(
+            true,
+            true,
+            true,
+            true,
+            address(seamHarness)
+        );
+
+        emit CohortBridgeCarryApplied(
+            user1,
+            SELECTOR_A,
+            refB,
+            refA,
+            amount,
+            amount,
+            0,
+            0
+        );
+
+        bool applied = seamHarness.exposedApplyBridgeIn(
+            user1,
+            SELECTOR_A,
+            amount,
+            payload
+        );
+
+        assertTrue(
+            applied
+        );
+
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        assertEq(
+            _countTopic(
+                logs,
+                keccak256(
+                    "CohortReferrerLookupFailed(address)"
+                )
+            ),
+            0
+        );
+
+        assertEq(
+            _countTopic(
+                logs,
+                keccak256(
+                    "CohortQuarantineReadFailed(address,uint64)"
+                )
+            ),
+            0
+        );
+
+        assertEq(
+            registry.mergeCalls(),
+            0
+        );
+
+        assertEq(
+            seamHarness.viewTracked(
+                user1
+            ),
+            amount
+        );
+
+        assertEq(
+            uint256(seamHarness.viewRingYear1(
+                refB,
+                slot
+            )),
+            amount
+        );
+
+        assertEq(
+            seamHarness.viewBookWord(
+                refB
+            ),
+            amount
+        );
+
+        assertEq(
+            seamHarness.viewBookWord(
+                refA
+            ),
+            0
+        );
+    }
+
+    function test_applyBridgeIn_quarantineReadWrongSize_skipsMergeAndReportsReadFailure()
+        public
+    {
+        _applyUnderQuarantineShape(
+            0
+        );
+    }
+
+    function test_applyBridgeIn_quarantineReadDirtyWord_skipsMergeAndReportsReadFailure()
+        public
+    {
+        _applyUnderQuarantineShape(
+            1
+        );
+    }
+
+    function test_applyBridgeIn_quarantineReadReverts_skipsMergeAndReportsReadFailure()
+        public
+    {
+        _applyUnderQuarantineShape(
+            2
+        );
+    }
+
+    // ---- 23. the post-mint headroom ceiling discards a carry that
+    // would lift tracked above the balance held ----
+
+    function test_applyBridgeIn_carriedDeltaAboveHeadroom_discardedWholesale()
+        public
+    {
+        QuarantineRegistry registry = new QuarantineRegistry(
+            refA
+        );
+
+        seamHarness.harnessSetRegistry(
+            address(registry)
+        );
+
+        seamHarness.harnessSetTracked(
+            user1,
+            900 * 1e6
+        );
+
+        seamHarness.harnessMintBalance(
+            user1,
+            1_000 * 1e6
+        );
+
+        bytes memory payload = _packCarry(
+            refA,
+            3,
+            200 * 1e6,
+            block.timestamp - 1 days,
+            0,
+            200 * 1e6,
+            0,
+            0
+        );
+
+        vm.expectEmit(
+            true,
+            true,
+            false,
+            true,
+            address(seamHarness)
+        );
+
+        emit CohortBridgeCarryDiscarded(
+            user1,
+            SELECTOR_A
+        );
+
+        bool applied = seamHarness.exposedApplyBridgeIn(
+            user1,
+            SELECTOR_A,
+            200 * 1e6,
+            payload
+        );
+
+        assertFalse(
+            applied
+        );
+
+        assertEq(
+            seamHarness.viewTracked(
+                user1
+            ),
+            900 * 1e6
+        );
+
+        assertEq(
+            seamHarness.viewAttributed(
+                user1
+            ),
+            900 * 1e6
+        );
+
+        assertEq(
+            seamHarness.viewBookWord(
+                refA
+            ),
+            0
+        );
+
+        assertEq(
+            registry.mergeCalls(),
+            0
+        );
+    }
+
+    function test_applyBridgeIn_carriedDeltaAtHeadroom_applies()
+        public
+    {
+        QuarantineRegistry registry = new QuarantineRegistry(
+            refA
+        );
+
+        seamHarness.harnessSetRegistry(
+            address(registry)
+        );
+
+        seamHarness.harnessSetTracked(
+            user1,
+            900 * 1e6
+        );
+
+        seamHarness.harnessMintBalance(
+            user1,
+            1_000 * 1e6
+        );
+
+        uint256 slot = _creditSlot();
+
+        bytes memory payload = _packCarry(
+            refA,
+            3,
+            100 * 1e6,
+            block.timestamp - 1 days,
+            0,
+            100 * 1e6,
+            0,
+            0
+        );
+
+        bool applied = seamHarness.exposedApplyBridgeIn(
+            user1,
+            SELECTOR_A,
+            100 * 1e6,
+            payload
+        );
+
+        assertTrue(
+            applied
+        );
+
+        assertEq(
+            seamHarness.viewTracked(
+                user1
+            ),
+            1_000 * 1e6
+        );
+
+        assertEq(
+            seamHarness.viewAttributed(
+                user1
+            ),
+            1_000 * 1e6
+        );
+
+        assertEq(
+            seamHarness.viewBookWord(
+                refA
+            ),
+            CohortWeeks._packLanes(
+                100 * 1e6,
+                0,
+                0
+            )
+        );
+
+        assertEq(
+            uint256(seamHarness.viewRingYear1(
+                refA,
+                slot
+            )),
+            100 * 1e6
+        );
+
+        assertEq(
+            registry.mergeCalls(),
+            1
+        );
+    }
+
+    function test_applyBridgeIn_unreferredDeltaAboveHeadroom_discardedWholesale()
+        public
+    {
+        seamHarness.harnessSetTracked(
+            user1,
+            900 * 1e6
+        );
+
+        seamHarness.harnessMintBalance(
+            user1,
+            1_000 * 1e6
+        );
+
+        bytes memory payload = _packCarry(
+            address(0),
+            3,
+            200 * 1e6,
+            block.timestamp - 1 days,
+            0,
+            0,
+            0,
+            0
+        );
+
+        vm.expectEmit(
+            true,
+            true,
+            false,
+            true,
+            address(seamHarness)
+        );
+
+        emit CohortBridgeCarryDiscarded(
+            user1,
+            SELECTOR_A
+        );
+
+        bool applied = seamHarness.exposedApplyBridgeIn(
+            user1,
+            SELECTOR_A,
+            200 * 1e6,
+            payload
+        );
+
+        assertFalse(
+            applied
+        );
+
+        assertEq(
+            seamHarness.viewTracked(
+                user1
+            ),
+            900 * 1e6
+        );
+    }
+
+    function test_ccipReceive_holderAboveHeld_carryDiscardedMintStands()
+        public
+    {
+        _armDest();
+
+        BridgeFacet(address(vaultB)).setReferralEnabled(
+            true
+        );
+
+        _depositWithReferralOn(
+            vaultB,
+            user1,
+            DEPOSIT_B,
+            refB
+        );
+
+        vm.warp(
+            block.timestamp + 3 days + 1
+        );
+
+        vm.store(
+            address(vaultB),
+            bytes32(TRANSFER_HOOK_SLOT),
+            bytes32(0)
+        );
+
+        vm.prank(
+            user1
+        );
+
+        vaultB.transfer(
+            buyer,
+            400 * 1e6
+        );
+
+        assertEq(
+            _recorderOf(
+                vaultB
+            ).getTrackedContribution(
+                user1
+            ),
+            DEPOSIT_B
+        );
+
+        uint256 amount = 300 * 1e6;
+
+        bytes memory payload = _packCarry(
+            refA,
+            3,
+            amount,
+            block.timestamp,
+            0,
+            amount,
+            0,
+            0
+        );
+
+        vm.expectEmit(
+            true,
+            true,
+            false,
+            true,
+            address(vaultB)
+        );
+
+        emit CohortBridgeCarryDiscarded(
+            user1,
+            SELECTOR_A
+        );
+
+        vm.expectEmit(
+            true,
+            true,
+            true,
+            true,
+            address(vaultB)
+        );
+
+        emit BridgeReferral(
+            user1,
+            SELECTOR_A,
+            bytes32(uint256(0x750)),
+            payload
+        );
+
+        _deliverCarry(
+            0x750,
+            user1,
+            amount,
+            payload
+        );
+
+        assertEq(
+            vaultB.balanceOf(
+                user1
+            ),
+            DEPOSIT_B - 400 * 1e6 + amount
+        );
+
+        assertEq(
+            _recorderOf(
+                vaultB
+            ).getTrackedContribution(
+                user1
+            ),
+            DEPOSIT_B
+        );
+
+        assertEq(
+            _recorderOf(
+                vaultB
+            ).getCohortScore(
+                refB
+            ),
+            DEPOSIT_B
+        );
+
+        assertEq(
+            _recorderOf(
+                vaultB
+            ).getCohortScore(
+                refA
+            ),
+            0
+        );
+
+        assertEq(
+            registryB.effectiveReferrerOf(
+                user1,
+                address(vaultB)
+            ),
+            refB
         );
     }
 }
