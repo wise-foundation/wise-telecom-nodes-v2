@@ -11,10 +11,13 @@ import {MoveFacet} from "../../../src/diamond/vault/facets/MoveFacet.sol";
 import {BridgeFacet} from "../../../src/diamond/vault/facets/BridgeFacet.sol";
 import {QueueJoinLeaveFacet} from "../../../src/diamond/vault/facets/QueueJoinLeaveFacet.sol";
 import {QueueFulfillFacet} from "../../../src/diamond/vault/facets/QueueFulfillFacet.sol";
+import {AutoCompoundFacet} from "../../../src/diamond/vault/facets/AutoCompoundFacet.sol";
 import {ReferralFacet} from "../../../src/diamond/vault/facets/pending/ReferralFacet.sol";
 import {Permit2ReferralFacet} from "../../../src/diamond/vault/facets/pending/Permit2ReferralFacet.sol";
 import {CohortRecorderFacet} from "../../../src/diamond/vault/facets/pending/CohortRecorderFacet.sol";
 import {CohortHookFacet} from "../../../src/diamond/vault/facets/pending/CohortHookFacet.sol";
+import {CohortBridgeHookFacet} from "../../../src/diamond/vault/facets/pending/CohortBridgeHookFacet.sol";
+import {CohortMoveHookFacet} from "../../../src/diamond/vault/facets/pending/CohortMoveHookFacet.sol";
 import {ReferralRegistry} from "../../../src/registry/pending/ReferralRegistry.sol";
 
 import {FacetNotFound, SelectorTimelockNotElapsed} from "../../../src/diamond/shared/DiamondErrors.sol";
@@ -160,6 +163,11 @@ interface IWtnCohortVault {
         uint256 gasLimit
     )
         external;
+
+    function bridgeGasLimit()
+        external
+        view
+        returns (uint64);
 
     function transfer(
         address to,
@@ -334,9 +342,10 @@ interface IUsdToken {
  *      raw-zero on the real bytecode;
  *   2. the standalone registry deploys on-fork and allowlists the
  *      diamond (mirroring {DeployReferralRegistry});
- *   3. the exact selector manifest the upgrade script broadcasts
- *      (ten batches plus the transfer-hook swap) works under the
- *      real master and both real 3-day timelocks;
+ *   3. the upgrade script's full selector manifest (all thirteen
+ *      batches, the routed bridge-hook slice included, plus the
+ *      transfer-hook swap) works under the real master and both real
+ *      3-day timelocks;
  *   4. the SECOND clock: the pointer proposal through the
  *      freshly-routed {AdminFacet} trio, its premature-execute
  *      revert, and the pointer-unset intermediate state being
@@ -366,7 +375,11 @@ interface IUsdToken {
  *      round's {BridgeFacet}.
  * The diamond address is read from config/vault.<product>.<network>
  * .json before forking so it can never drift to a wrong or stale
- * address.
+ * address. The rehearsal user is a labelled key from `makeAddrAndKey`,
+ * never a toy constant: on 2026-09-28 the address of the toy key
+ * 0xA11CE was found carrying an EIP-7702 delegation on Robinhood
+ * mainnet, which sends Permit2 down the contract-signature path and
+ * fails the permit deposit of this rehearsal on that chain.
  */
 abstract contract ReferralRegistryUpgradeForkBase is Test {
 
@@ -384,7 +397,7 @@ abstract contract ReferralRegistryUpgradeForkBase is Test {
 
     uint256 internal constant REGISTRY_DELAY = 3 days;
 
-    uint256 internal constant USER_PK = 0xA11CE;
+    uint256 internal userPk;
 
     uint256 internal constant DORMANT_WALK_GAS_BUDGET = 3_500_000;
 
@@ -449,8 +462,11 @@ abstract contract ReferralRegistryUpgradeForkBase is Test {
 
         one = 10 ** IUsdToken(usd).decimals();
 
-        user = vm.addr(
-            USER_PK
+        (
+            user,
+            userPk
+        ) = makeAddrAndKey(
+            "registryForkUser"
         );
 
         user2 = makeAddr(
@@ -532,7 +548,7 @@ abstract contract ReferralRegistryUpgradeForkBase is Test {
             bytes32 sigR,
             bytes32 sigS
         ) = vm.sign(
-            USER_PK,
+            userPk,
             digest
         );
 
@@ -606,7 +622,9 @@ abstract contract ReferralRegistryUpgradeForkBase is Test {
         );
 
         assertEq(
-            v.getCohortScore(_referrer),
+            v.getCohortScore(
+                _referrer
+            ),
             year1 + year2 + mature,
             "tracked-equals-book: score != book total"
         );
@@ -685,7 +703,9 @@ abstract contract ReferralRegistryUpgradeForkBase is Test {
         );
 
         assertEq(
-            _slot67Entry(user),
+            _slot67Entry(
+                user
+            ),
             bytes32(0),
             "slot-67 entry not virgin on live bytecode"
         );
@@ -703,7 +723,9 @@ abstract contract ReferralRegistryUpgradeForkBase is Test {
         );
 
         assertEq(
-            registry.referrerOf(user),
+            registry.referrerOf(
+                user
+            ),
             address(0),
             "fresh registry must be empty"
         );
@@ -731,7 +753,7 @@ abstract contract ReferralRegistryUpgradeForkBase is Test {
         );
 
         v.executeSelectorChanges(
-            WiseTelecomNodesDiamondSelectors.cohortRecorderSelectors()
+            WiseTelecomNodesDiamondSelectors._cohortRecorderSelectors()
         );
 
         vm.prank(
@@ -769,10 +791,18 @@ abstract contract ReferralRegistryUpgradeForkBase is Test {
 
         assertEq(
             v.selectorToFacet(
-                WiseTelecomNodesDiamondSelectors.cohortRecorderSelectors()[0]
+                WiseTelecomNodesDiamondSelectors._cohortRecorderSelectors()[0]
             ) == address(0),
             false,
             "cohort group not routed"
+        );
+
+        assertEq(
+            v.selectorToFacet(
+                WiseTelecomNodesDiamondSelectors._cohortBridgeHookSelectors()[0]
+            ) == address(0),
+            false,
+            "bridge-hook group not routed"
         );
 
         if (v.paused()) {
@@ -845,7 +875,9 @@ abstract contract ReferralRegistryUpgradeForkBase is Test {
         );
 
         assertEq(
-            v.getReferrerOf(user),
+            v.getReferrerOf(
+                user
+            ),
             address(0),
             "unset pointer must read as zero, not revert"
         );
@@ -893,7 +925,9 @@ abstract contract ReferralRegistryUpgradeForkBase is Test {
         );
 
         assertEq(
-            v.getTrackedContribution(user),
+            v.getTrackedContribution(
+                user
+            ),
             0,
             "unarmed + unpointed state must write no recorder state"
         );
@@ -948,21 +982,27 @@ abstract contract ReferralRegistryUpgradeForkBase is Test {
             master
         );
 
-        v.setCohortSyncEnabled(
-            true
+        v.setBridgeGasLimit(
+            5_000_000
         );
 
         vm.prank(
             master
         );
 
-        v.setBridgeGasLimit(
-            1_000_000
+        v.setCohortSyncEnabled(
+            true
         );
 
         assertTrue(
             v.getCohortSyncEnabled(),
             "arming failed"
+        );
+
+        assertEq(
+            uint256(v.bridgeGasLimit()),
+            5_000_000,
+            "armed bridge gas limit not set"
         );
 
         vm.prank(
@@ -975,25 +1015,33 @@ abstract contract ReferralRegistryUpgradeForkBase is Test {
         );
 
         assertEq(
-            v.getReferrerOf(user),
+            v.getReferrerOf(
+                user
+            ),
             refA,
             "referrer not assigned"
         );
 
         assertEq(
-            registry.referrerOf(user),
+            registry.referrerOf(
+                user
+            ),
             refA,
             "registry must hold the truth"
         );
 
         assertEq(
-            _slot67Entry(user),
+            _slot67Entry(
+                user
+            ),
             bytes32(0),
             "slot 67 must stay virgin forever"
         );
 
         assertEq(
-            v.getTrackedContribution(user),
+            v.getTrackedContribution(
+                user
+            ),
             baseAmount,
             "credit missing"
         );
@@ -1013,19 +1061,25 @@ abstract contract ReferralRegistryUpgradeForkBase is Test {
         );
 
         assertEq(
-            v.getReferrerOf(user),
+            v.getReferrerOf(
+                user
+            ),
             refA,
             "write-once violated"
         );
 
         assertEq(
-            registry.referrerOf(user),
+            registry.referrerOf(
+                user
+            ),
             refA,
             "registry write-once violated"
         );
 
         assertEq(
-            v.getTrackedContribution(user),
+            v.getTrackedContribution(
+                user
+            ),
             2 * baseAmount,
             "second credit missing"
         );
@@ -1058,7 +1112,9 @@ abstract contract ReferralRegistryUpgradeForkBase is Test {
         uint256 tracked = 2 * baseAmount + sigAmount;
 
         assertEq(
-            v.getTrackedContribution(user),
+            v.getTrackedContribution(
+                user
+            ),
             tracked,
             "permit2 credit missing"
         );
@@ -1078,7 +1134,9 @@ abstract contract ReferralRegistryUpgradeForkBase is Test {
         );
 
         assertEq(
-            v.getTrackedContribution(user),
+            v.getTrackedContribution(
+                user
+            ),
             tracked,
             "clamp must be lazy"
         );
@@ -1092,7 +1150,9 @@ abstract contract ReferralRegistryUpgradeForkBase is Test {
         );
 
         assertEq(
-            v.getTrackedContribution(user),
+            v.getTrackedContribution(
+                user
+            ),
             heldNow,
             "clamp missed the deficit"
         );
@@ -1106,7 +1166,9 @@ abstract contract ReferralRegistryUpgradeForkBase is Test {
         );
 
         assertEq(
-            v.getTrackedContribution(user),
+            v.getTrackedContribution(
+                user
+            ),
             heldNow + baseAmount,
             "re-deposit must credit exactly its own amount"
         );
@@ -1125,7 +1187,9 @@ abstract contract ReferralRegistryUpgradeForkBase is Test {
         );
 
         assertEq(
-            v.getTrackedContribution(user),
+            v.getTrackedContribution(
+                user
+            ),
             beforeJoin - baseAmount / 2,
             "join must discredit immediately"
         );
@@ -1245,7 +1309,9 @@ abstract contract ReferralRegistryUpgradeForkBase is Test {
 
         _assertBookConsistent(
             refA,
-            v.getTrackedContribution(user)
+            v.getTrackedContribution(
+                user
+            )
         );
 
         vm.roll(
@@ -1259,7 +1325,9 @@ abstract contract ReferralRegistryUpgradeForkBase is Test {
         );
 
         assertEq(
-            registry.referrerOf(user),
+            registry.referrerOf(
+                user
+            ),
             refA,
             "registry truth must persist"
         );
@@ -1301,7 +1369,7 @@ abstract contract ReferralRegistryUpgradeForkBase is Test {
             "legacy quoteBridgeFeeWithReferral not on the round's BridgeFacet"
         );
 
-        bytes4[] memory pair = WiseTelecomNodesDiamondSelectors.legacyReferralBridgeSelectors();
+        bytes4[] memory pair = WiseTelecomNodesDiamondSelectors._legacyReferralBridgeSelectors();
 
         vm.prank(
             master
@@ -1398,53 +1466,68 @@ abstract contract ReferralRegistryUpgradeForkBase is Test {
         internal
     {
         _proposeOne(
-            WiseTelecomNodesDiamondSelectors.adminSelectors(),
+            WiseTelecomNodesDiamondSelectors._adminSelectors(),
             address(new AdminFacet())
         );
 
         _proposeOne(
-            WiseTelecomNodesDiamondSelectors.userSelectors(),
+            WiseTelecomNodesDiamondSelectors._userSelectors(),
             address(new UserFacet())
         );
 
         _proposeOne(
-            WiseTelecomNodesDiamondSelectors.permit2Selectors(),
+            WiseTelecomNodesDiamondSelectors._permit2Selectors(),
             address(new Permit2UserFacet())
         );
 
         _proposeOne(
-            WiseTelecomNodesDiamondSelectors.moveSelectors(),
+            WiseTelecomNodesDiamondSelectors._moveSelectors(),
             address(new MoveFacet())
         );
 
         _proposeOne(
-            WiseTelecomNodesDiamondSelectors.bridgeSelectors(),
+            WiseTelecomNodesDiamondSelectors._bridgeSelectors(),
             address(new BridgeFacet())
         );
 
         _proposeOne(
-            WiseTelecomNodesDiamondSelectors.queueJoinLeaveSelectors(),
+            WiseTelecomNodesDiamondSelectors._queueJoinLeaveSelectors(),
             address(new QueueJoinLeaveFacet())
         );
 
         _proposeOne(
-            WiseTelecomNodesDiamondSelectors.queueFulfillSelectors(),
+            WiseTelecomNodesDiamondSelectors._queueFulfillSelectors(),
             address(new QueueFulfillFacet())
         );
 
         _proposeOne(
-            WiseTelecomNodesDiamondSelectors.referralSelectors(),
+            WiseTelecomNodesDiamondSelectors._referralSelectors(),
             address(new ReferralFacet())
         );
 
         _proposeOne(
-            WiseTelecomNodesDiamondSelectors.permit2ReferralSelectors(),
+            WiseTelecomNodesDiamondSelectors._permit2ReferralSelectors(),
             address(new Permit2ReferralFacet())
         );
 
         _proposeOne(
-            WiseTelecomNodesDiamondSelectors.cohortRecorderSelectors(),
+            WiseTelecomNodesDiamondSelectors._cohortRecorderSelectors(),
             address(new CohortRecorderFacet())
+        );
+
+        _proposeOne(
+            WiseTelecomNodesDiamondSelectors._cohortBridgeHookSelectors(),
+            address(new CohortBridgeHookFacet())
+        );
+
+        _proposeOne(
+            WiseTelecomNodesDiamondSelectors._cohortMoveHookSelectors(),
+            address(new CohortMoveHookFacet())
+        );
+
+        _proposeOne(
+            WiseTelecomNodesDiamondSelectors._autoCompoundSelectors(),
+            address(new AutoCompoundFacet())
         );
     }
 
@@ -1452,43 +1535,66 @@ abstract contract ReferralRegistryUpgradeForkBase is Test {
         internal
     {
         _executeOne(
-            WiseTelecomNodesDiamondSelectors.adminSelectors()
+            WiseTelecomNodesDiamondSelectors._adminSelectors()
         );
 
         _executeOne(
-            WiseTelecomNodesDiamondSelectors.userSelectors()
+            WiseTelecomNodesDiamondSelectors._userSelectors()
         );
 
         _executeOne(
-            WiseTelecomNodesDiamondSelectors.permit2Selectors()
+            WiseTelecomNodesDiamondSelectors._permit2Selectors()
         );
 
         _executeOne(
-            WiseTelecomNodesDiamondSelectors.moveSelectors()
+            WiseTelecomNodesDiamondSelectors._moveSelectors()
         );
 
         _executeOne(
-            WiseTelecomNodesDiamondSelectors.bridgeSelectors()
+            WiseTelecomNodesDiamondSelectors._bridgeSelectors()
         );
 
         _executeOne(
-            WiseTelecomNodesDiamondSelectors.queueJoinLeaveSelectors()
+            WiseTelecomNodesDiamondSelectors._queueJoinLeaveSelectors()
         );
 
         _executeOne(
-            WiseTelecomNodesDiamondSelectors.queueFulfillSelectors()
+            WiseTelecomNodesDiamondSelectors._queueFulfillSelectors()
         );
 
         _executeOne(
-            WiseTelecomNodesDiamondSelectors.referralSelectors()
+            WiseTelecomNodesDiamondSelectors._referralSelectors()
         );
 
         _executeOne(
-            WiseTelecomNodesDiamondSelectors.permit2ReferralSelectors()
+            WiseTelecomNodesDiamondSelectors._permit2ReferralSelectors()
         );
 
         _executeOne(
-            WiseTelecomNodesDiamondSelectors.cohortRecorderSelectors()
+            WiseTelecomNodesDiamondSelectors._cohortRecorderSelectors()
+        );
+
+        _executeOne(
+            WiseTelecomNodesDiamondSelectors._cohortBridgeHookSelectors()
+        );
+
+        _executeOne(
+            WiseTelecomNodesDiamondSelectors._cohortMoveHookSelectors()
+        );
+
+        address autoCompoundBefore = v.selectorToFacet(
+            AutoCompoundFacet.compoundInterestOnBehalf.selector
+        );
+
+        _executeOne(
+            WiseTelecomNodesDiamondSelectors._autoCompoundSelectors()
+        );
+
+        assertTrue(
+            v.selectorToFacet(
+                AutoCompoundFacet.compoundInterestOnBehalf.selector
+            ) != autoCompoundBefore,
+            "auto compound batch not rerouted"
         );
     }
 
@@ -1699,7 +1805,9 @@ abstract contract ReferralRegistryCrossVaultForkBase is Test {
         );
 
         assertEq(
-            registry.referrerOf(user),
+            registry.referrerOf(
+                user
+            ),
             refA,
             "assignment through diamond A missing"
         );
@@ -1713,13 +1821,17 @@ abstract contract ReferralRegistryCrossVaultForkBase is Test {
         );
 
         assertEq(
-            vb.getTrackedContribution(user),
+            vb.getTrackedContribution(
+                user
+            ),
             amountB,
             "plain deposit on B must be tracked"
         );
 
         assertEq(
-            vb.getCohortScore(refA),
+            vb.getCohortScore(
+                refA
+            ),
             amountB,
             "plain deposit on B must credit A's referrer through the registry"
         );
@@ -1738,25 +1850,33 @@ abstract contract ReferralRegistryCrossVaultForkBase is Test {
         );
 
         assertEq(
-            registry.referrerOf(user),
+            registry.referrerOf(
+                user
+            ),
             refA,
             "write-once must hold across vaults"
         );
 
         assertEq(
-            vb.getCohortScore(refB),
+            vb.getCohortScore(
+                refB
+            ),
             0,
             "the ignored referrer must earn nothing"
         );
 
         assertEq(
-            vb.getCohortScore(refA),
+            vb.getCohortScore(
+                refA
+            ),
             amountB + amountB2,
             "the sticky referrer must keep earning on vault B"
         );
 
         assertEq(
-            va.getCohortScore(refA),
+            va.getCohortScore(
+                refA
+            ),
             amountA,
             "books stay per-vault"
         );
@@ -1837,13 +1957,17 @@ abstract contract ReferralRegistryCrossVaultForkBase is Test {
         }
 
         assertEq(
-            va.peerVault(address(vb)),
+            va.peerVault(
+                address(vb)
+            ),
             true,
             "A->B peer link must be live after registration"
         );
 
         assertEq(
-            vb.peerVault(address(va)),
+            vb.peerVault(
+                address(va)
+            ),
             true,
             "B->A peer link must be live after registration"
         );
@@ -1865,25 +1989,33 @@ abstract contract ReferralRegistryCrossVaultForkBase is Test {
         );
 
         assertEq(
-            va.getCohortScore(refA),
+            va.getCohortScore(
+                refA
+            ),
             0,
             "move must carry the whole A slice"
         );
 
         assertEq(
-            vb.getCohortScore(refA),
+            vb.getCohortScore(
+                refA
+            ),
             _sliceA + _restB,
             "carry must land on B in full"
         );
 
         assertEq(
-            va.getTrackedContribution(user),
+            va.getTrackedContribution(
+                user
+            ),
             0,
             "tracked must leave A"
         );
 
         assertEq(
-            vb.getTrackedContribution(user),
+            vb.getTrackedContribution(
+                user
+            ),
             _sliceA + _restB,
             "tracked must arrive on B"
         );
@@ -1912,25 +2044,33 @@ abstract contract ReferralRegistryCrossVaultForkBase is Test {
         );
 
         assertEq(
-            va.getCohortScore(refA),
+            va.getCohortScore(
+                refA
+            ),
             _sliceA,
             "round trip must restore the A book exactly"
         );
 
         assertEq(
-            vb.getCohortScore(refA),
+            vb.getCohortScore(
+                refA
+            ),
             _restB,
             "round trip must restore the B book exactly"
         );
 
         assertEq(
-            va.getTrackedContribution(user),
+            va.getTrackedContribution(
+                user
+            ),
             _sliceA,
             "round trip must restore A tracked"
         );
 
         assertEq(
-            vb.getTrackedContribution(user),
+            vb.getTrackedContribution(
+                user
+            ),
             _restB,
             "round trip must restore B tracked"
         );
@@ -1956,13 +2096,17 @@ abstract contract ReferralRegistryCrossVaultForkBase is Test {
         );
 
         assertEq(
-            va.getTrackedContribution(user),
+            va.getTrackedContribution(
+                user
+            ),
             0,
             "join must discredit post-escrow"
         );
 
         assertEq(
-            va.getCohortScore(refA),
+            va.getCohortScore(
+                refA
+            ),
             0,
             "join discredit must reduce the book"
         );
@@ -2037,19 +2181,25 @@ abstract contract ReferralRegistryCrossVaultForkBase is Test {
         );
 
         assertEq(
-            va.balanceOf(user),
+            va.balanceOf(
+                user
+            ),
             _amount,
             "escrow must return on leave"
         );
 
         assertEq(
-            va.getTrackedContribution(user),
+            va.getTrackedContribution(
+                user
+            ),
             0,
             "leave must not re-credit tracked"
         );
 
         assertEq(
-            va.getCohortScore(refA),
+            va.getCohortScore(
+                refA
+            ),
             0,
             "leave must not re-credit the book"
         );
@@ -2067,32 +2217,37 @@ abstract contract ReferralRegistryCrossVaultForkBase is Test {
         );
 
         _v.proposeSelectors(
-            WiseTelecomNodesDiamondSelectors.adminSelectors(),
+            WiseTelecomNodesDiamondSelectors._adminSelectors(),
             address(new AdminFacet())
         );
 
         _v.proposeSelectors(
-            WiseTelecomNodesDiamondSelectors.userSelectors(),
+            WiseTelecomNodesDiamondSelectors._userSelectors(),
             address(new UserFacet())
         );
 
         _v.proposeSelectors(
-            WiseTelecomNodesDiamondSelectors.referralSelectors(),
+            WiseTelecomNodesDiamondSelectors._referralSelectors(),
             address(new ReferralFacet())
         );
 
         _v.proposeSelectors(
-            WiseTelecomNodesDiamondSelectors.cohortRecorderSelectors(),
+            WiseTelecomNodesDiamondSelectors._cohortRecorderSelectors(),
             address(new CohortRecorderFacet())
         );
 
         _v.proposeSelectors(
-            WiseTelecomNodesDiamondSelectors.moveSelectors(),
+            WiseTelecomNodesDiamondSelectors._cohortMoveHookSelectors(),
+            address(new CohortMoveHookFacet())
+        );
+
+        _v.proposeSelectors(
+            WiseTelecomNodesDiamondSelectors._moveSelectors(),
             address(new MoveFacet())
         );
 
         _v.proposeSelectors(
-            WiseTelecomNodesDiamondSelectors.queueJoinLeaveSelectors(),
+            WiseTelecomNodesDiamondSelectors._queueJoinLeaveSelectors(),
             address(new QueueJoinLeaveFacet())
         );
 
@@ -2115,27 +2270,31 @@ abstract contract ReferralRegistryCrossVaultForkBase is Test {
         );
 
         _v.executeSelectorChanges(
-            WiseTelecomNodesDiamondSelectors.adminSelectors()
+            WiseTelecomNodesDiamondSelectors._adminSelectors()
         );
 
         _v.executeSelectorChanges(
-            WiseTelecomNodesDiamondSelectors.userSelectors()
+            WiseTelecomNodesDiamondSelectors._userSelectors()
         );
 
         _v.executeSelectorChanges(
-            WiseTelecomNodesDiamondSelectors.referralSelectors()
+            WiseTelecomNodesDiamondSelectors._referralSelectors()
         );
 
         _v.executeSelectorChanges(
-            WiseTelecomNodesDiamondSelectors.cohortRecorderSelectors()
+            WiseTelecomNodesDiamondSelectors._cohortRecorderSelectors()
         );
 
         _v.executeSelectorChanges(
-            WiseTelecomNodesDiamondSelectors.moveSelectors()
+            WiseTelecomNodesDiamondSelectors._cohortMoveHookSelectors()
         );
 
         _v.executeSelectorChanges(
-            WiseTelecomNodesDiamondSelectors.queueJoinLeaveSelectors()
+            WiseTelecomNodesDiamondSelectors._moveSelectors()
+        );
+
+        _v.executeSelectorChanges(
+            WiseTelecomNodesDiamondSelectors._queueJoinLeaveSelectors()
         );
 
         _v.executeTransferHookFacetChange();
@@ -2169,6 +2328,10 @@ abstract contract ReferralRegistryCrossVaultForkBase is Test {
         );
 
         _v.executeReferralRegistryChange();
+
+        _v.setBridgeGasLimit(
+            5_000_000
+        );
 
         _v.setCohortSyncEnabled(
             true
@@ -2574,13 +2737,17 @@ contract ReferralRegistryRobinhoodNoPeerFork is Test {
         public
     {
         assertEq(
-            vault.peerVault(usdcAddress),
+            vault.peerVault(
+                usdcAddress
+            ),
             false,
             "unexpected live peer link to usdc address"
         );
 
         assertEq(
-            vault.peerVault(usdtAddress),
+            vault.peerVault(
+                usdtAddress
+            ),
             false,
             "unexpected live peer link to usdt address"
         );

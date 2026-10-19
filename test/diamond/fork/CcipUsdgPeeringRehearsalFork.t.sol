@@ -190,7 +190,9 @@ contract CcipUsdgPeeringRehearsalFork is CcipForkHarness {
         _onSrc();
 
         assertEq(
-            ICcipBridgeVault(src.diamond).balanceOf(alice),
+            ICcipBridgeVault(src.diamond).balanceOf(
+                alice
+            ),
             0,
             "source must burn the bridged shares"
         );
@@ -208,7 +210,9 @@ contract CcipUsdgPeeringRehearsalFork is CcipForkHarness {
         );
 
         assertTrue(
-            ICcipBridgeVault(dst.diamond).processedMessageId(sent.messageId),
+            ICcipBridgeVault(dst.diamond).processedMessageId(
+                sent.messageId
+            ),
             "forward message not marked processed"
         );
 
@@ -226,7 +230,9 @@ contract CcipUsdgPeeringRehearsalFork is CcipForkHarness {
         _onDst();
 
         assertEq(
-            ICcipBridgeVault(dst.diamond).balanceOf(alice),
+            ICcipBridgeVault(dst.diamond).balanceOf(
+                alice
+            ),
             dstBalanceBefore,
             "return leg must burn the round-tripped shares"
         );
@@ -240,13 +246,17 @@ contract CcipUsdgPeeringRehearsalFork is CcipForkHarness {
         _onSrc();
 
         assertEq(
-            ICcipBridgeVault(src.diamond).balanceOf(alice),
+            ICcipBridgeVault(src.diamond).balanceOf(
+                alice
+            ),
             back.dstAmount,
             "round trip must restore the source balance"
         );
 
         assertTrue(
-            ICcipBridgeVault(src.diamond).processedMessageId(back.messageId),
+            ICcipBridgeVault(src.diamond).processedMessageId(
+                back.messageId
+            ),
             "return message not marked processed"
         );
     }

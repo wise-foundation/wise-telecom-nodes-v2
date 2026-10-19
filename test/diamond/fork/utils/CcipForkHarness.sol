@@ -104,7 +104,10 @@ interface ICcipOffRampDiscovery {
  * The diamond and router addresses are read from `config/` JSON before
  * any fork is created, so they can never drift to a stale hardcode.
  * Forks use HEAD (no pin): a lane rehearsal must see today's real
- * router, peer and gas state.
+ * router, peer and gas state. `_bridgeOut` records the source fork's
+ * clock at the send in `SentMessage.sentAt`, so a suite derives the
+ * capture week from the send itself, never from a source clock it
+ * reads later.
  */
 abstract contract CcipForkHarness is Test {
 
@@ -143,6 +146,7 @@ abstract contract CcipForkHarness is Test {
         uint256 srcAmount;
         uint256 dstAmount;
         bytes referralData;
+        uint256 sentAt;
     }
 
     event CCIPMessageSent(
@@ -151,13 +155,21 @@ abstract contract CcipForkHarness is Test {
         Internal.EVM2AnyRampMessage message
     );
 
-    bytes32 internal constant ON_RAMP_V16_TAG = keccak256("OnRamp 1.6.0");
+    bytes32 internal constant ON_RAMP_V16_TAG = keccak256(
+        "OnRamp 1.6.0"
+    );
 
-    bytes32 internal constant ON_RAMP_V20_TAG = keccak256("OnRamp 2.0.0");
+    bytes32 internal constant ON_RAMP_V20_TAG = keccak256(
+        "OnRamp 2.0.0"
+    );
 
-    bytes32 internal constant OFF_RAMP_V16_TAG = keccak256("OffRamp 1.6.0");
+    bytes32 internal constant OFF_RAMP_V16_TAG = keccak256(
+        "OffRamp 1.6.0"
+    );
 
-    bytes32 internal constant OFF_RAMP_V20_TAG = keccak256("OffRamp 2.0.0");
+    bytes32 internal constant OFF_RAMP_V20_TAG = keccak256(
+        "OffRamp 2.0.0"
+    );
 
     ChainCtx internal src;
     ChainCtx internal dst;
@@ -302,7 +314,9 @@ abstract contract CcipForkHarness is Test {
             return 4663;
         }
 
-        revert("unknown network");
+        revert(
+            "unknown network"
+        );
     }
 
     function _hydrate(
@@ -518,6 +532,7 @@ abstract contract CcipForkHarness is Test {
         sent.srcAmount = _amount;
         sent.dstAmount = dstAmount;
         sent.referralData = _referralData;
+        sent.sentAt = block.timestamp;
     }
 
     function _route(
@@ -685,7 +700,9 @@ abstract contract CcipForkHarness is Test {
             }
         }
 
-        revert("CCIPMessageSent log not found");
+        revert(
+            "CCIPMessageSent log not found"
+        );
     }
 
     /**
@@ -777,7 +794,9 @@ abstract contract CcipForkHarness is Test {
             return encodedMessage;
         }
 
-        revert("CCIPMessageSent log not found");
+        revert(
+            "CCIPMessageSent log not found"
+        );
     }
 
     function _mockCcvQuorum(
@@ -1166,7 +1185,9 @@ abstract contract CcipForkHarness is Test {
             return address(uint160(bytes20(_encoded)));
         }
 
-        revert("bad address encoding");
+        revert(
+            "bad address encoding"
+        );
     }
 
     function _raiseBridgeGasLimit(
@@ -1256,18 +1277,24 @@ abstract contract CcipForkHarness is Test {
         );
 
         assertTrue(
-            vault.crossChainPeerEnabled(_remoteSelector),
+            vault.crossChainPeerEnabled(
+                _remoteSelector
+            ),
             "peer not enabled after the timelocked execute"
         );
 
         assertEq(
-            vault.crossChainPeer(_remoteSelector),
+            vault.crossChainPeer(
+                _remoteSelector
+            ),
             _peer,
             "peer address mismatch after the timelocked execute"
         );
 
         assertEq(
-            vault.crossChainPeerDecimals(_remoteSelector),
+            vault.crossChainPeerDecimals(
+                _remoteSelector
+            ),
             _peerDecimals,
             "peer decimals mismatch after the timelocked execute"
         );

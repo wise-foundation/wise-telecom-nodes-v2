@@ -2,137 +2,59 @@
 
 pragma solidity =0.8.36;
 
-import {Client} from "@chainlink/contracts-ccip/contracts/libraries/Client.sol";
 import {IRouterClient} from "@chainlink/contracts-ccip/contracts/interfaces/IRouterClient.sol";
 
 import {CohortFlushUpgradeForkBase, IWtnFlushVault} from "./CohortFlushUpgradeFork.t.sol";
+
+import {ICcipBridgeVault} from "./utils/CcipForkInterfaces.sol";
 
 import {WiseTelecomNodesDiamondErrors} from "../../../src/diamond/vault/WiseTelecomNodesDiamondErrors.sol";
 
 import {CohortWeeks} from "../../../src/diamond/shared/pending/CohortWeeks.sol";
 
 /**
- * @dev Zero-fee recording stand-in for the CCIP router, etched over
- * the real router address for the duration of a single flush whose
- * live fee quoter refuses the warped fork clock. It answers `getFee`
- * with zero and captures the keccak hash of the envelope bytes the
- * facet hands to `ccipSend` into its first storage slot, so the test
- * can byte-assert its storage reconstruction against what the REAL
- * facet actually shipped even on the mock path. The caller saves and
- * restores the router's code and touched storage slot around the
- * etch window.
- */
-contract FlushRouterRecorder {
-
-    bytes32 public capturedDataHash;
-
-    function getFee(
-        uint64,
-        Client.EVM2AnyMessage calldata
-    )
-        external
-        pure
-        returns (uint256)
-    {
-        return 0;
-    }
-
-    function ccipSend(
-        uint64 _destChainSelector,
-        Client.EVM2AnyMessage calldata _message
-    )
-        external
-        payable
-        returns (bytes32)
-    {
-        capturedDataHash = keccak256(
-            _message.data
-        );
-
-        return keccak256(
-            abi.encode(
-                _destChainSelector,
-                capturedDataHash
-            )
-        );
-    }
-}
-
-/**
  * @dev Operator-bot ordering rehearsal on the live flush transport.
  * The flush lane is sent with `allowOutOfOrderExecution: true`, so a
- * courier operating the spoke-to-hub pipeline explicitly relies on
- * one property this suite pins over real forked chains: consecutive
- * VAULT-BUILT envelopes for the same referrer converge to the same
- * hub state no matter in which order they are delivered and applied.
- * The unit mailbox suite proves the stamp/cursor algebra only with
- * hand-packed payloads and the flush-upgrade rehearsals always
- * deliver in send order; this suite drives envelopes the live
- * spoke's own facet packed through the hub in REVERSED order.
+ * courier operating the spoke-to-hub pipeline relies on one property
+ * this suite pins over real forked chains: VAULT-BUILT envelopes for
+ * the same referrer converge to the same hub state in whatever order
+ * they are delivered and applied. The hub prices a closed week only
+ * from that week's own bucket and pays each (source, referrer, week)
+ * the due of its cumulative cursor, so the property holds without
+ * any choreography of build stamps or score windows.
  *
- * Methodology of the convergence proof: two referrers with byte-for-
- * byte mirrored books (same deposits, same timestamps, one courier
- * each so the per-source courier buckets stay apart) are flushed
- * twice at exact week boundaries; boundary alignment keeps the two
- * envelopes' crumb weeks disjoint, so per-lane floor dust cannot
- * differ between application orders and the convergence assertions
- * are EXACT. One referrer's pair is applied in send order, the
- * mirror's in reverse, and every register the bot economy reads
- * (per-source-chain claimable, courier bucket, global score, applied
- * score stamp) must end identical. A deposit lands between the two
- * builds so the reversed run also proves the stamp gate: the earlier
- * envelope's absolute score word, applied last, must be skipped
- * instead of regressing the freshly landed larger score.
+ * The convergence proof flushes two referrers with byte-for-byte
+ * mirrored books (same deposits in the same block, one courier each
+ * so the per-source courier buckets stay apart): an own flush that
+ * stamps the send cursor, then two courier envelopes two weeks apart
+ * with a second deposit landing between the builds. A courier batch
+ * never writes the referrer's send cursor, so the later envelope
+ * re-carries every week the earlier one did plus the new ones. One
+ * referrer's pair is applied in send order, the mirror's in reverse,
+ * and every register the bot economy reads (claimable, courier
+ * bucket, the week buckets and the paid cursors of every flushed
+ * week) must end identical, with the referrer's total equal to the
+ * one-floor-per-week pricing of every closed crumb and the courier's
+ * equal to its fee on every week it carried. The fee is paid on the
+ * increment each delivery adds to a week's cursor, so the courier
+ * earns it once on every week closed by the later build, the weeks
+ * the earlier envelope also carried included, in either order.
  *
- * The mirrored baseline scores travel in ONE two-entry vault-built
- * envelope and every aging warp is anchored to the week the hub
- * ACTUALLY recorded that score checkpoint in, not to the spoke's
- * send-time week. Both choices are load-bearing under parallel test
- * execution: sibling fork rehearsals warping the same live lanes can
- * skew a fork clock between two separate deliveries, and a baseline
- * checkpoint drifting into a later week than its mirror's (or than
- * the assumed aging origin) would zero the dwell-gated rates of the
- * weeks this suite prices. One batched apply pins both checkpoints
- * to a single week by construction, and checkpoint-anchored warps
- * keep the priced weeks inside the rate window wherever that week
- * actually landed. Run this suite ONE TEST AT A TIME: the hub stores
- * a score report under the build week of its envelope and drops one
- * that is already older than its freshness window at apply, so a
- * sibling test that has warped the shared destination-fork clock
- * weeks ahead of the spoke turns the batched baseline scores into a
- * dropped stale report (a zero-score checkpoint, every rate zero)
- * where the same flow passes alone. Aligning the spoke clock up to
- * the hub before every build does not rescue the parallel run (the
- * routed wire then stops byte-matching its reconstruction), so one
- * test at a time is the supported mode.
- *
- * The second scenario overlaps the envelopes on purpose: two flushes
- * an hour apart inside one week re-ship the same in-progress crumb
- * at two sizes. Applying the grown word first and the stale envelope
- * afterwards pins the paid-cursor economics a courier eats: the
- * stale overlap word prices zero (lane regression, no accrual, no
- * courier share) while the stale envelope's genuinely unpriced
- * backlog weeks still pay in full, and a re-apply of the stale
- * envelope after all that accrues nothing.
- *
- * Wire fidelity follows the flush-upgrade rehearsal's doctrine: the
- * first flush of each referrer rides the real routed lane whenever
- * the live on-ramp supports the scrape, and the reordered pair is
- * delivered with the storage-reconstructed envelope through the
- * pranked router; a held message's on-ramp log cannot survive the
- * earlier deliveries' log scrapes anyway. Where the live fee quoter
- * refuses the aged clock, the flush still executes the REAL facet
- * (settle to the second, cursor advance, envelope packing) against a
- * zero-fee recording router etched over the real one for exactly
- * that call; the recorder captures the hash of the envelope the
- * facet hands to `ccipSend`, and every delivered reconstruction is
- * byte-asserted against that capture, so the mock-path envelopes can
- * never drift from what the deployed bytecode would ship. Revert
+ * The duplicate scenario builds two courier envelopes an hour apart
+ * from the same stored cursor, so they carry the same closed weeks
+ * with equal words: whichever applies first prices them and pays the
+ * courier fee, the other and any replay accrue nothing. The revert
  * gates a courier must parse (NotFlushBot on a foreign book,
  * InsufficientFlushFee on an underpaid send) are pinned on the exact
  * custom errors in-flow; the fee gate rides the live quote when the
  * quoter answers with a nonzero fee and a pinned nonzero quote
- * otherwise, so neither pin is ever silently skipped.
+ * otherwise.
+ *
+ * Every reordered envelope is delivered through the pranked router
+ * as the captured payload, because a held message's on-ramp log
+ * cannot survive the earlier deliveries' log scrapes. Run this suite
+ * ONE TEST AT A TIME: sibling fork rehearsals warp the same shared
+ * destination fork clock.
  */
 abstract contract ReferralBotOpsForkBase is CohortFlushUpgradeForkBase {
 
@@ -145,10 +67,7 @@ abstract contract ReferralBotOpsForkBase is CohortFlushUpgradeForkBase {
         FlushWire backlogB;
         FlushWire freshA;
         FlushWire freshB;
-        uint256 grownScore;
-        uint256 checkpointWeek;
-        uint256 backlogFromWeek;
-        uint256 freshWeek;
+        uint256 courierFromWeek;
     }
 
     uint256 internal constant SECOND_DEPOSIT_UNITS = 4_000;
@@ -201,119 +120,60 @@ abstract contract ReferralBotOpsForkBase is CohortFlushUpgradeForkBase {
             run.freshB
         );
 
-        (
-            uint256 freshPaid,
-            uint256 freshShare
-        ) = _priceSpokeRangeAtHub(
-            run.refB,
-            run.freshWeek,
-            run.freshWeek
-        );
-
-        _onDst();
-
-        assertEq(
-            hub.globalReferredScore(run.refB),
-            run.grownScore,
-            "the later-stamp envelope applied first must land the grown absolute score"
-        );
-
-        assertEq(
-            hub.claimable(src.chainId, run.refB),
-            freshPaid - freshShare,
-            "the later envelope's crumb week must price in full on first application"
-        );
-
-        assertEq(
-            hub.claimable(src.chainId, run.courierB),
-            freshShare,
-            "the stamped courier must earn the split on the freshly priced week"
-        );
-
-        assertGt(
-            freshPaid,
-            0,
-            "the fresh week must price at real rates"
-        );
-
-        uint256 stampAfterFresh = hub.appliedScoreStamp(
-            _sourceKey(),
-            run.refB
-        );
-
         _deliverHeldWire(
             run.backlogB
         );
 
-        _onDst();
-
-        assertEq(
-            hub.globalReferredScore(run.refB),
-            run.grownScore,
-            "the stale-stamp score word must be skipped, never regressing the score"
+        _assertMirrorConverged(
+            run
         );
 
-        assertEq(
-            hub.appliedScoreStamp(_sourceKey(), run.refB),
-            stampAfterFresh,
-            "the stale stamp must not overwrite the freshest applied stamp"
+        uint256 expected = _expectedTotalFor(
+            run.refA
         );
 
-        assertEq(
-            hub.claimable(src.chainId, run.refB),
-            hub.claimable(src.chainId, run.refA),
-            "out-of-order application must converge to the in-order claimable"
-        );
-
-        assertEq(
-            hub.claimable(src.chainId, run.courierB),
-            hub.claimable(src.chainId, run.courierA),
-            "the courier stamped in both envelopes must earn exactly the in-order total"
-        );
-
-        assertEq(
-            hub.globalReferredScore(run.refB),
-            hub.globalReferredScore(run.refA),
-            "the absolute scores must converge across application orders"
-        );
-
-        (
-            uint256 fullPaid,
-            uint256 fullShare
-        ) = _priceSpokeRangeAtHub(
+        uint256 courierFee = _expectedCourierShareFor(
             run.refA,
-            run.backlogFromWeek,
-            run.freshWeek
+            run.courierFromWeek,
+            _wireStamp(
+                run.freshA
+            )
         );
 
         _onDst();
 
         assertEq(
-            hub.claimable(src.chainId, run.refA) + hub.claimable(src.chainId, run.courierA),
-            fullPaid,
+            hub.claimable(
+                src.chainId,
+                run.refA
+            ),
+            expected,
             "every flushed week must accrue exactly once at its final word"
         );
 
         assertEq(
-            hub.claimable(src.chainId, run.courierA),
-            fullShare,
-            "the courier total must equal the per-week split of the one-shot pricing"
+            hub.claimable(
+                src.chainId,
+                run.courierA
+            ),
+            courierFee,
+            "the courier total must equal its fee on every week it carried"
         );
 
         assertGt(
-            hub.claimable(src.chainId, run.refA),
+            expected,
             0,
-            "aged weeks past the score checkpoint must have priced real money"
+            "closed weeks must price real money"
         );
 
         assertGt(
-            hub.claimable(src.chainId, run.courierA),
+            courierFee,
             0,
-            "the courier split must be nonzero for the rehearsed volume"
+            "the courier fee must be nonzero for the rehearsed volume"
         );
     }
 
-    function test_botOps_staleEnvelopeAfterFreshDelivery_paysOnlyUnpricedWeeks()
+    function test_botOps_duplicateCourierEnvelopes_priceOnce()
         public
     {
         if (_laneUsable() == false) {
@@ -325,341 +185,352 @@ abstract contract ReferralBotOpsForkBase is CohortFlushUpgradeForkBase {
             return;
         }
 
-        _referredDepositOnSpoke();
+        address refC = makeAddr(
+            "botOpsReferrerC"
+        );
+
+        address courierC = makeAddr(
+            "botOpsCourierC"
+        );
+
+        _allowFlushBot(
+            courierC
+        );
+
+        _referredDepositFor(
+            "botOpsDepositorC",
+            refC,
+            DEPOSIT_AMOUNT_UNITS
+        );
 
         _ageSpokeWeeks(
             2
         );
 
-        _onSrc();
-
-        vm.prank(
-            src.master
-        );
-
-        IWtnFlushVault(src.diamond).setAllowedFlushBot(
-            bot,
-            true
-        );
-
         _deliverAndApply(
             _flushSpoke(
-                referrer,
-                referrer
+                refC,
+                refC
             )
         );
 
-        uint256 overlapWeek = _scoresCheckpointWeek(
-            referrer
-        ) + 3;
-
-        _warpSrcInsideWeek(
-            overlapWeek
+        _pinFlushGateReverts(
+            refC,
+            makeAddr(
+                "botOpsStranger"
+            )
         );
 
-        uint256 backlogFromWeek = _cursorFromWeekOnSpoke(
-            referrer
+        _ageSpokeWeeks(
+            2
         );
 
-        FlushWire memory stale = _flushSpokeForced(
-            referrer,
-            bot
+        FlushWire memory first = _flushSpoke(
+            refC,
+            courierC
         );
-
-        uint256 partialWord = _spokeCrumb(
-            referrer,
-            overlapWeek
-        );
-
-        assertGt(
-            partialWord,
-            0,
-            "the in-progress week must have settled a partial crumb into the stale envelope"
-        );
-
-        _drainWireLogs();
-
-        _onSrc();
 
         vm.warp(
             block.timestamp + 1 hours
         );
 
-        FlushWire memory fresh = _flushSpokeForced(
-            referrer,
-            bot
-        );
-
-        assertGt(
-            _spokeCrumb(referrer, overlapWeek),
-            partialWord,
-            "the extra hour of dwell must grow the in-progress week's crumb"
-        );
-
-        _deliverAndApply(
-            fresh
-        );
-
-        (
-            uint256 overlapPaid,
-            uint256 overlapShare
-        ) = _priceSpokeRangeAtHub(
-            referrer,
-            overlapWeek,
-            overlapWeek
-        );
-
-        _onDst();
-
-        assertEq(
-            hub.claimable(src.chainId, referrer),
-            overlapPaid - overlapShare,
-            "the later envelope applied first must price its grown week in full"
-        );
-
-        assertEq(
-            hub.claimable(src.chainId, bot),
-            overlapShare,
-            "the courier split must attach to the freshly priced grown week"
-        );
-
-        assertGt(
-            overlapPaid,
-            0,
-            "the grown week must price at real rates"
-        );
-
-        uint256 accruedBefore = hub.totalAccrued();
-
-        uint256 stampBefore = hub.appliedScoreStamp(
-            _sourceKey(),
-            referrer
-        );
-
-        uint256 scoreBefore = hub.globalReferredScore(
-            referrer
+        FlushWire memory second = _flushSpoke(
+            refC,
+            courierC
         );
 
         _deliverHeldWire(
-            stale
-        );
-
-        (
-            uint256 backlogPaid,
-            uint256 backlogShare
-        ) = _priceSpokeRangeAtHub(
-            referrer,
-            backlogFromWeek,
-            overlapWeek - 1
+            second
         );
 
         _onDst();
 
-        assertEq(
-            hub.claimable(src.chainId, referrer),
-            (overlapPaid - overlapShare) + (backlogPaid - backlogShare),
-            "the stale envelope must pay exactly its not-yet-priced weeks"
+        uint256 referrerAfter = hub.claimable(
+            src.chainId,
+            refC
         );
 
-        assertEq(
-            hub.claimable(src.chainId, bot),
-            overlapShare + backlogShare,
-            "the courier must earn nothing on the already-priced overlap week"
+        uint256 courierAfter = hub.claimable(
+            src.chainId,
+            courierC
         );
 
-        assertEq(
-            hub.totalAccrued(),
-            accruedBefore + backlogPaid,
-            "the overlap week's smaller crumb must accrue zero against the advanced paid cursor"
-        );
-
-        assertEq(
-            hub.globalReferredScore(referrer),
-            scoreBefore,
-            "the stale score word must be skipped after the fresher stamp"
-        );
-
-        assertEq(
-            hub.appliedScoreStamp(_sourceKey(), referrer),
-            stampBefore,
-            "the stale stamp must never lower the applied score stamp"
-        );
+        uint256 accruedAfter = hub.totalAccrued();
 
         assertGt(
-            backlogPaid,
+            courierAfter,
             0,
-            "the settled backlog weeks must price real money"
+            "the first applied courier envelope must earn the fee"
         );
 
+        _deliverHeldWire(
+            first
+        );
+
+        _onDst();
+
         hub.applyFlush(
-            stale.messageId,
+            second.messageId,
+            src.chainSelector,
             src.chainId,
             src.diamond,
-            stale.payload
+            second.payload
+        );
+
+        assertEq(
+            hub.claimable(
+                src.chainId,
+                refC
+            ),
+            referrerAfter,
+            "a duplicate envelope or a replay must price nothing for the referrer"
+        );
+
+        assertEq(
+            hub.claimable(
+                src.chainId,
+                courierC
+            ),
+            courierAfter,
+            "a duplicate envelope or a replay must pay the courier nothing"
         );
 
         assertEq(
             hub.totalAccrued(),
-            accruedBefore + backlogPaid,
-            "re-applying the stale envelope must accrue nothing further"
+            accruedAfter,
+            "a duplicate envelope or a replay must accrue nothing"
         );
 
         assertEq(
-            hub.claimable(src.chainId, referrer),
-            (overlapPaid - overlapShare) + (backlogPaid - backlogShare),
-            "re-applying the stale envelope must not move the referrer bucket"
-        );
-
-        assertEq(
-            hub.claimable(src.chainId, bot),
-            overlapShare + backlogShare,
-            "re-applying the stale envelope must not move the courier bucket"
-        );
-
-        assertEq(
-            hub.appliedScoreStamp(_sourceKey(), referrer),
-            stampBefore,
-            "re-applying the stale envelope must leave the applied stamp untouched"
+            referrerAfter,
+            _expectedTotalFor(
+                refC
+            ),
+            "the referrer must hold the one-shot pricing of every flushed week"
         );
     }
 
-    // ---- mirror choreography ----
+    // ---- build and assertions ----
 
     function _mirrorBuild(
         MirrorRun memory _run
     )
         internal
     {
+        _allowFlushBot(
+            _run.courierA
+        );
+
+        _allowFlushBot(
+            _run.courierB
+        );
+
         _referredDepositFor(
-            "botOpsUserA1",
+            "botOpsDepositorA",
             _run.refA,
             DEPOSIT_AMOUNT_UNITS
         );
 
         _referredDepositFor(
-            "botOpsUserB1",
+            "botOpsDepositorB",
             _run.refB,
             DEPOSIT_AMOUNT_UNITS
         );
 
-        _pinFlushGateReverts(
+        _ageSpokeWeeks(
+            2
+        );
+
+        FlushWire memory ownA = _flushSpoke(
+            _run.refA,
+            _run.refA
+        );
+
+        FlushWire memory ownB = _flushSpoke(
+            _run.refB,
+            _run.refB
+        );
+
+        _run.courierFromWeek = _wireStamp(
+            ownA
+        ) / CohortWeeks.WEEK;
+
+        _deliverHeldWire(
+            ownA
+        );
+
+        _deliverHeldWire(
+            ownB
+        );
+
+        _ageSpokeWeeks(
+            2
+        );
+
+        _run.backlogA = _flushSpoke(
             _run.refA,
             _run.courierA
         );
 
-        vm.prank(
-            src.master
+        _run.backlogB = _flushSpoke(
+            _run.refB,
+            _run.courierB
         );
 
-        IWtnFlushVault(src.diamond).setAllowedFlushBot(
-            _run.courierA,
-            true
+        _referredDepositFor(
+            "botOpsSecondDepositorA",
+            _run.refA,
+            SECOND_DEPOSIT_UNITS
         );
 
-        vm.prank(
-            src.master
+        _referredDepositFor(
+            "botOpsSecondDepositorB",
+            _run.refB,
+            SECOND_DEPOSIT_UNITS
         );
 
-        IWtnFlushVault(src.diamond).setAllowedFlushBot(
-            _run.courierB,
-            true
+        _ageSpokeWeeks(
+            2
         );
 
+        _run.freshA = _flushSpoke(
+            _run.refA,
+            _run.courierA
+        );
+
+        _run.freshB = _flushSpoke(
+            _run.refB,
+            _run.courierB
+        );
+    }
+
+    function _assertMirrorConverged(
+        MirrorRun memory _run
+    )
+        internal
+    {
         _onSrc();
 
-        _warpSrcToBoundaryOfWeek(
-            block.timestamp / CohortWeeks.WEEK + 2
-        );
+        uint256 lastWeek = block.timestamp / CohortWeeks.WEEK;
 
-        _flushSpokeForced(
-            _run.refA,
-            _run.courierA
-        );
+        _onDst();
 
-        _flushSpokeForced(
-            _run.refB,
-            _run.courierA
-        );
-
-        _deliverAndApply(
-            _flushMirrorScores(
-                _run
-            )
-        );
-
-        _run.checkpointWeek = _scoresCheckpointWeek(
-            _run.refA
+        assertEq(
+            hub.claimable(
+                src.chainId,
+                _run.refB
+            ),
+            hub.claimable(
+                src.chainId,
+                _run.refA
+            ),
+            "out-of-order application must converge to the in-order claimable"
         );
 
         assertEq(
-            _scoresCheckpointWeek(_run.refB),
-            _run.checkpointWeek,
-            "the batched score envelope must checkpoint both referrers in one week"
+            hub.claimable(
+                src.chainId,
+                _run.courierB
+            ),
+            hub.claimable(
+                src.chainId,
+                _run.courierA
+            ),
+            "the reversed courier must earn exactly the in-order courier total"
         );
 
-        _warpSrcToBoundaryOfWeek(
-            _run.checkpointWeek + 4
+        bytes32 source = hub.sourceKeyOf(
+            src.chainId,
+            src.diamond
         );
 
-        _run.backlogFromWeek = _cursorFromWeekOnSpoke(
-            _run.refA
+        for (uint256 week = lastWeek - CohortWeeks.MAX_SETTLE_BOUNDARIES; week < lastWeek; ++week) {
+
+            (
+                uint256 referredA,
+                uint256 selfA
+            ) = hub.ladderInputsAt(
+                _run.refA,
+                week
+            );
+
+            (
+                uint256 referredB,
+                uint256 selfB
+            ) = hub.ladderInputsAt(
+                _run.refB,
+                week
+            );
+
+            assertEq(
+                referredB,
+                referredA,
+                "the week buckets must converge across application orders"
+            );
+
+            assertEq(
+                selfB,
+                selfA,
+                "the self buckets must converge across application orders"
+            );
+
+            assertEq(
+                _cursorPacked(
+                    source,
+                    _run.refB,
+                    week
+                ),
+                _cursorPacked(
+                    source,
+                    _run.refA,
+                    week
+                ),
+                "the paid cursors must converge across application orders"
+            );
+        }
+    }
+
+    function _cursorPacked(
+        bytes32 _source,
+        address _referrer,
+        uint256 _week
+    )
+        internal
+        view
+        returns (uint256)
+    {
+        (
+            uint256 y1,
+            uint256 y2,
+            uint256 m
+        ) = hub.paidCursorAtSource(
+            _source,
+            _referrer,
+            _week
         );
 
-        _run.backlogA = _flushSpokeForced(
-            _run.refA,
-            _run.courierA
+        return CohortWeeks._packLanes(
+            y1,
+            y2,
+            m
+        );
+    }
+
+    function _allowFlushBot(
+        address _bot
+    )
+        internal
+    {
+        _onSrc();
+
+        vm.prank(
+            ICcipBridgeVault(src.diamond).master()
         );
 
-        _drainWireLogs();
-
-        _run.backlogB = _flushSpokeForced(
-            _run.refB,
-            _run.courierB
+        IWtnFlushVault(src.diamond).setAllowedFlushBot(
+            _bot,
+            true
         );
-
-        _drainWireLogs();
-
-        _referredDepositFor(
-            "botOpsUserA2",
-            _run.refA,
-            SECOND_DEPOSIT_UNITS
-        );
-
-        _referredDepositFor(
-            "botOpsUserB2",
-            _run.refB,
-            SECOND_DEPOSIT_UNITS
-        );
-
-        _run.grownScore = IWtnFlushVault(src.diamond).getCohortScore(
-            _run.refA
-        );
-
-        assertEq(
-            IWtnFlushVault(src.diamond).getCohortScore(_run.refB),
-            _run.grownScore,
-            "the mirrored books must stay identical"
-        );
-
-        _warpSrcToBoundaryOfWeek(
-            _run.checkpointWeek + 5
-        );
-
-        _run.freshWeek = _run.checkpointWeek + 4;
-
-        _run.freshA = _flushSpokeForced(
-            _run.refA,
-            _run.courierA
-        );
-
-        _drainWireLogs();
-
-        _run.freshB = _flushSpokeForced(
-            _run.refB,
-            _run.courierB
-        );
-
-        _drainWireLogs();
     }
 
     function _pinFlushGateReverts(
@@ -729,223 +600,6 @@ abstract contract ReferralBotOpsForkBase is CohortFlushUpgradeForkBase {
         vm.clearMockedCalls();
     }
 
-    // ---- deterministic flush + delivery helpers ----
-
-    function _recordedMockFlush(
-        address _caller,
-        address[] memory _referrers
-    )
-        internal
-        returns (bytes32 capturedHash)
-    {
-        bytes memory routerCode = src.router.code;
-
-        bytes32 routerSlotZero = vm.load(
-            src.router,
-            bytes32(0)
-        );
-
-        vm.etch(
-            src.router,
-            address(new FlushRouterRecorder()).code
-        );
-
-        vm.prank(
-            _caller
-        );
-
-        IWtnFlushVault(src.diamond).flushReferrals(
-            _referrers
-        );
-
-        capturedHash = FlushRouterRecorder(src.router).capturedDataHash();
-
-        vm.etch(
-            src.router,
-            routerCode
-        );
-
-        vm.store(
-            src.router,
-            bytes32(0),
-            routerSlotZero
-        );
-    }
-
-    function _flushMirrorScores(
-        MirrorRun memory _run
-    )
-        internal
-        returns (FlushWire memory wire)
-    {
-        _onSrc();
-
-        address[] memory referrers = new address[](2);
-        referrers[0] = _run.refA;
-        referrers[1] = _run.refB;
-
-        if (_spokeQuoteWorks(referrers) == false) {
-
-            wire.messageId = keccak256(
-                abi.encode(src.diamond, syntheticNonce)
-            );
-
-            syntheticNonce += 1;
-
-            wire.synthetic = true;
-
-            bytes32 capturedHash = _recordedMockFlush(
-                _run.courierA,
-                referrers
-            );
-
-            wire.payload = _mirrorScoresEnvelope(
-                _run
-            );
-
-            assertEq(
-                keccak256(wire.payload),
-                capturedHash,
-                "the mock-path scores envelope must byte-match the facet's ccipSend payload"
-            );
-
-            return wire;
-        }
-
-        uint256 fee = IWtnFlushVault(src.diamond).quoteFlushFee(
-            referrers
-        );
-
-        vm.deal(
-            _run.courierA,
-            fee * 2 + 1 ether
-        );
-
-        vm.recordLogs();
-
-        vm.prank(
-            _run.courierA
-        );
-
-        IWtnFlushVault(src.diamond).flushReferrals{value: fee * 2 + 1 ether}(
-            referrers
-        );
-
-        wire = _scrapeFlushWire(
-            _mirrorScoresEnvelope(
-                _run
-            )
-        );
-    }
-
-    function _mirrorScoresEnvelope(
-        MirrorRun memory _run
-    )
-        internal
-        view
-        returns (bytes memory)
-    {
-        uint256[] memory out = new uint256[](5);
-
-        out[0] = CohortWeeks.packFlushHeader(
-            _run.courierA,
-            2,
-            block.timestamp
-        );
-
-        out[1] = CohortWeeks.packFlushEntry(
-            _run.refA,
-            0,
-            0,
-            0
-        );
-
-        out[2] = CohortWeeks.packFlushScores(
-            _spokeBookSum(
-                _run.refA
-            ),
-            _spokeSelfScore(
-                _run.refA
-            )
-        );
-
-        out[3] = CohortWeeks.packFlushEntry(
-            _run.refB,
-            0,
-            0,
-            0
-        );
-
-        out[4] = CohortWeeks.packFlushScores(
-            _spokeBookSum(
-                _run.refB
-            ),
-            _spokeSelfScore(
-                _run.refB
-            )
-        );
-
-        return abi.encodePacked(
-            out
-        );
-    }
-
-    function _flushSpokeForced(
-        address _referrer,
-        address _caller
-    )
-        internal
-        returns (FlushWire memory wire)
-    {
-        _onSrc();
-
-        address[] memory referrers = new address[](1);
-        referrers[0] = _referrer;
-
-        if (_spokeQuoteWorks(referrers)) {
-
-            wire = _flushSpoke(
-                _referrer,
-                _caller
-            );
-
-            return wire;
-        }
-
-        FlushPlanSnapshot memory plan;
-
-        plan.fromWeek = _cursorFromWeekOnSpoke(
-            _referrer
-        );
-
-        plan.flushedAt = block.timestamp;
-
-        wire.messageId = keccak256(
-            abi.encode(src.diamond, syntheticNonce)
-        );
-
-        syntheticNonce += 1;
-
-        wire.synthetic = true;
-
-        bytes32 capturedHash = _recordedMockFlush(
-            _caller,
-            referrers
-        );
-
-        wire.payload = _reconstructEnvelope(
-            _referrer,
-            _caller,
-            plan
-        );
-
-        assertEq(
-            keccak256(wire.payload),
-            capturedHash,
-            "the mock-path envelope must byte-match the facet's ccipSend payload"
-        );
-    }
-
     function _deliverHeldWire(
         FlushWire memory _wire
     )
@@ -956,14 +610,6 @@ abstract contract ReferralBotOpsForkBase is CohortFlushUpgradeForkBase {
         _deliverAndApply(
             _wire
         );
-    }
-
-    function _drainWireLogs()
-        internal
-    {
-        vm.recordLogs();
-
-        vm.getRecordedLogs();
     }
 
     function _referredDepositFor(
@@ -995,124 +641,6 @@ abstract contract ReferralBotOpsForkBase is CohortFlushUpgradeForkBase {
             amount,
             _referrer
         );
-    }
-
-    // ---- clock + pricing helpers ----
-
-    function _scoresCheckpointWeek(
-        address _referrer
-    )
-        internal
-        returns (uint256 week)
-    {
-        _onDst();
-
-        (
-            week,
-            ,
-        ) = hub.checkpointAt(
-            _referrer,
-            0
-        );
-    }
-
-    function _warpSrcToBoundaryOfWeek(
-        uint256 _week
-    )
-        internal
-    {
-        _onSrc();
-
-        vm.warp(
-            _week * CohortWeeks.WEEK
-        );
-    }
-
-    function _warpSrcInsideWeek(
-        uint256 _week
-    )
-        internal
-    {
-        _onSrc();
-
-        vm.warp(
-            _week * CohortWeeks.WEEK + 3 days
-        );
-    }
-
-    function _sourceKey()
-        internal
-        view
-        returns (bytes32)
-    {
-        return keccak256(
-            abi.encode(src.chainId, src.diamond)
-        );
-    }
-
-    function _priceSpokeRangeAtHub(
-        address _referrer,
-        uint256 _fromWeek,
-        uint256 _toWeek
-    )
-        internal
-        returns (
-            uint256 paidTotal,
-            uint256 shareTotal
-        )
-    {
-        _onSrc();
-
-        uint256[] memory flushedWeeks = new uint256[](
-            _toWeek - _fromWeek + 1
-        );
-
-        uint256[] memory words = new uint256[](
-            _toWeek - _fromWeek + 1
-        );
-
-        uint256 count;
-
-        for (uint256 week = _fromWeek; week <= _toWeek; ++week) {
-
-            uint256 word = _spokeCrumb(
-                _referrer,
-                week
-            );
-
-            if (word == 0) {
-                continue;
-            }
-
-            flushedWeeks[count] = week;
-            words[count] = word;
-
-            ++count;
-        }
-
-        _onDst();
-
-        uint256 shareBps = hub.botShareBps();
-
-        for (uint256 i; i < count; ++i) {
-
-            (
-                uint256 y1Bps,
-                uint256 y2Bps,
-                uint256 mBps
-            ) = hub.weeklyRates(
-                _referrer,
-                flushedWeeks[i]
-            );
-
-            uint256 paid = CohortWeeks.laneY1(words[i]) * y1Bps / 10_000 / CohortWeeks.YEAR
-                + CohortWeeks.laneY2(words[i]) * y2Bps / 10_000 / CohortWeeks.YEAR
-                + CohortWeeks.laneM(words[i]) * mBps / 10_000 / CohortWeeks.YEAR;
-
-            paidTotal += paid;
-
-            shareTotal += paid * shareBps / 10_000;
-        }
     }
 }
 

@@ -16,6 +16,7 @@ import {FacetNotFound} from "../../../src/diamond/shared/DiamondErrors.sol";
 import {WiseTelecomNodesDiamondErrors} from "../../../src/diamond/vault/WiseTelecomNodesDiamondErrors.sol";
 
 import {CohortWeeks} from "../../../src/diamond/shared/pending/CohortWeeks.sol";
+import {BridgeCarryTestCodec} from "../utils/BridgeCarryTestCodec.sol";
 
 /**
  * @dev The one genesis-reachable read the rollout group needs beyond
@@ -60,19 +61,36 @@ interface IWtnRolloutVault {
  *   3. genesis source, armed destination: no carry exists, the mint
  *      lands as untracked headroom, no recorder state moves;
  *   4. genesis source, armed destination, forged carry: the live
- *      bytecode forwards a caller-built carry naming a stranger and
- *      the armed destination applies it, book credit priced one to
- *      one in burned shares. This is the window the operator order
- *      of replacing every bridge facet before arming any chain
- *      exists to close. Under the genesis bridge gas budget the
- *      apply runs out of gas inside the receiver, so the off-ramp
- *      reports a receiver error with empty data and the bridge is
+ *      bytecode forwards a caller-built carry naming a stranger, and
+ *      an armed destination applies it whenever its registry admits
+ *      the forged key, book credit priced one to one in burned
+ *      shares. This is the exposure the operator order of replacing
+ *      every bridge facet before arming any chain exists to close.
+ *      Under the genesis bridge gas budget the apply of an admissible
+ *      forged key runs out of gas inside the receiver, so the off-ramp
+ *      reverts with the out of gas receiver error naming the user and
+ *      the source chain, and the bridge is
  *      stranded with the shares burned on the source and nothing
- *      minted. Once the genesis source master raises its bridge gas
- *      limit to the armed budget, the same forged carry lands in
- *      full;
+ *      minted, while a forged key the registry refuses takes the
+ *      cheaper book-drop path, which fits the genesis budget, so that
+ *      delivery completes. Once the genesis source master raises its
+ *      bridge gas limit to the armed budget, the admissible forged
+ *      carry is delivered in full. A forged
+ *      key at assignment time one sits far below the lowest key the
+ *      destination registry admits (a key whose timestamp plus the
+ *      local clock plus the one hour drift allowance falls below the
+ *      sync key mirror), so the guarded merge is refused, the user
+ *      stays unassigned, the tracked delta lands and the carried
+ *      book is dropped with the documented event, exactly as with an
+ *      unwired registry. A forged key at the admissible floor still
+ *      lands under the forger: the deepest key the destination
+ *      registry admits is a correction one hour ahead of its clock
+ *      (SYNC_KEY_MIRROR minus the clock minus one hour), and a carry
+ *      stamped there is adopted, credited to the forger and reported
+ *      as applied, which is the exposure the operator order closes;
  *   5. both armed, destination registry pointer zeroed after arming
- *      (the pointer change accepts zero and leaves the switch on):
+ *      (the pointer change refuses to execute while armed, so the
+ *      zero pointer is written into storage and the switch stays on):
  *      the tracked delta lands, the book is dropped with the
  *      documented event, the legacy event stays silent, and a fresh
  *      arm attempt is refused without the pointer;
@@ -85,9 +103,27 @@ interface IWtnRolloutVault {
  * aged clock would trip a gas price staleness guard. The recorder
  * tolerates a clock that moves back (settle records nothing and
  * re-stamps), and the ring walk covers every slot, so the captured
- * lanes are the same either way. Assertion discipline follows the
- * matrix base; where attribution is lost, the loss is asserted
- * exactly and nothing is doubled.
+ * lanes are the same either way. The forged carry stamps the widest
+ * capture week the codec holds, which every destination clock clamps
+ * to zero drift: the freshest landing a forger can buy, and the one
+ * the assertions expect whatever the clock skew of the lane (the two
+ * fork clocks move apart when the genesis source is re-forked at a
+ * later block, aged for a send, or rewound below a fee staleness
+ * guard). The four forged-carry scenarios read the destination rings
+ * at one explicit landing slot, `landWeek % 52`, the slot a fresh pair
+ * of the destination week captured right before the delivery takes, both before
+ * and after it, so the slot they compare never follows a clock that
+ * moved in between. The deep-key scenario under the genesis budget
+ * asserts the no-credit property whichever way the lane's live state
+ * takes the refused-key drop path: the delivery completes with the
+ * book dropped where that path fits the 200,000 gas budget and
+ * strands where it does not: with {CohortBridgeInOutOfGas} exactly
+ * like the admissible key when the gas runs out inside the hook (the
+ * usdg mainnet destination takes this arm), or with an empty receiver
+ * error when it runs out before the hook is reached. The outcome the
+ * lane took is logged per run. Assertion discipline
+ * follows the matrix base; where attribution is lost, the loss is
+ * asserted exactly and nothing is doubled.
  */
 abstract contract CohortBridgeAttributionMatrixForkGroupC is CohortBridgeAttributionMatrixForkBase {
 
@@ -116,6 +152,15 @@ abstract contract CohortBridgeAttributionMatrixForkGroupC is CohortBridgeAttribu
         uint256 total;
     }
 
+    struct LandingRead {
+        uint256 landWeek;
+        uint256 slot;
+        uint256 year1Before;
+        uint256 year2Before;
+        uint256 year1After;
+        uint256 year2After;
+    }
+
     event CohortBridgeHookFailed(
         address indexed user,
         uint64 indexed srcChainSelector
@@ -134,6 +179,16 @@ abstract contract CohortBridgeAttributionMatrixForkGroupC is CohortBridgeAttribu
     uint256 internal constant FORGED_ASSIGNED_AT = 1;
 
     uint256 internal constant FORGED_RANK = 0;
+
+    uint256 internal constant SYNC_KEY_MIRROR = 3_399_999_999;
+
+    uint256 internal constant DORMANT_WEEKS = 105;
+
+    uint256 internal constant DORMANT_UNITS = 5_000;
+
+    uint256 internal constant CARRY_UNITS = 1_000;
+
+    uint256 internal constant ARMED_DELIVERY_GAS_BUDGET = 5_000_000;
 
     uint256 internal installedSrcFork;
 
@@ -278,7 +333,7 @@ abstract contract CohortBridgeAttributionMatrixForkGroupC is CohortBridgeAttribu
         );
 
         vm.expectRevert(
-            WiseTelecomNodesDiamondErrors.ReferralRegistryTimelockNotElapsed.selector
+            WiseTelecomNodesDiamondErrors.ReferralRegistryChangeWhileArmed.selector
         );
 
         v.executeReferralRegistryChange();
@@ -291,7 +346,17 @@ abstract contract CohortBridgeAttributionMatrixForkGroupC is CohortBridgeAttribu
             dst.master
         );
 
+        vm.expectRevert(
+            WiseTelecomNodesDiamondErrors.ReferralRegistryChangeWhileArmed.selector
+        );
+
         v.executeReferralRegistryChange();
+
+        vm.store(
+            dst.diamond,
+            bytes32(uint256(77)),
+            bytes32(0)
+        );
 
         vm.warp(
             queuedAt + 2
@@ -472,26 +537,36 @@ abstract contract CohortBridgeAttributionMatrixForkGroupC is CohortBridgeAttribu
     )
         internal
         view
+        returns (bytes memory)
+    {
+        return _forgedCarryAt(
+            _carried,
+            FORGED_ASSIGNED_AT
+        );
+    }
+
+    function _forgedCarryAt(
+        uint256 _carried,
+        uint256 _assignedAt
+    )
+        internal
+        view
         returns (bytes memory forged)
     {
-        forged = CohortWeeks.packBridgeCarry(
-            CohortWeeks.packBridgeCarryEnvelope(
-                forger
-            ),
-            CohortWeeks.packBridgeCarryTracked(
-                _carried,
-                FORGED_ASSIGNED_AT,
-                FORGED_RANK
-            ),
-            CohortWeeks.packCarryPairsWord(
-                _carried,
-                0
-            ),
+        forged = BridgeCarryTestCodec._pack(
+            forger,
+            CohortWeeks.BRIDGE_CARRY_VERSION,
+            CohortWeeks.BRIDGE_CARRY_CAPTURE_WEEK_MASK,
+            _carried,
+            _assignedAt,
+            FORGED_RANK,
+            _carried,
+            0,
             0
         );
 
         assertTrue(
-            CohortWeeks.bridgeCarryValid(
+            CohortWeeks._bridgeCarryValid(
                 forged,
                 _carried
             ),
@@ -632,8 +707,12 @@ abstract contract CohortBridgeAttributionMatrixForkGroupC is CohortBridgeAttribu
         );
 
         assertEq(
-            keccak256(_wire.referralData),
-            keccak256(_referralData),
+            keccak256(
+                _wire.referralData
+            ),
+            keccak256(
+                _referralData
+            ),
             "genesis source must forward the caller bytes verbatim"
         );
     }
@@ -668,7 +747,9 @@ abstract contract CohortBridgeAttributionMatrixForkGroupC is CohortBridgeAttribu
         );
 
         assertTrue(
-            vault.processedMessageId(_run.sent.messageId),
+            vault.processedMessageId(
+                _run.sent.messageId
+            ),
             "message not marked processed on the destination"
         );
     }
@@ -749,8 +830,12 @@ abstract contract CohortBridgeAttributionMatrixForkGroupC is CohortBridgeAttribu
         );
 
         assertEq(
-            keccak256(surfacedData),
-            keccak256(_expected),
+            keccak256(
+                surfacedData
+            ),
+            keccak256(
+                _expected
+            ),
             "surfaced bytes must equal the wire bytes"
         );
 
@@ -829,6 +914,63 @@ abstract contract CohortBridgeAttributionMatrixForkGroupC is CohortBridgeAttribu
         );
     }
 
+    function _landingBeforeDelivery(
+        address _referrer
+    )
+        internal
+        returns (LandingRead memory landing)
+    {
+        _alignDstClock();
+
+        landing.landWeek = block.timestamp / CohortWeeks.WEEK;
+
+        landing.slot = landing.landWeek % CohortWeeks.RING_SLOTS;
+
+        (
+            landing.year1Before,
+            landing.year2Before
+        ) = _ringOn(
+            dst,
+            _referrer,
+            landing.slot
+        );
+    }
+
+    function _landingAfterDelivery(
+        LandingRead memory _landing,
+        address _referrer
+    )
+        internal
+    {
+        (
+            _landing.year1After,
+            _landing.year2After
+        ) = _ringOn(
+            dst,
+            _referrer,
+            _landing.slot
+        );
+    }
+
+    function _assertLandingUntouched(
+        LandingRead memory _landing
+    )
+        internal
+        pure
+    {
+        assertEq(
+            _landing.year1After,
+            _landing.year1Before,
+            "a forged carry that does not land must leave the first-year landing slot untouched"
+        );
+
+        assertEq(
+            _landing.year2After,
+            _landing.year2Before,
+            "a forged carry that does not land must leave the second-year landing slot untouched"
+        );
+    }
+
     function _assertThreeLaneLanded(
         Run memory _run,
         LaneExpect memory _expect
@@ -837,21 +979,15 @@ abstract contract CohortBridgeAttributionMatrixForkGroupC is CohortBridgeAttribu
         pure
     {
         assertEq(
-            _run.dstAfter.ring1AtLand - _run.dstBefore.ring1AtLand,
+            _run.dstAfter.ring1Sum - _run.dstBefore.ring1Sum,
             _expect.year1,
-            "first-year aggregate must land one week ahead on the first-year ring"
+            "first-year pairs must land on the first-year ring at their own slots"
         );
 
         assertEq(
-            _run.dstAfter.ring2AtLand - _run.dstBefore.ring2AtLand,
+            _run.dstAfter.ring2Sum - _run.dstBefore.ring2Sum,
             _expect.year2,
-            "second-year aggregate must land one week ahead on the second-year ring"
-        );
-
-        assertEq(
-            _run.dstAfter.ring1AtCredit,
-            _run.dstBefore.ring1AtCredit,
-            "destination credit slot must not move on arrival"
+            "second-year pairs must land on the second-year ring at their own slots"
         );
 
         assertEq(
@@ -1037,6 +1173,23 @@ abstract contract CohortBridgeAttributionMatrixForkGroupC is CohortBridgeAttribu
         );
 
         _deliver(
+            _sent
+        );
+    }
+
+    function routeForTest(
+        SentMessage memory _sent
+    )
+        external
+    {
+        require(
+            msg.sender == address(this),
+            "self-call only"
+        );
+
+        _alignDstClock();
+
+        _route(
             _sent
         );
     }
@@ -1457,7 +1610,181 @@ abstract contract CohortBridgeAttributionMatrixForkGroupC is CohortBridgeAttribu
         );
     }
 
-    function test_rollout_unarmedSourceArmedDestination_forgedCarryStrandsUnderGenesisGas()
+    function test_rollout_unarmedSourceArmedDestination_forgedAdmissibleKeyStrandsUnderGenesisGas()
+        public
+    {
+        if (_laneReady() == false) {
+
+            vm.skip(
+                true
+            );
+
+            return;
+        }
+
+        _genesisSource();
+
+        _setArmed(
+            dst,
+            true
+        );
+
+        _enableLegacyReferral(
+            dst
+        );
+
+        _onSrc();
+
+        assertEq(
+            uint256(ICcipBridgeVault(src.diamond).bridgeGasLimit()),
+            0,
+            "genesis source must still stamp the 200k default bridge gas budget"
+        );
+
+        Run memory run;
+
+        run.amount = BRIDGE_UNITS * src.one;
+
+        run.carried = _scaleToDst(
+            run.amount
+        );
+
+        _onDst();
+
+        uint256 forgedAt = SYNC_KEY_MIRROR - block.timestamp - 1 hours;
+
+        bytes memory forged = _forgedCarryAt(
+            run.carried,
+            forgedAt
+        );
+
+        _seedPlain(
+            src,
+            user,
+            run.amount
+        );
+
+        run.dstBefore = _dstState(
+            user,
+            forger
+        );
+
+        _assertUnassignedOn(
+            dst,
+            dstRegistry,
+            user
+        );
+
+        _assertBookZero(
+            dst,
+            forger,
+            "forged referrer must start with no destination book"
+        );
+
+        (
+            run.sent,
+            run.wire
+        ) = _bridgeAndScrape(
+            user,
+            run.amount,
+            forged
+        );
+
+        _assertPassthroughWire(
+            run.wire,
+            run.sent,
+            forged
+        );
+
+        assertEq(
+            _balanceOn(
+                src,
+                user
+            ),
+            0,
+            "genesis source must burn the bridged shares"
+        );
+
+        LandingRead memory landing = _landingBeforeDelivery(
+            forger
+        );
+
+        bytes memory inner = _deliverExpectingReceiverError(
+            run.sent
+        );
+
+        assertEq(
+            inner,
+            abi.encodeWithSelector(
+                WiseTelecomNodesDiamondErrors.CohortBridgeInOutOfGas.selector,
+                user,
+                run.sent.srcChainSelector
+            ),
+            "an out of gas apply must revert with the out of gas receiver error"
+        );
+
+        run.dstAfter = _dstState(
+            user,
+            forger
+        );
+
+        _landingAfterDelivery(
+            landing,
+            forger
+        );
+
+        _assertLandingUntouched(
+            landing
+        );
+
+        assertEq(
+            run.dstAfter.balance,
+            run.dstBefore.balance,
+            "a stranded bridge must mint nothing on the destination"
+        );
+
+        assertEq(
+            run.dstAfter.tracked,
+            run.dstBefore.tracked,
+            "a stranded bridge must move no tracked cover"
+        );
+
+        _assertDestinationBookUntouched(
+            run
+        );
+
+        _assertBookZero(
+            dst,
+            forger,
+            "a stranded forged carry must leave the forged referrer without a book"
+        );
+
+        _assertUnassignedOn(
+            dst,
+            dstRegistry,
+            user
+        );
+
+        _onDst();
+
+        assertFalse(
+            ICcipBridgeVault(dst.diamond).processedMessageId(
+                run.sent.messageId
+            ),
+            "a stranded message must not be marked processed on the destination"
+        );
+
+        assertEq(
+            _balanceOn(
+                src,
+                user
+            ),
+            0,
+            "the burned shares stay burned while the bridge is stranded"
+        );
+    }
+
+    function test_rollout_unarmedSourceArmedDestination_forgedDeepKeyDropsBookUnderGenesisGas()
         public
     {
         if (_laneReady() == false) {
@@ -1538,23 +1865,12 @@ abstract contract CohortBridgeAttributionMatrixForkGroupC is CohortBridgeAttribu
             forged
         );
 
-        assertEq(
-            _balanceOn(
-                src,
-                user
-            ),
-            0,
-            "genesis source must burn the bridged shares"
+        LandingRead memory landing = _landingBeforeDelivery(
+            forger
         );
 
-        bytes memory inner = _deliverExpectingReceiverError(
-            run.sent
-        );
-
-        assertEq(
-            inner.length,
-            0,
-            "an out of gas apply must surface as a receiver error with empty data"
+        bool completed = _routeUnderGenesisBudget(
+            run
         );
 
         run.dstAfter = _dstState(
@@ -1562,16 +1878,13 @@ abstract contract CohortBridgeAttributionMatrixForkGroupC is CohortBridgeAttribu
             forger
         );
 
-        assertEq(
-            run.dstAfter.balance,
-            run.dstBefore.balance,
-            "a stranded bridge must mint nothing on the destination"
+        _landingAfterDelivery(
+            landing,
+            forger
         );
 
-        assertEq(
-            run.dstAfter.tracked,
-            run.dstBefore.tracked,
-            "a stranded bridge must move no tracked cover"
+        _assertLandingUntouched(
+            landing
         );
 
         _assertDestinationBookUntouched(
@@ -1581,7 +1894,7 @@ abstract contract CohortBridgeAttributionMatrixForkGroupC is CohortBridgeAttribu
         _assertBookZero(
             dst,
             forger,
-            "a stranded forged carry must leave the forged referrer without a book"
+            "a refused forged key must leave the forged referrer without a book"
         );
 
         _assertUnassignedOn(
@@ -1590,24 +1903,167 @@ abstract contract CohortBridgeAttributionMatrixForkGroupC is CohortBridgeAttribu
             user
         );
 
-        _onDst();
+        if (completed == false) {
+
+            _assertStrandedDropPath(
+                run
+            );
+
+            return;
+        }
+
+        _assertMinted(
+            run
+        );
+
+        assertEq(
+            run.dstAfter.tracked - run.dstBefore.tracked,
+            run.carried,
+            "the tracked delta must land under the genesis budget once the forged key is refused"
+        );
+
+        BookDroppedCapture memory dropped = _findBookDropped(
+            run.logs,
+            run.sent
+        );
+
+        assertTrue(
+            dropped.found,
+            "CohortBridgeCarryBookDropped not emitted on the destination"
+        );
+
+        assertEq(
+            dropped.carriedReferrer,
+            forger,
+            "dropped carried referrer must be the forged referrer"
+        );
+
+        assertEq(
+            dropped.year1,
+            run.carried,
+            "dropped first-year lane mismatch"
+        );
+
+        assertEq(
+            _countFrom(
+                run.logs,
+                CohortBridgeCarryBookDropped.selector,
+                run.sent.dstDiamond
+            ),
+            1,
+            "exactly one book drop per delivery"
+        );
 
         assertFalse(
-            ICcipBridgeVault(dst.diamond).processedMessageId(run.sent.messageId),
+            _findApplied(
+                run.logs,
+                run.sent
+            ).found,
+            "a refused forged key must not report as applied"
+        );
+
+        assertEq(
+            _countFrom(
+                run.logs,
+                CohortBridgeHookFailed.selector,
+                run.sent.dstDiamond
+            ),
+            0,
+            "the bridge hook must not report a failure under the genesis budget"
+        );
+
+        _assertNotSurfaced(
+            run.logs,
+            run.sent,
+            "a consumed forged carry must silence the legacy surfacing even while enabled"
+        );
+
+        _assertRegistryCounts(
+            run.logs,
+            0,
+            0,
+            0,
+            0
+        );
+    }
+
+    function _routeUnderGenesisBudget(
+        Run memory _run
+    )
+        internal
+        returns (bool completed)
+    {
+        try this.routeForTest(
+            _run.sent
+        ) {
+            completed = true;
+        } catch (bytes memory reason) {
+
+            bytes memory inner = _receiverErrorInner(
+                reason
+            );
+
+            assertTrue(
+                inner.length == 0
+                    || keccak256(inner) == keccak256(
+                        abi.encodeWithSelector(
+                            WiseTelecomNodesDiamondErrors.CohortBridgeInOutOfGas.selector,
+                            user,
+                            _run.sent.srcChainSelector
+                        )
+                    ),
+                "a drop path over the genesis budget must surface as the hook out of gas error or an empty receiver error"
+            );
+        }
+
+        _run.logs = vm.getRecordedLogs();
+
+        _onDst();
+
+        console2.log(
+            completed
+                ? "ROLLOUT|forgedDeepKeyDropsBookUnderGenesisGas|dropPath=completes"
+                : "ROLLOUT|forgedDeepKeyDropsBookUnderGenesisGas|dropPath=strands"
+        );
+    }
+
+    function _assertStrandedDropPath(
+        Run memory _run
+    )
+        internal
+    {
+        _onDst();
+
+        assertEq(
+            _run.dstAfter.balance,
+            _run.dstBefore.balance,
+            "a stranded drop path must mint nothing on the destination"
+        );
+
+        assertEq(
+            _run.dstAfter.tracked,
+            _run.dstBefore.tracked,
+            "a stranded drop path must move no tracked cover"
+        );
+
+        assertFalse(
+            ICcipBridgeVault(dst.diamond).processedMessageId(
+                _run.sent.messageId
+            ),
             "a stranded message must not be marked processed on the destination"
         );
 
         assertEq(
             _balanceOn(
                 src,
-                user
+                _run.sent.user
             ),
             0,
-            "the burned shares stay burned while the bridge is stranded"
+            "the burned shares stay burned while the drop path is stranded"
         );
     }
 
-    function test_rollout_unarmedSourceArmedDestination_forgedCarryAppliesOnceGasRaised()
+    function test_rollout_unarmedSourceArmedDestination_forgedCarryBookDroppedOnceGasRaised()
         public
     {
         if (_laneReady() == false) {
@@ -1632,12 +2088,12 @@ abstract contract CohortBridgeAttributionMatrixForkGroupC is CohortBridgeAttribu
 
         _raiseBridgeGasLimit(
             src,
-            4_000_000
+            5_000_000
         );
 
         assertEq(
             uint256(ICcipBridgeVault(src.diamond).bridgeGasLimit()),
-            4_000_000,
+            5_000_000,
             "genesis source must stamp the raised bridge gas budget"
         );
 
@@ -1691,6 +2147,234 @@ abstract contract CohortBridgeAttributionMatrixForkGroupC is CohortBridgeAttribu
             forged
         );
 
+        LandingRead memory landing = _landingBeforeDelivery(
+            forger
+        );
+
+        run.logs = _deliver(
+            run.sent
+        );
+
+        run.dstAfter = _dstState(
+            user,
+            forger
+        );
+
+        _landingAfterDelivery(
+            landing,
+            forger
+        );
+
+        _assertLandingUntouched(
+            landing
+        );
+
+        _assertMinted(
+            run
+        );
+
+        assertEq(
+            run.dstAfter.tracked - run.dstBefore.tracked,
+            run.carried,
+            "the tracked delta must land even though the forged book is dropped"
+        );
+
+        _assertDestinationBookUntouched(
+            run
+        );
+
+        _assertBookZero(
+            dst,
+            forger,
+            "a refused forged key must leave the forged referrer without a book"
+        );
+
+        _assertUnassignedOn(
+            dst,
+            dstRegistry,
+            user
+        );
+
+        BookDroppedCapture memory dropped = _findBookDropped(
+            run.logs,
+            run.sent
+        );
+
+        assertTrue(
+            dropped.found,
+            "CohortBridgeCarryBookDropped not emitted on the destination"
+        );
+
+        assertEq(
+            dropped.carriedReferrer,
+            forger,
+            "dropped carried referrer must be the forged referrer"
+        );
+
+        assertEq(
+            dropped.year1,
+            run.carried,
+            "dropped first-year lane mismatch"
+        );
+
+        assertEq(
+            dropped.year2,
+            0,
+            "dropped second-year lane mismatch"
+        );
+
+        assertEq(
+            dropped.mature,
+            0,
+            "dropped mature lane mismatch"
+        );
+
+        assertEq(
+            _countFrom(
+                run.logs,
+                CohortBridgeCarryBookDropped.selector,
+                run.sent.dstDiamond
+            ),
+            1,
+            "exactly one book drop per delivery"
+        );
+
+        assertFalse(
+            _findApplied(
+                run.logs,
+                run.sent
+            ).found,
+            "a refused forged key must not report as applied"
+        );
+
+        assertEq(
+            _countFrom(
+                run.logs,
+                CohortBridgeCarryDiscarded.selector,
+                run.sent.dstDiamond
+            ),
+            0,
+            "a structurally valid forged carry must not be discarded"
+        );
+
+        assertEq(
+            _countFrom(
+                run.logs,
+                CohortBridgeHookFailed.selector,
+                run.sent.dstDiamond
+            ),
+            0,
+            "the bridge hook must not report a failure"
+        );
+
+        _assertNotSurfaced(
+            run.logs,
+            run.sent,
+            "a consumed forged carry must silence the legacy surfacing even while enabled"
+        );
+
+        _assertRegistryCounts(
+            run.logs,
+            0,
+            0,
+            0,
+            0
+        );
+    }
+
+    function test_rollout_unarmedSourceArmedDestination_forgedAdmissibleKeyAppliesOnceGasRaised()
+        public
+    {
+        if (_laneReady() == false) {
+
+            vm.skip(
+                true
+            );
+
+            return;
+        }
+
+        _genesisSource();
+
+        _setArmed(
+            dst,
+            true
+        );
+
+        _enableLegacyReferral(
+            dst
+        );
+
+        _raiseBridgeGasLimit(
+            src,
+            5_000_000
+        );
+
+        assertEq(
+            uint256(ICcipBridgeVault(src.diamond).bridgeGasLimit()),
+            5_000_000,
+            "genesis source must stamp the raised bridge gas budget"
+        );
+
+        Run memory run;
+
+        run.amount = BRIDGE_UNITS * src.one;
+
+        run.carried = _scaleToDst(
+            run.amount
+        );
+
+        _onDst();
+
+        uint256 forgedAt = SYNC_KEY_MIRROR - block.timestamp - 1 hours;
+
+        bytes memory forged = _forgedCarryAt(
+            run.carried,
+            forgedAt
+        );
+
+        _seedPlain(
+            src,
+            user,
+            run.amount
+        );
+
+        run.dstBefore = _dstState(
+            user,
+            forger
+        );
+
+        _assertUnassignedOn(
+            dst,
+            dstRegistry,
+            user
+        );
+
+        _assertBookZero(
+            dst,
+            forger,
+            "forged referrer must start with no destination book"
+        );
+
+        (
+            run.sent,
+            run.wire
+        ) = _bridgeAndScrape(
+            user,
+            run.amount,
+            forged
+        );
+
+        _assertPassthroughWire(
+            run.wire,
+            run.sent,
+            forged
+        );
+
+        LandingRead memory landing = _landingBeforeDelivery(
+            forger
+        );
+
         run.logs = _deliver(
             run.sent
         );
@@ -1704,8 +2388,36 @@ abstract contract CohortBridgeAttributionMatrixForkGroupC is CohortBridgeAttribu
             run
         );
 
-        _assertLanded(
-            run
+        _landingAfterDelivery(
+            landing,
+            forger
+        );
+
+        assertEq(
+            landing.year1After - landing.year1Before,
+            run.carried,
+            "the forged slice must land at the slot after the delivery week on the first-year ring"
+        );
+
+        assertEq(
+            landing.year2After,
+            landing.year2Before,
+            "the second-year landing slot must not move on a first-year forged carry"
+        );
+
+        assertEq(
+            run.dstAfter.tracked - run.dstBefore.tracked,
+            run.carried,
+            "destination tracked must grow by the carried delta"
+        );
+
+        assertEq(
+            _nonzeroRingSlots(
+                dst,
+                forger
+            ),
+            1,
+            "the forged slice must occupy exactly one destination ring slot"
         );
 
         assertEq(
@@ -1720,7 +2432,7 @@ abstract contract CohortBridgeAttributionMatrixForkGroupC is CohortBridgeAttribu
             user,
             RegistryExpect({
                 referrer: forger,
-                assignedAt: FORGED_ASSIGNED_AT,
+                assignedAt: forgedAt,
                 rank: FORGED_RANK,
                 pending: address(0)
             })
@@ -1950,14 +2662,20 @@ abstract contract CohortBridgeAttributionMatrixForkGroupC is CohortBridgeAttribu
         );
 
         assertEq(
-            _scaleToDst(run.srcBefore.book.year1 - run.srcAfter.book.year1),
+            _scaleToDst(
+                run.srcBefore.book.year1 - run.srcAfter.book.year1
+            ),
             run.carried,
             "the source must have lost exactly the carried slice"
         );
 
         assertEq(
-            _scaleToDst(run.srcBefore.tracked),
-            _scaleToDst(run.srcAfter.tracked)
+            _scaleToDst(
+                run.srcBefore.tracked
+            ),
+            _scaleToDst(
+                run.srcAfter.tracked
+            )
                 + (run.dstAfter.tracked - run.dstBefore.tracked),
             "tracked cover must be conserved across the lane"
         );
@@ -2096,8 +2814,8 @@ abstract contract CohortBridgeAttributionMatrixForkGroupC is CohortBridgeAttribu
 
         assertEq(
             uint256(ICcipBridgeVault(src.diamond).bridgeGasLimit()),
-            4_000_000,
-            "the wire must carry the armed 4M gas budget"
+            5_000_000,
+            "the wire must carry the armed 5M gas budget"
         );
 
         _alignDstClock();
@@ -2172,6 +2890,121 @@ abstract contract CohortBridgeAttributionMatrixForkGroupC is CohortBridgeAttribu
 
         console2.log(
             "routed three lane ccipReceive delivery gas (test-side routing overhead included):",
+            gasUsed
+        );
+    }
+
+    function test_rollout_dormantDestinationCarryDeliveryUnderArmedGasBudget()
+        public
+    {
+        if (_laneReady() == false) {
+
+            vm.skip(
+                true
+            );
+
+            return;
+        }
+
+        _prepareLane();
+
+        address dormantHolder = makeAddr(
+            "dormantHolder"
+        );
+
+        uint256 dormantAmount = DORMANT_UNITS * dst.one;
+
+        _seedReferred(
+            dst,
+            dormantHolder,
+            dormantAmount,
+            referrer
+        );
+
+        Run memory run;
+
+        run.amount = CARRY_UNITS * src.one;
+
+        run.carried = _scaleToDst(
+            run.amount
+        );
+
+        run.srcAt = _seedReferred(
+            src,
+            user,
+            run.amount,
+            referrer
+        );
+
+        vm.selectFork(
+            dst.forkId
+        );
+
+        vm.warp(
+            block.timestamp + DORMANT_WEEKS * 1 weeks
+        );
+
+        run.dstBefore = _dstState(
+            user,
+            referrer
+        );
+
+        (
+            run.sent,
+            run.wire
+        ) = _bridgeAndScrape(
+            user,
+            run.amount,
+            ""
+        );
+
+        _onSrc();
+
+        assertEq(
+            uint256(ICcipBridgeVault(src.diamond).bridgeGasLimit()),
+            ARMED_DELIVERY_GAS_BUDGET,
+            "the wire must carry the armed 5M gas budget"
+        );
+
+        _alignDstClock();
+
+        uint256 gasBefore = gasleft();
+
+        _route(
+            run.sent
+        );
+
+        uint256 gasUsed = gasBefore - gasleft();
+
+        run.dstAfter = _dstState(
+            user,
+            referrer
+        );
+
+        _assertMinted(
+            run
+        );
+
+        assertEq(
+            run.dstAfter.tracked,
+            run.carried,
+            "the dormant destination must apply the whole carried slice"
+        );
+
+        assertEq(
+            run.dstAfter.book.mature,
+            dormantAmount + run.carried,
+            "the dormant book and the aged carry must both sit on the mature lane"
+        );
+
+        assertLe(
+            gasUsed,
+            ARMED_DELIVERY_GAS_BUDGET,
+            "the routed dormant-destination delivery must fit the armed delivery budget"
+        );
+
+        console2.log(
+            "ROLLOUT_GAS|dormantDestinationCarryDelivery|routedUsed=",
             gasUsed
         );
     }

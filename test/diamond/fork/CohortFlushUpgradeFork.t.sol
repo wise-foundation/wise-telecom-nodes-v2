@@ -25,14 +25,19 @@ import {Permit2ReferralFacet} from "../../../src/diamond/vault/facets/pending/Pe
 import {CohortRecorderFacet} from "../../../src/diamond/vault/facets/pending/CohortRecorderFacet.sol";
 import {CohortBridgeHookFacet} from "../../../src/diamond/vault/facets/pending/CohortBridgeHookFacet.sol";
 import {CohortHookFacet} from "../../../src/diamond/vault/facets/pending/CohortHookFacet.sol";
+import {CohortMoveHookFacet} from "../../../src/diamond/vault/facets/pending/CohortMoveHookFacet.sol";
 import {CohortFlushFacet} from "../../../src/diamond/vault/facets/pending/CohortFlushFacet.sol";
+import {CohortFlushPolicyFacet} from "../../../src/diamond/vault/facets/pending/CohortFlushPolicyFacet.sol";
 import {ReferralPayoutFacet} from "../../../src/diamond/vault/facets/pending/ReferralPayoutFacet.sol";
 import {ReferralRegistry} from "../../../src/registry/pending/ReferralRegistry.sol";
-import {ReferralHub} from "../../../src/hub/pending/ReferralHub.sol";
+import {IReferralHub} from "../../../src/hub/pending/IReferralHub.sol";
+import {HubLeverGrants} from "../../hub/utils/HubLeverGrants.sol";
+import {HubDiamondHarness} from "../../hub/utils/HubDiamondHarness.sol";
 import {ReferralHubDeclarations} from "../../../src/hub/pending/ReferralHubDeclarations.sol";
 
 import {WiseTelecomNodesDiamondErrors} from "../../../src/diamond/vault/WiseTelecomNodesDiamondErrors.sol";
 
+import {CohortFlushCodec} from "../../../src/diamond/shared/pending/CohortFlushCodec.sol";
 import {CohortWeeks} from "../../../src/diamond/shared/pending/CohortWeeks.sol";
 
 import {WiseTelecomNodesDiamondSelectors} from "../../../script/diamond/WiseTelecomNodesDiamondSelectors.sol";
@@ -97,6 +102,17 @@ interface IWtnFlushVault {
         external
         view
         returns (uint256);
+
+    function getCohortSelfCrumb(
+        address user
+    )
+        external
+        view
+        returns (
+            uint256,
+            uint256,
+            uint256
+        );
 
     function balanceOf(
         address user
@@ -224,6 +240,51 @@ interface IUsdBalance {
 }
 
 /**
+ * @dev Recording router etched over the spoke's live router inside a
+ * reverted snapshot: it quotes a zero fee and emits the outbound data,
+ * so the suite reads back the exact envelope a flush builds at the
+ * current state (settle included) without relaying anything. It holds
+ * no storage on purpose: the etched address keeps the live router's
+ * slots, and its owner word at slot 0 would read as the length of a
+ * stored bytes value, so assigning one would clear an unbounded run of
+ * forked slots, one RPC fetch each, until a fetch fails.
+ */
+contract FlushPayloadCapture {
+
+    event FlushPayloadCaptured(
+        bytes data
+    );
+
+    function getFee(
+        uint64,
+        Client.EVM2AnyMessage memory
+    )
+        external
+        pure
+        returns (uint256)
+    {
+        return 0;
+    }
+
+    function ccipSend(
+        uint64,
+        Client.EVM2AnyMessage calldata _message
+    )
+        external
+        payable
+        returns (bytes32)
+    {
+        emit FlushPayloadCaptured(
+            _message.data
+        );
+
+        return keccak256(
+            _message.data
+        );
+    }
+}
+
+/**
  * @dev Full-stack cross-chain flush-transport rehearsal: installs the
  * complete recorder-plus-registry-plus-flush upgrade on a LIVE spoke
  * diamond forked from a production chain, deploys the REAL standalone
@@ -247,21 +308,31 @@ interface IUsdBalance {
  * execute so the live fee quoters never see an artificially stale
  * clock.
  *
- * Score timing doctrine drives the scenario shape: a week's rates
- * are a pure function of the checkpoints in force at its opening
- * boundary, so the FIRST flush only lands the referrer's scores
- * (its own weeks price at the zero rates then in force; late
- * flushes affect later weeks only), and the priced money arrives
- * with a SECOND flush after the scores have stood through the
- * dwell-min window. The live CCIP fee quoters may refuse a clock
- * warped weeks ahead, so every post-aging flush probes the quoter
- * first and falls back to delivering the storage-reconstructed
- * envelope through a pranked router; the reconstruction is
- * byte-asserted against the real on-ramp wire whenever the lane's
- * on-ramp supports the scrape, so the fallback can never drift from
- * what the wire would carry.
+ * Week pricing drives the scenario shape: the hub prices a closed
+ * week from that week's own buckets (the crumb's weekly referred
+ * average and the self runs), so the FIRST flush already prices the
+ * full week it carries at real rates, and a later flush never
+ * reprices a week already paid. The live CCIP fee quoters may refuse
+ * a clock warped weeks ahead, so every post-aging flush probes the
+ * quoter first and falls back to delivering the captured envelope
+ * through a pranked router. The envelope is captured by running the
+ * same flush once inside a reverted snapshot against a recording
+ * router etched over the spoke's router, and it is byte-asserted
+ * against the real on-ramp wire whenever the lane's on-ramp supports
+ * the scrape, so the fallback can never drift from what the wire
+ * would carry.
+ *
+ * Two hub rules shape the money legs: a spoke chain's claimable
+ * bucket pays only once a designation from that chain has landed at
+ * the hub, so the referrer designates through the spoke registry
+ * before the flush that piggybacks the pair and the courier pushes
+ * its own designation over the registry's payout route before it
+ * claims; and a courier earns its fee only on weeks that had closed
+ * when it built the envelope, so the expected fee applies the same
+ * per-week predicate to the header stamp of the envelope actually
+ * delivered, one floor per priced week as the hub pays it.
  */
-abstract contract CohortFlushUpgradeForkBase is CcipForkHarness {
+abstract contract CohortFlushUpgradeForkBase is CcipForkHarness, HubDiamondHarness {
 
     struct FlushWire {
         bytes32 messageId;
@@ -269,16 +340,13 @@ abstract contract CohortFlushUpgradeForkBase is CcipForkHarness {
         bool synthetic;
     }
 
-    struct FlushPlanSnapshot {
-        uint256 fromWeek;
-        uint256 flushedAt;
-    }
-
     uint256 internal constant DEPOSIT_AMOUNT_UNITS = 6_000;
+
+    uint256 internal constant COURIER_GRACE = 1 days;
 
     ReferralRegistry internal spokeRegistry;
 
-    ReferralHub internal hub;
+    IReferralHub internal hub;
 
     address internal payoutDiamond;
 
@@ -362,7 +430,9 @@ abstract contract CohortFlushUpgradeForkBase is CcipForkHarness {
         );
 
         assertEq(
-            IWtnFlushVault(src.diamond).getCohortScore(referrer),
+            IWtnFlushVault(src.diamond).getCohortScore(
+                referrer
+            ),
             amount,
             "referred deposit must credit the spoke book"
         );
@@ -377,14 +447,6 @@ abstract contract CohortFlushUpgradeForkBase is CcipForkHarness {
     {
         _onSrc();
 
-        FlushPlanSnapshot memory plan;
-
-        plan.fromWeek = _cursorFromWeekOnSpoke(
-            _referrer
-        );
-
-        plan.flushedAt = block.timestamp;
-
         address[] memory referrers = new address[](1);
         referrers[0] = _referrer;
 
@@ -392,8 +454,7 @@ abstract contract CohortFlushUpgradeForkBase is CcipForkHarness {
 
             wire = _synthesizeFlush(
                 _referrer,
-                _caller,
-                plan
+                _caller
             );
 
             return wire;
@@ -406,6 +467,11 @@ abstract contract CohortFlushUpgradeForkBase is CcipForkHarness {
         vm.deal(
             _caller,
             fee * 2 + 1 ether
+        );
+
+        bytes memory captured = _captureFlushPayload(
+            referrers,
+            _caller
         );
 
         vm.recordLogs();
@@ -426,21 +492,14 @@ abstract contract CohortFlushUpgradeForkBase is CcipForkHarness {
             "the flush must refund the excess fee"
         );
 
-        bytes memory reconstruction = _reconstructEnvelope(
-            _referrer,
-            _caller,
-            plan
-        );
-
         wire = _scrapeFlushWire(
-            reconstruction
+            captured
         );
     }
 
     function _synthesizeFlush(
         address _referrer,
-        address _caller,
-        FlushPlanSnapshot memory _plan
+        address _caller
     )
         internal
         returns (FlushWire memory wire)
@@ -450,14 +509,19 @@ abstract contract CohortFlushUpgradeForkBase is CcipForkHarness {
             CohortWeeks.MAX_SETTLE_BOUNDARIES
         );
 
-        wire.payload = _reconstructEnvelope(
-            _referrer,
-            _caller,
-            _plan
+        address[] memory referrers = new address[](1);
+        referrers[0] = _referrer;
+
+        wire.payload = _captureFlushPayload(
+            referrers,
+            _caller
         );
 
         wire.messageId = keccak256(
-            abi.encode(src.diamond, syntheticNonce)
+            abi.encode(
+                src.diamond,
+                syntheticNonce
+            )
         );
 
         syntheticNonce += 1;
@@ -465,8 +529,64 @@ abstract contract CohortFlushUpgradeForkBase is CcipForkHarness {
         wire.synthetic = true;
     }
 
+    function _captureFlushPayload(
+        address[] memory _referrers,
+        address _caller
+    )
+        internal
+        returns (bytes memory payload)
+    {
+        uint256 snapshot = vm.snapshotState();
+
+        vm.etch(
+            src.router,
+            address(new FlushPayloadCapture()).code
+        );
+
+        vm.deal(
+            _caller,
+            1 ether
+        );
+
+        vm.recordLogs();
+
+        vm.prank(
+            _caller
+        );
+
+        IWtnFlushVault(src.diamond).flushReferrals{
+            value: 1 ether
+        }(
+            _referrers
+        );
+
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        for (uint256 i; i < logs.length; ++i) {
+
+            if (
+                logs[i].emitter == src.router
+                    && logs[i].topics[0] == FlushPayloadCapture.FlushPayloadCaptured.selector
+            ) {
+                payload = abi.decode(
+                    logs[i].data,
+                    (bytes)
+                );
+            }
+        }
+
+        vm.revertToState(
+            snapshot
+        );
+
+        require(
+            payload.length > 0,
+            "the capture router must record the flush envelope"
+        );
+    }
+
     function _scrapeFlushWire(
-        bytes memory _reconstruction
+        bytes memory _captured
     )
         internal
         returns (FlushWire memory wire)
@@ -503,8 +623,8 @@ abstract contract CohortFlushUpgradeForkBase is CcipForkHarness {
             if (
                 _scrapeV2Wire(
                     entries[i],
-                    _reconstruction,
-                    "the wire envelope must byte-match the storage reconstruction"
+                    _captured,
+                    "the wire envelope must byte-match the captured envelope"
                 )
             ) {
                 rampFound = true;
@@ -522,13 +642,19 @@ abstract contract CohortFlushUpgradeForkBase is CcipForkHarness {
             );
 
             assertEq(
-                keccak256(ramp.data),
-                keccak256(_reconstruction),
-                "the wire envelope must byte-match the storage reconstruction"
+                keccak256(
+                    ramp.data
+                ),
+                keccak256(
+                    _captured
+                ),
+                "the wire envelope must byte-match the captured envelope"
             );
 
             assertEq(
-                _decodeAddress(ramp.receiver),
+                _decodeAddress(
+                    ramp.receiver
+                ),
                 address(hub),
                 "the wire receiver must be the hub"
             );
@@ -552,7 +678,7 @@ abstract contract CohortFlushUpgradeForkBase is CcipForkHarness {
             "CCIPMessageSent log not found for the flush message"
         );
 
-        wire.payload = _reconstruction;
+        wire.payload = _captured;
 
         wire.synthetic = expectRamp == false;
     }
@@ -594,13 +720,19 @@ abstract contract CohortFlushUpgradeForkBase is CcipForkHarness {
         );
 
         assertEq(
-            keccak256(wireMessage.data),
-            keccak256(_expectedPayload),
+            keccak256(
+                wireMessage.data
+            ),
+            keccak256(
+                _expectedPayload
+            ),
             _payloadMismatchMessage
         );
 
         assertEq(
-            _decodeAddress(wireMessage.receiver),
+            _decodeAddress(
+                wireMessage.receiver
+            ),
             address(hub),
             "the wire receiver must be the hub"
         );
@@ -676,6 +808,7 @@ abstract contract CohortFlushUpgradeForkBase is CcipForkHarness {
 
         hub.applyFlush(
             _wire.messageId,
+            src.chainSelector,
             src.chainId,
             src.diamond,
             _wire.payload
@@ -698,7 +831,7 @@ abstract contract CohortFlushUpgradeForkBase is CcipForkHarness {
         );
 
         wire.payload = abi.encode(
-            uint256(1),
+            uint256(2),
             _owner,
             payout,
             stamp >> 8,
@@ -716,7 +849,10 @@ abstract contract CohortFlushUpgradeForkBase is CcipForkHarness {
         if (quoteWorks == false) {
 
             wire.messageId = keccak256(
-                abi.encode(address(spokeRegistry), syntheticNonce)
+                abi.encode(
+                    address(spokeRegistry),
+                    syntheticNonce
+                )
             );
 
             syntheticNonce += 1;
@@ -796,8 +932,12 @@ abstract contract CohortFlushUpgradeForkBase is CcipForkHarness {
             );
 
             assertEq(
-                keccak256(ramp.data),
-                keccak256(wire.payload),
+                keccak256(
+                    ramp.data
+                ),
+                keccak256(
+                    wire.payload
+                ),
                 "the push wire must carry the strict designation payload"
             );
 
@@ -931,115 +1071,7 @@ abstract contract CohortFlushUpgradeForkBase is CcipForkHarness {
         }
     }
 
-    // ---- envelope reconstruction ----
-
-    function _cursorFromWeekOnSpoke(
-        address _referrer
-    )
-        internal
-        view
-        returns (uint256)
-    {
-        uint256 stored = IWtnFlushVault(src.diamond).getFlushedThroughWeek(
-            _referrer
-        );
-
-        uint256 currentWeek = block.timestamp / CohortWeeks.WEEK;
-
-        if (stored == 0) {
-            return currentWeek >= CohortWeeks.MAX_SETTLE_BOUNDARIES
-                ? currentWeek - CohortWeeks.MAX_SETTLE_BOUNDARIES + 1
-                : 0;
-        }
-
-        return stored + 1;
-    }
-
-    function _reconstructEnvelope(
-        address _referrer,
-        address _deliverer,
-        FlushPlanSnapshot memory _plan
-    )
-        internal
-        view
-        returns (bytes memory)
-    {
-        uint256 currentWeek = _plan.flushedAt / CohortWeeks.WEEK;
-
-        uint256 count;
-
-        for (uint256 week = _plan.fromWeek; week <= currentWeek; ++week) {
-
-            if (_spokeCrumb(_referrer, week) != 0) {
-                ++count;
-            }
-        }
-
-        uint256 designationWord = _spokeDesignationWord(
-            _referrer
-        );
-
-        uint256 flags = designationWord != 0
-            ? CohortWeeks.FLUSH_FLAG_DESIGNATION
-            : 0;
-
-        uint256[] memory out = new uint256[](
-            3 + (designationWord != 0 ? 1 : 0) + count * 2
-        );
-
-        out[0] = CohortWeeks.packFlushHeader(
-            _deliverer,
-            1,
-            _plan.flushedAt
-        );
-
-        out[1] = CohortWeeks.packFlushEntry(
-            _referrer,
-            count,
-            0,
-            flags
-        );
-
-        out[2] = CohortWeeks.packFlushScores(
-            _spokeBookSum(
-                _referrer
-            ),
-            _spokeSelfScore(
-                _referrer
-            )
-        );
-
-        uint256 cursor = 3;
-
-        if (designationWord != 0) {
-            out[cursor] = designationWord;
-            ++cursor;
-        }
-
-        for (uint256 week = _plan.fromWeek; week <= currentWeek; ++week) {
-
-            uint256 word = _spokeCrumb(
-                _referrer,
-                week
-            );
-
-            if (word == 0) {
-                continue;
-            }
-
-            out[cursor] = week;
-            out[cursor + 1] = IWtnFlushVault(src.diamond).getCohortWeekCrumb(
-                _referrer,
-                week
-            );
-
-            cursor += 2;
-        }
-
-        return abi.encodePacked(
-            out
-        );
-    }
+    // ---- spoke reads ----
 
     function _spokeCrumb(
         address _referrer,
@@ -1053,107 +1085,6 @@ abstract contract CohortFlushUpgradeForkBase is CcipForkHarness {
             _referrer,
             _week
         ) & ~CohortWeeks.CRUMB_WRITTEN_BIT;
-    }
-
-    function _spokeBookSum(
-        address _referrer
-    )
-        internal
-        view
-        returns (uint256)
-    {
-        uint256 instant = IWtnFlushVault(src.diamond).getCohortScore(
-            _referrer
-        );
-
-        uint256 settled = _previousWeekSecondsOnSpoke(
-            _referrer,
-            block.timestamp / CohortWeeks.WEEK - 1
-        ) / CohortWeeks.WEEK;
-
-        return instant < settled
-            ? instant
-            : settled;
-    }
-
-    function _spokeSelfScore(
-        address _referrer
-    )
-        internal
-        view
-        returns (uint256)
-    {
-        uint256 tracked = IWtnFlushVault(src.diamond).getTrackedContribution(
-            _referrer
-        );
-
-        uint256 held = IWtnFlushVault(src.diamond).balanceOf(
-            _referrer
-        );
-
-        if (held < tracked) {
-            tracked = held;
-        }
-
-        uint256 scoreCeiling = 3 * CohortWeeks.LANE_MASK_80;
-
-        return tracked < scoreCeiling
-            ? tracked
-            : scoreCeiling;
-    }
-
-    function _previousWeekSecondsOnSpoke(
-        address _referrer,
-        uint256 _week
-    )
-        internal
-        view
-        returns (uint256)
-    {
-        uint256 crumb = IWtnFlushVault(src.diamond).getCohortWeekCrumb(
-            _referrer,
-            _week
-        );
-
-        if (crumb & CohortWeeks.CRUMB_WRITTEN_BIT != 0) {
-            return _crumbSecondsOnSpoke(
-                crumb
-            );
-        }
-
-        uint256 length = IWtnFlushVault(src.diamond).getCohortGapLogLength(
-            _referrer
-        );
-
-        if (length == 0) {
-            return 0;
-        }
-
-        uint256 last = IWtnFlushVault(src.diamond).getCohortGapLogEntry(
-            _referrer,
-            length - 1
-        );
-
-        if (
-            CohortWeeks.gapRecordFromWeek(last) > _week
-                || _week >= CohortWeeks.gapRecordToWeek(last)
-        ) {
-            return 0;
-        }
-
-        return CohortWeeks.gapRecordMature(last) * CohortWeeks.WEEK;
-    }
-
-    function _crumbSecondsOnSpoke(
-        uint256 _crumb
-    )
-        internal
-        pure
-        returns (uint256)
-    {
-        return CohortWeeks.laneY1(_crumb)
-            + CohortWeeks.laneY2(_crumb)
-            + CohortWeeks.laneM(_crumb);
     }
 
     function _spokeDesignationWord(
@@ -1174,7 +1105,7 @@ abstract contract CohortFlushUpgradeForkBase is CcipForkHarness {
             return 0;
         }
 
-        return CohortWeeks.packFlushDesignation(
+        return CohortFlushCodec._packFlushDesignation(
             payout,
             stamp >> 8,
             stamp & 0xff
@@ -1189,29 +1120,25 @@ abstract contract CohortFlushUpgradeForkBase is CcipForkHarness {
 
         uint256 pastWeek = block.timestamp / CohortWeeks.WEEK - 1;
 
-        uint256[] memory out = new uint256[](5);
+        uint256[] memory out = new uint256[](4);
 
-        out[0] = CohortWeeks.packFlushHeader(
+        out[0] = CohortFlushCodec._packFlushHeader(
             referrer,
             1,
             block.timestamp
         );
 
-        out[1] = CohortWeeks.packFlushEntry(
+        out[1] = CohortFlushCodec._packFlushEntry(
             referrer,
             1,
             0,
-            0
-        );
-
-        out[2] = CohortWeeks.packFlushScores(
             0,
             0
         );
 
-        out[3] = pastWeek;
+        out[2] = pastWeek;
 
-        out[4] = CohortWeeks.packLanes(
+        out[3] = CohortWeeks._packLanes(
             src.one * CohortWeeks.WEEK,
             0,
             0
@@ -1237,16 +1164,16 @@ abstract contract CohortFlushUpgradeForkBase is CcipForkHarness {
             : 0;
 
         uint256[] memory flushedWeeks = new uint256[](
-            currentWeek - firstWeek + 1
+            currentWeek - firstWeek
         );
 
         uint256[] memory words = new uint256[](
-            currentWeek - firstWeek + 1
+            currentWeek - firstWeek
         );
 
         uint256 count;
 
-        for (uint256 week = firstWeek; week <= currentWeek; ++week) {
+        for (uint256 week = firstWeek; week < currentWeek; ++week) {
 
             uint256 word = _spokeCrumb(
                 _referrer,
@@ -1276,14 +1203,119 @@ abstract contract CohortFlushUpgradeForkBase is CcipForkHarness {
                 flushedWeeks[i]
             );
 
-            expected += CohortWeeks.laneY1(words[i]) * y1Bps / 10_000 / CohortWeeks.YEAR
-                + CohortWeeks.laneY2(words[i]) * y2Bps / 10_000 / CohortWeeks.YEAR
-                + CohortWeeks.laneM(words[i]) * mBps / 10_000 / CohortWeeks.YEAR;
+            expected += (
+                CohortWeeks._laneY1(words[i]) * y1Bps
+                    + CohortWeeks._laneY2(words[i]) * y2Bps
+                    + CohortWeeks._laneM(words[i]) * mBps
+            ) / (10_000 * CohortWeeks.YEAR);
         }
     }
 
-    function _expectedCourierShareFor(
+    function _hubShareBpsForWeek(
+        uint256 _week
+    )
+        internal
+        view
+        returns (uint256)
+    {
+        uint256 index = hub.rateTableCount();
+
+        while (index > 1 && hub.rateTableAt(index - 1).effectiveFromWeek > _week) {
+            --index;
+        }
+
+        return hub.rateTableAt(
+            index - 1
+        ).botShareBps;
+    }
+
+    function _wireStamp(
+        FlushWire memory _wire
+    )
+        internal
+        pure
+        returns (uint256)
+    {
+        bytes memory header = new bytes(32);
+
+        for (uint256 i; i < 32; ++i) {
+            header[i] = _wire.payload[i];
+        }
+
+        return CohortFlushCodec._flushHeaderStamp(
+            abi.decode(
+                header,
+                (uint256)
+            )
+        );
+    }
+
+    function _ensureSrcPastCourierGrace()
+        internal
+    {
+        _onSrc();
+
+        uint256 pastGrace = block.timestamp / CohortWeeks.WEEK * CohortWeeks.WEEK
+            + COURIER_GRACE;
+
+        if (block.timestamp < pastGrace) {
+
+            vm.warp(
+                pastGrace
+            );
+        }
+    }
+
+    function _deliverOwnFlushFromWeek(
         address _referrer
+    )
+        internal
+        returns (uint256)
+    {
+        FlushWire memory own = _flushSpoke(
+            _referrer,
+            _referrer
+        );
+
+        _deliverAndApply(
+            own
+        );
+
+        return _wireStamp(
+            own
+        ) / CohortWeeks.WEEK;
+    }
+
+    function _deliverCourierFlush(
+        address _referrer,
+        address _courier,
+        uint256 _fromWeek
+    )
+        internal
+        returns (uint256)
+    {
+        FlushWire memory carry = _flushSpoke(
+            _referrer,
+            _courier
+        );
+
+        _deliverAndApply(
+            carry
+        );
+
+        return _expectedCourierShareFor(
+            _referrer,
+            _fromWeek,
+            _wireStamp(
+                carry
+            )
+        );
+    }
+
+    function _expectedCourierShareFor(
+        address _referrer,
+        uint256 _fromWeek,
+        uint256 _builtAt
     )
         internal
         returns (uint256 courierShare)
@@ -1292,42 +1324,26 @@ abstract contract CohortFlushUpgradeForkBase is CcipForkHarness {
 
         uint256 currentWeek = block.timestamp / CohortWeeks.WEEK;
 
-        uint256 firstWeek = currentWeek >= CohortWeeks.MAX_SETTLE_BOUNDARIES
-            ? currentWeek - CohortWeeks.MAX_SETTLE_BOUNDARIES + 1
-            : 0;
-
-        uint256[] memory flushedWeeks = new uint256[](
-            currentWeek - firstWeek + 1
-        );
-
         uint256[] memory words = new uint256[](
-            currentWeek - firstWeek + 1
+            currentWeek - _fromWeek
         );
 
-        uint256 count;
-
-        for (uint256 week = firstWeek; week <= currentWeek; ++week) {
-
-            uint256 word = _spokeCrumb(
+        for (uint256 week = _fromWeek; week < currentWeek; ++week) {
+            words[week - _fromWeek] = _spokeCrumb(
                 _referrer,
                 week
             );
-
-            if (word == 0) {
-                continue;
-            }
-
-            flushedWeeks[count] = week;
-            words[count] = word;
-
-            ++count;
         }
 
         _onDst();
 
-        uint256 shareBps = hub.botShareBps();
+        for (uint256 week = _fromWeek; week < currentWeek; ++week) {
 
-        for (uint256 i; i < count; ++i) {
+            if (_builtAt < (week + 1) * CohortWeeks.WEEK) {
+                continue;
+            }
+
+            uint256 word = words[week - _fromWeek];
 
             (
                 uint256 y1Bps,
@@ -1335,14 +1351,16 @@ abstract contract CohortFlushUpgradeForkBase is CcipForkHarness {
                 uint256 mBps
             ) = hub.weeklyRates(
                 _referrer,
-                flushedWeeks[i]
+                week
             );
 
-            uint256 paid = CohortWeeks.laneY1(words[i]) * y1Bps / 10_000 / CohortWeeks.YEAR
-                + CohortWeeks.laneY2(words[i]) * y2Bps / 10_000 / CohortWeeks.YEAR
-                + CohortWeeks.laneM(words[i]) * mBps / 10_000 / CohortWeeks.YEAR;
+            uint256 paid = (
+                CohortWeeks._laneY1(word) * y1Bps
+                    + CohortWeeks._laneY2(word) * y2Bps
+                    + CohortWeeks._laneM(word) * mBps
+            ) / (10_000 * CohortWeeks.YEAR);
 
-            courierShare += paid * shareBps / 10_000;
+            courierShare += paid * _hubShareBpsForWeek(week) / 10_000;
         }
     }
 
@@ -1442,74 +1460,86 @@ abstract contract CohortFlushUpgradeForkBase is CcipForkHarness {
         _proposeGroup(
             v,
             m,
-            WiseTelecomNodesDiamondSelectors.adminSelectors(),
+            WiseTelecomNodesDiamondSelectors._adminSelectors(),
             address(new AdminFacet())
         );
         _proposeGroup(
             v,
             m,
-            WiseTelecomNodesDiamondSelectors.userSelectors(),
+            WiseTelecomNodesDiamondSelectors._userSelectors(),
             address(new UserFacet())
         );
         _proposeGroup(
             v,
             m,
-            WiseTelecomNodesDiamondSelectors.permit2Selectors(),
+            WiseTelecomNodesDiamondSelectors._permit2Selectors(),
             address(new Permit2UserFacet())
         );
         _proposeGroup(
             v,
             m,
-            WiseTelecomNodesDiamondSelectors.moveSelectors(),
+            WiseTelecomNodesDiamondSelectors._moveSelectors(),
             address(new MoveFacet())
         );
         _proposeGroup(
             v,
             m,
-            WiseTelecomNodesDiamondSelectors.bridgeSelectors(),
+            WiseTelecomNodesDiamondSelectors._bridgeSelectors(),
             address(new BridgeFacet())
         );
         _proposeGroup(
             v,
             m,
-            WiseTelecomNodesDiamondSelectors.queueJoinLeaveSelectors(),
+            WiseTelecomNodesDiamondSelectors._queueJoinLeaveSelectors(),
             address(new QueueJoinLeaveFacet())
         );
         _proposeGroup(
             v,
             m,
-            WiseTelecomNodesDiamondSelectors.queueFulfillSelectors(),
+            WiseTelecomNodesDiamondSelectors._queueFulfillSelectors(),
             address(new QueueFulfillFacet())
         );
         _proposeGroup(
             v,
             m,
-            WiseTelecomNodesDiamondSelectors.referralSelectors(),
+            WiseTelecomNodesDiamondSelectors._referralSelectors(),
             address(new ReferralFacet())
         );
         _proposeGroup(
             v,
             m,
-            WiseTelecomNodesDiamondSelectors.permit2ReferralSelectors(),
+            WiseTelecomNodesDiamondSelectors._permit2ReferralSelectors(),
             address(new Permit2ReferralFacet())
         );
         _proposeGroup(
             v,
             m,
-            WiseTelecomNodesDiamondSelectors.cohortRecorderSelectors(),
+            WiseTelecomNodesDiamondSelectors._cohortRecorderSelectors(),
             address(new CohortRecorderFacet())
         );
         _proposeGroup(
             v,
             m,
-            WiseTelecomNodesDiamondSelectors.cohortBridgeHookSelectors(),
+            WiseTelecomNodesDiamondSelectors._cohortBridgeHookSelectors(),
             address(new CohortBridgeHookFacet())
         );
         _proposeGroup(
             v,
             m,
-            WiseTelecomNodesDiamondSelectors.cohortFlushSelectors(),
+            WiseTelecomNodesDiamondSelectors._cohortMoveHookSelectors(),
+            address(new CohortMoveHookFacet())
+        );
+        _proposeGroup(
+            v,
+            m,
+            WiseTelecomNodesDiamondSelectors._cohortFlushSelectors(),
             address(new CohortFlushFacet())
+        );
+        _proposeGroup(
+            v,
+            m,
+            WiseTelecomNodesDiamondSelectors._cohortFlushPolicySelectors(),
+            address(new CohortFlushPolicyFacet())
         );
 
         vm.prank(
@@ -1527,62 +1557,72 @@ abstract contract CohortFlushUpgradeForkBase is CcipForkHarness {
         _executeGroup(
             v,
             m,
-            WiseTelecomNodesDiamondSelectors.adminSelectors()
+            WiseTelecomNodesDiamondSelectors._adminSelectors()
         );
         _executeGroup(
             v,
             m,
-            WiseTelecomNodesDiamondSelectors.userSelectors()
+            WiseTelecomNodesDiamondSelectors._userSelectors()
         );
         _executeGroup(
             v,
             m,
-            WiseTelecomNodesDiamondSelectors.permit2Selectors()
+            WiseTelecomNodesDiamondSelectors._permit2Selectors()
         );
         _executeGroup(
             v,
             m,
-            WiseTelecomNodesDiamondSelectors.moveSelectors()
+            WiseTelecomNodesDiamondSelectors._moveSelectors()
         );
         _executeGroup(
             v,
             m,
-            WiseTelecomNodesDiamondSelectors.bridgeSelectors()
+            WiseTelecomNodesDiamondSelectors._bridgeSelectors()
         );
         _executeGroup(
             v,
             m,
-            WiseTelecomNodesDiamondSelectors.queueJoinLeaveSelectors()
+            WiseTelecomNodesDiamondSelectors._queueJoinLeaveSelectors()
         );
         _executeGroup(
             v,
             m,
-            WiseTelecomNodesDiamondSelectors.queueFulfillSelectors()
+            WiseTelecomNodesDiamondSelectors._queueFulfillSelectors()
         );
         _executeGroup(
             v,
             m,
-            WiseTelecomNodesDiamondSelectors.referralSelectors()
+            WiseTelecomNodesDiamondSelectors._referralSelectors()
         );
         _executeGroup(
             v,
             m,
-            WiseTelecomNodesDiamondSelectors.permit2ReferralSelectors()
+            WiseTelecomNodesDiamondSelectors._permit2ReferralSelectors()
         );
         _executeGroup(
             v,
             m,
-            WiseTelecomNodesDiamondSelectors.cohortRecorderSelectors()
+            WiseTelecomNodesDiamondSelectors._cohortRecorderSelectors()
         );
         _executeGroup(
             v,
             m,
-            WiseTelecomNodesDiamondSelectors.cohortBridgeHookSelectors()
+            WiseTelecomNodesDiamondSelectors._cohortBridgeHookSelectors()
         );
         _executeGroup(
             v,
             m,
-            WiseTelecomNodesDiamondSelectors.cohortFlushSelectors()
+            WiseTelecomNodesDiamondSelectors._cohortMoveHookSelectors()
+        );
+        _executeGroup(
+            v,
+            m,
+            WiseTelecomNodesDiamondSelectors._cohortFlushSelectors()
+        );
+        _executeGroup(
+            v,
+            m,
+            WiseTelecomNodesDiamondSelectors._cohortFlushPolicySelectors()
         );
 
         vm.prank(
@@ -1680,19 +1720,19 @@ abstract contract CohortFlushUpgradeForkBase is CcipForkHarness {
         _proposeGroup(
             payoutVault,
             m,
-            WiseTelecomNodesDiamondSelectors.adminSelectors(),
+            WiseTelecomNodesDiamondSelectors._adminSelectors(),
             address(new AdminFacet())
         );
         _proposeGroup(
             payoutVault,
             m,
-            WiseTelecomNodesDiamondSelectors.sweepSelectors(),
+            WiseTelecomNodesDiamondSelectors._sweepSelectors(),
             address(new SweepFacet())
         );
         _proposeGroup(
             payoutVault,
             m,
-            WiseTelecomNodesDiamondSelectors.referralPayoutSelectors(),
+            WiseTelecomNodesDiamondSelectors._referralPayoutSelectors(),
             address(new ReferralPayoutFacet())
         );
 
@@ -1703,24 +1743,24 @@ abstract contract CohortFlushUpgradeForkBase is CcipForkHarness {
         _executeGroup(
             payoutVault,
             m,
-            WiseTelecomNodesDiamondSelectors.adminSelectors()
+            WiseTelecomNodesDiamondSelectors._adminSelectors()
         );
         _executeGroup(
             payoutVault,
             m,
-            WiseTelecomNodesDiamondSelectors.sweepSelectors()
+            WiseTelecomNodesDiamondSelectors._sweepSelectors()
         );
         _executeGroup(
             payoutVault,
             m,
-            WiseTelecomNodesDiamondSelectors.referralPayoutSelectors()
+            WiseTelecomNodesDiamondSelectors._referralPayoutSelectors()
         );
 
         vm.warp(
             startTime + 2
         );
 
-        hub = new ReferralHub(
+        hub = _deployHub(
             payoutUsd
         );
 
@@ -1752,20 +1792,38 @@ abstract contract CohortFlushUpgradeForkBase is CcipForkHarness {
             payoutDiamond
         );
 
-        hub.setCcipRouter(
-            dst.router
+        HubLeverGrants._grant(
+            address(hub),
+            abi.encodeCall(
+                IReferralHub.setCcipRouter,
+                (
+                    dst.router
+                )
+            )
         );
 
-        hub.setFlushSource(
-            src.chainSelector,
-            src.diamond,
-            src.chainId
+        HubLeverGrants._grant(
+            address(hub),
+            abi.encodeCall(
+                IReferralHub.setFlushSource,
+                (
+                    src.chainSelector,
+                    src.diamond,
+                    src.chainId
+                )
+            )
         );
 
-        hub.setDesignationSource(
-            src.chainSelector,
-            address(spokeRegistry),
-            src.chainId
+        HubLeverGrants._grant(
+            address(hub),
+            abi.encodeCall(
+                IReferralHub.setDesignationSource,
+                (
+                    src.chainSelector,
+                    address(spokeRegistry),
+                    src.chainId
+                )
+            )
         );
     }
 
@@ -1917,26 +1975,65 @@ abstract contract CohortFlushUpgradeForkE2E is CohortFlushUpgradeForkBase {
             referrer
         );
 
+        uint256 scoreWeek = _wireStamp(
+            first
+        ) / CohortWeeks.WEEK;
+
         _deliverAndApply(
             first
         );
 
         _onDst();
 
-        assertEq(
-            hub.globalReferredScore(referrer),
-            DEPOSIT_AMOUNT_UNITS * src.one,
-            "first flush must land the absolute referred score"
+        (
+            uint256 referredInput,
+        ) = hub.ladderInputsAt(
+            referrer,
+            scoreWeek - 1
         );
 
         assertEq(
-            hub.claimable(src.chainId, referrer),
-            0,
-            "weeks before the score checkpoint must price at zero"
+            referredInput,
+            DEPOSIT_AMOUNT_UNITS * src.one,
+            "the first flush must land the full week's referred average"
+        );
+
+        assertEq(
+            hub.claimable(
+                src.chainId,
+                referrer
+            ),
+            _expectedTotalFor(
+                referrer
+            ),
+            "the first flush must price every closed week it carried"
+        );
+
+        _onDst();
+
+        _ageSpokeWeeks(
+            1
+        );
+
+        _deliverAndApply(
+            _flushSpoke(
+                referrer,
+                referrer
+            )
         );
 
         _ageSpokeWeeks(
-            3
+            2
+        );
+
+        _onSrc();
+
+        vm.prank(
+            referrer
+        );
+
+        spokeRegistry.setPayoutAddress(
+            referrer
         );
 
         FlushWire memory second = _flushSpoke(
@@ -1968,7 +2065,34 @@ abstract contract CohortFlushUpgradeForkE2E is CohortFlushUpgradeForkBase {
         assertGt(
             entitled,
             0,
-            "aged weeks past the dwell window must price at real rates"
+            "closed weeks must price at real rates"
+        );
+
+        (
+            uint256 y1Bps,
+            uint256 y2Bps,
+            uint256 mBps
+        ) = hub.weeklyRates(
+            referrer,
+            scoreWeek + 2
+        );
+
+        assertEq(
+            y1Bps,
+            100,
+            "a 6,000 USD weekly referred average with no self presence must price at the genesis first tier of 100 bps"
+        );
+
+        assertEq(
+            y2Bps,
+            0,
+            "the second-year rate must stay closed below the genesis cap"
+        );
+
+        assertEq(
+            mBps,
+            0,
+            "the mature rate must stay closed below the genesis cap"
         );
 
         assertEq(
@@ -1981,6 +2105,11 @@ abstract contract CohortFlushUpgradeForkE2E is CohortFlushUpgradeForkBase {
             payoutDiamond
         );
 
+        assertTrue(
+            hub.payoutStamp(src.chainId, referrer) != 0,
+            "the second flush must carry the referrer's designation to the hub"
+        );
+
         vm.prank(
             referrer
         );
@@ -1991,13 +2120,17 @@ abstract contract CohortFlushUpgradeForkE2E is CohortFlushUpgradeForkBase {
         );
 
         assertEq(
-            IUsdBalance(payoutUsd).balanceOf(referrer),
+            IUsdBalance(payoutUsd).balanceOf(
+                referrer
+            ),
             entitled,
             "claim must pay the referrer in the payout vault's real underlying"
         );
 
         assertEq(
-            IUsdBalance(payoutUsd).balanceOf(payoutDiamond),
+            IUsdBalance(payoutUsd).balanceOf(
+                payoutDiamond
+            ),
             poolBefore - entitled,
             "funding must come out of the live vault's USD pool"
         );
@@ -2012,6 +2145,7 @@ abstract contract CohortFlushUpgradeForkE2E is CohortFlushUpgradeForkBase {
 
         hub.applyFlush(
             second.messageId,
+            src.chainSelector,
             src.chainId,
             src.diamond,
             second.payload
@@ -2024,13 +2158,24 @@ abstract contract CohortFlushUpgradeForkE2E is CohortFlushUpgradeForkBase {
         );
 
         assertEq(
-            hub.claimable(src.chainId, referrer),
+            hub.claimable(
+                src.chainId,
+                referrer
+            ),
             0,
             "re-applying after the claim must not resurrect the balance"
         );
     }
 
-    function test_flushUpgrade_botFlushSplitsCourierShare()
+    /**
+     * @dev The courier fee is paid on top of the increment the courier
+     * itself delivers: the hub prices it as the week's due at the
+     * advanced cursor minus the due at the cursor before the delivery,
+     * at the week's rates, so a week the referrer's own flush already
+     * settled earns the courier nothing. The expected share therefore
+     * starts at the stamp week of the referrer's last own flush.
+     */
+    function test_flushUpgrade_botFlushAnytime_carriesAndPaysFivePercentOnTop()
         public
     {
         if (_laneUsable() == false) {
@@ -2048,15 +2193,42 @@ abstract contract CohortFlushUpgradeForkE2E is CohortFlushUpgradeForkBase {
             2
         );
 
-        _deliverAndApply(
-            _flushSpoke(
-                referrer,
-                referrer
-            )
+        _deliverOwnFlushFromWeek(
+            referrer
         );
 
         _ageSpokeWeeks(
-            3
+            1
+        );
+
+        _prepDepositRails(
+            user,
+            DEPOSIT_AMOUNT_UNITS * src.one
+        );
+
+        vm.prank(
+            user
+        );
+
+        IWtnFlushVault(src.diamond).depositWithReferral(
+            DEPOSIT_AMOUNT_UNITS * src.one,
+            referrer
+        );
+
+        _ageSpokeWeeks(
+            1
+        );
+
+        uint256 botFromWeek = _deliverOwnFlushFromWeek(
+            referrer
+        );
+
+        _ageSpokeWeeks(
+            1
+        );
+
+        _ageSpokeWeeks(
+            2
         );
 
         _onSrc();
@@ -2070,41 +2242,97 @@ abstract contract CohortFlushUpgradeForkE2E is CohortFlushUpgradeForkBase {
             true
         );
 
-        FlushWire memory wire = _flushSpoke(
-            referrer,
+        _ensureSrcPastCourierGrace();
+
+        _onDst();
+
+        uint256 botClaimableBefore = hub.claimable(
+            src.chainId,
             bot
         );
 
-        _deliverAndApply(
-            wire
+        uint256 referrerClaimableBefore = hub.claimable(
+            src.chainId,
+            referrer
+        );
+
+        uint256 botShare = _deliverCourierFlush(
+            referrer,
+            bot,
+            botFromWeek
         );
 
         uint256 expected = _expectedTotalFor(
             referrer
         );
 
-        uint256 courierShare = _expectedCourierShareFor(
-            referrer
+        uint256 carried = expected - referrerClaimableBefore;
+
+        _onDst();
+
+        assertGt(
+            carried,
+            0,
+            "the bot's carry must price fresh weeks"
+        );
+
+        assertEq(
+            hub.claimable(src.chainId, bot) - botClaimableBefore,
+            botShare,
+            "an allowed bot carrying any closed week earns the five percent share"
+        );
+
+        assertEq(
+            hub.claimable(src.chainId, referrer) - referrerClaimableBefore,
+            carried,
+            "the referrer keeps the full commission of the bot's carry"
+        );
+
+        assertEq(
+            hub.claimable(src.chainId, referrer) + hub.claimable(src.chainId, bot),
+            expected + botShare + botClaimableBefore,
+            "the band prices exactly once across both carries, the fee on top"
+        );
+
+        _deliverAndApply(
+            _flushSpoke(
+                referrer,
+                referrer
+            )
         );
 
         _onDst();
 
         assertEq(
-            hub.claimable(src.chainId, bot),
-            courierShare,
-            "the stamped courier must earn the delivery share"
+            hub.claimable(
+                src.chainId,
+                referrer
+            ),
+            expected,
+            "the referrer's own later flush prices nothing the bot already carried"
         );
 
-        assertEq(
-            hub.claimable(src.chainId, referrer),
-            expected - courierShare,
-            "the referrer must earn the remainder"
+        _onSrc();
+
+        vm.prank(
+            bot
         );
 
-        assertGt(
-            courierShare,
-            0,
-            "the rehearsed delivery must be large enough to split"
+        spokeRegistry.setPayoutAddress(
+            bot
+        );
+
+        _deliverPush(
+            _pushDesignation(
+                bot
+            )
+        );
+
+        _onDst();
+
+        assertTrue(
+            hub.payoutStamp(src.chainId, bot) != 0,
+            "the courier's pushed designation must land before it can claim"
         );
 
         vm.prank(
@@ -2117,9 +2345,11 @@ abstract contract CohortFlushUpgradeForkE2E is CohortFlushUpgradeForkBase {
         );
 
         assertEq(
-            IUsdBalance(payoutUsd).balanceOf(bot),
-            courierShare,
-            "the courier must claim its share in real USD"
+            IUsdBalance(payoutUsd).balanceOf(
+                bot
+            ),
+            botShare,
+            "the courier claims exactly the share it carried"
         );
     }
 
@@ -2169,7 +2399,10 @@ abstract contract CohortFlushUpgradeForkE2E is CohortFlushUpgradeForkBase {
         _onDst();
 
         assertEq(
-            hub.payoutAddressOf(src.chainId, referrer),
+            hub.payoutAddressOf(
+                src.chainId,
+                referrer
+            ),
             payoutOne,
             "the flush envelope must piggyback the registry designation"
         );
@@ -2199,13 +2432,27 @@ abstract contract CohortFlushUpgradeForkE2E is CohortFlushUpgradeForkBase {
         _onDst();
 
         assertEq(
-            hub.payoutAddressOf(src.chainId, referrer),
+            hub.payoutAddressOf(
+                src.chainId,
+                referrer
+            ),
             payoutTwo,
             "the caller-paid push must apply latest-wins over the piggyback"
         );
 
         _ageSpokeWeeks(
-            3
+            1
+        );
+
+        _deliverAndApply(
+            _flushSpoke(
+                referrer,
+                referrer
+            )
+        );
+
+        _ageSpokeWeeks(
+            2
         );
 
         _deliverAndApply(
@@ -2218,7 +2465,10 @@ abstract contract CohortFlushUpgradeForkE2E is CohortFlushUpgradeForkBase {
         _onDst();
 
         assertEq(
-            hub.payoutAddressOf(src.chainId, referrer),
+            hub.payoutAddressOf(
+                src.chainId,
+                referrer
+            ),
             payoutTwo,
             "a later flush carrying the same designation must stay latest-wins"
         );
@@ -2244,7 +2494,9 @@ abstract contract CohortFlushUpgradeForkE2E is CohortFlushUpgradeForkBase {
         );
 
         assertEq(
-            IUsdBalance(payoutUsd).balanceOf(payoutTwo),
+            IUsdBalance(payoutUsd).balanceOf(
+                payoutTwo
+            ),
             entitled,
             "the claim must pay the designated payout address in real USD"
         );
@@ -2258,7 +2510,10 @@ abstract contract CohortFlushUpgradeForkE2E is CohortFlushUpgradeForkBase {
         bytes memory payload = _syntheticEnvelope();
 
         bytes32 messageId = keccak256(
-            abi.encode(src.diamond, syntheticNonce)
+            abi.encode(
+                src.diamond,
+                syntheticNonce
+            )
         );
 
         syntheticNonce += 1;
@@ -2292,7 +2547,9 @@ abstract contract CohortFlushUpgradeForkE2E is CohortFlushUpgradeForkBase {
         hub.ccipReceive(
             _flushDelivery(
                 messageId,
-                makeAddr("flushForkUnknownVault"),
+                makeAddr(
+                    "flushForkUnknownVault"
+                ),
                 payload
             )
         );
@@ -2337,6 +2594,7 @@ abstract contract CohortFlushUpgradeForkE2E is CohortFlushUpgradeForkBase {
 
         hub.applyFlush(
             messageId,
+            src.chainSelector,
             src.chainId,
             src.diamond,
             tampered
@@ -2344,6 +2602,7 @@ abstract contract CohortFlushUpgradeForkE2E is CohortFlushUpgradeForkBase {
 
         hub.applyFlush(
             messageId,
+            src.chainSelector,
             src.chainId,
             src.diamond,
             payload
@@ -2443,10 +2702,10 @@ contract CohortFlushUsdgRobinhoodMainnetFork is CohortFlushUpgradeForkE2E {
  * on both spokes), then drives the REAL hub on a mainnet fork with
  * envelopes and designation pushes delivered under the two spokes'
  * real chain selectors from that one shared sender address, and
- * proves every register keeps the two chains apart while the global
- * score aggregation still sums across them.
+ * proves every register keeps the two chains apart while the week
+ * bucket of the referred input still sums across them.
  */
-contract CcipFlushMeshFork is Test {
+contract CcipFlushMeshFork is Test, HubDiamondHarness {
 
     uint256 internal constant BASE_CHAIN_ID = 8_453;
 
@@ -2466,7 +2725,7 @@ contract CcipFlushMeshFork is Test {
 
     address internal mainnetRouter;
 
-    ReferralHub internal hub;
+    IReferralHub internal hub;
 
     uint256 internal meshNonce;
 
@@ -2474,12 +2733,16 @@ contract CcipFlushMeshFork is Test {
         public
     {
         address baseVault = vm.parseJsonAddress(
-            vm.readFile("config/vault.usdc.base.json"),
+            vm.readFile(
+                "config/vault.usdc.base.json"
+            ),
             ".diamond"
         );
 
         address arbVault = vm.parseJsonAddress(
-            vm.readFile("config/vault.usdc.arbitrum.json"),
+            vm.readFile(
+                "config/vault.usdc.arbitrum.json"
+            ),
             ".diamond"
         );
 
@@ -2494,7 +2757,9 @@ contract CcipFlushMeshFork is Test {
         baseSelector = uint64(
             vm.parseUint(
                 vm.parseJsonString(
-                    vm.readFile("config/ccip.base.json"),
+                    vm.readFile(
+                        "config/ccip.base.json"
+                    ),
                     ".chainSelector"
                 )
             )
@@ -2503,14 +2768,18 @@ contract CcipFlushMeshFork is Test {
         arbSelector = uint64(
             vm.parseUint(
                 vm.parseJsonString(
-                    vm.readFile("config/ccip.arbitrum.json"),
+                    vm.readFile(
+                        "config/ccip.arbitrum.json"
+                    ),
                     ".chainSelector"
                 )
             )
         );
 
         mainnetRouter = vm.parseJsonAddress(
-            vm.readFile("config/ccip.mainnet.json"),
+            vm.readFile(
+                "config/ccip.mainnet.json"
+            ),
             ".router"
         );
 
@@ -2550,75 +2819,109 @@ contract CcipFlushMeshFork is Test {
 
         address usd = IWtnFlushVault(
             vm.parseJsonAddress(
-                vm.readFile("config/vault.usdc.mainnet.json"),
+                vm.readFile(
+                    "config/vault.usdc.mainnet.json"
+                ),
                 ".diamond"
             )
         ).USD_TOKEN();
 
-        hub = new ReferralHub(
+        hub = _deployHub(
             usd
         );
 
-        hub.setCcipRouter(
-            mainnetRouter
+        HubLeverGrants._grant(
+            address(hub),
+            abi.encodeCall(
+                IReferralHub.setCcipRouter,
+                (
+                    mainnetRouter
+                )
+            )
         );
 
-        hub.setFlushSource(
-            baseSelector,
-            vaultAddr,
-            BASE_CHAIN_ID
+        HubLeverGrants._grant(
+            address(hub),
+            abi.encodeCall(
+                IReferralHub.setFlushSource,
+                (
+                    baseSelector,
+                    vaultAddr,
+                    BASE_CHAIN_ID
+                )
+            )
         );
 
-        hub.setFlushSource(
-            arbSelector,
-            vaultAddr,
-            ARB_CHAIN_ID
+        HubLeverGrants._grant(
+            address(hub),
+            abi.encodeCall(
+                IReferralHub.setFlushSource,
+                (
+                    arbSelector,
+                    vaultAddr,
+                    ARB_CHAIN_ID
+                )
+            )
         );
 
-        hub.setDesignationSource(
-            baseSelector,
-            baseRegistry,
-            BASE_CHAIN_ID
+        HubLeverGrants._grant(
+            address(hub),
+            abi.encodeCall(
+                IReferralHub.setDesignationSource,
+                (
+                    baseSelector,
+                    baseRegistry,
+                    BASE_CHAIN_ID
+                )
+            )
         );
 
-        hub.setDesignationSource(
-            arbSelector,
-            arbRegistry,
-            ARB_CHAIN_ID
+        HubLeverGrants._grant(
+            address(hub),
+            abi.encodeCall(
+                IReferralHub.setDesignationSource,
+                (
+                    arbSelector,
+                    arbRegistry,
+                    ARB_CHAIN_ID
+                )
+            )
         );
     }
 
     function test_mesh_sameVaultAddressKeysSeparateSources()
         public
     {
-        uint256 baseScore = 6_000 * 1e6;
+        uint256 week = block.timestamp / CohortWeeks.WEEK - 1;
 
-        uint256 arbScore = 20_000 * 1e6;
+        uint256 baseAverage = 6_000 * 1e6;
+
+        uint256 arbAverage = 20_000 * 1e6;
 
         _deliverAndApply(
             baseSelector,
             BASE_CHAIN_ID,
-            baseScore
+            baseAverage
         );
 
         _deliverAndApply(
             arbSelector,
             ARB_CHAIN_ID,
-            arbScore
-        );
-
-        assertEq(
-            hub.globalReferredScore(referrer),
-            baseScore + arbScore,
-            "global scores must sum across the two hashed sources"
+            arbAverage
         );
 
         bytes32 baseKey = keccak256(
-            abi.encode(BASE_CHAIN_ID, vaultAddr)
+            abi.encode(
+                BASE_CHAIN_ID,
+                vaultAddr
+            )
         );
 
         bytes32 arbKey = keccak256(
-            abi.encode(ARB_CHAIN_ID, vaultAddr)
+            abi.encode(
+                ARB_CHAIN_ID,
+                vaultAddr
+            )
         );
 
         assertTrue(
@@ -2626,28 +2929,63 @@ contract CcipFlushMeshFork is Test {
             "the hashed source keys must differ for one shared address"
         );
 
-        assertGt(
-            hub.appliedScoreStamp(baseKey, referrer),
-            0,
-            "the base source must have its own score stamp register"
+        (
+            uint256 baseReported,
+        ) = hub.weekReportOf(
+            baseKey,
+            referrer,
+            week
         );
 
-        assertGt(
-            hub.appliedScoreStamp(arbKey, referrer),
-            0,
-            "the arbitrum source must have its own score stamp register"
-        );
-
-        _deliverAndApply(
-            baseSelector,
-            BASE_CHAIN_ID,
-            0
+        (
+            uint256 arbReported,
+        ) = hub.weekReportOf(
+            arbKey,
+            referrer,
+            week
         );
 
         assertEq(
-            hub.globalReferredScore(referrer),
-            arbScore,
-            "a base clamp-to-zero must leave the arbitrum contribution intact"
+            baseReported,
+            baseAverage,
+            "the base source must keep its own week report"
+        );
+
+        assertEq(
+            arbReported,
+            arbAverage,
+            "the arbitrum source must keep its own week report"
+        );
+
+        (
+            uint256 referredInput,
+        ) = hub.ladderInputsAt(
+            referrer,
+            week
+        );
+
+        assertEq(
+            referredInput,
+            baseAverage + arbAverage,
+            "the week's referred input must sum across the two hashed sources"
+        );
+
+        assertGt(
+            hub.claimable(
+                BASE_CHAIN_ID,
+                referrer
+            ),
+            0,
+            "the base delivery must price into the base bucket"
+        );
+
+        assertGt(
+            hub.claimable(
+                ARB_CHAIN_ID,
+                referrer
+            ),
+            0,
+            "the arbitrum delivery must price into the arbitrum bucket"
         );
     }
 
@@ -2673,13 +3011,19 @@ contract CcipFlushMeshFork is Test {
         );
 
         assertEq(
-            hub.payoutAddressOf(BASE_CHAIN_ID, referrer),
+            hub.payoutAddressOf(
+                BASE_CHAIN_ID,
+                referrer
+            ),
             basePayout,
             "the base designation must fill only the base bucket"
         );
 
         assertEq(
-            hub.payoutAddressOf(ARB_CHAIN_ID, referrer),
+            hub.payoutAddressOf(
+                ARB_CHAIN_ID,
+                referrer
+            ),
             arbPayout,
             "the arbitrum designation must fill only the arbitrum bucket"
         );
@@ -2692,7 +3036,10 @@ contract CcipFlushMeshFork is Test {
         );
 
         assertEq(
-            hub.payoutAddressOf(BASE_CHAIN_ID, referrer),
+            hub.payoutAddressOf(
+                BASE_CHAIN_ID,
+                referrer
+            ),
             basePayout,
             "a staler base push must lose latest-wins in its own bucket"
         );
@@ -2719,36 +3066,43 @@ contract CcipFlushMeshFork is Test {
     function _deliverAndApply(
         uint64 _selector,
         uint256 _chainId,
-        uint256 _referredScore
+        uint256 _referredAverage
     )
         internal
     {
-        uint256[] memory out = new uint256[](3);
+        uint256[] memory out = new uint256[](4);
 
-        out[0] = CohortWeeks.packFlushHeader(
+        out[0] = CohortFlushCodec._packFlushHeader(
             referrer,
             1,
             block.timestamp
         );
 
-        out[1] = CohortWeeks.packFlushEntry(
+        out[1] = CohortFlushCodec._packFlushEntry(
             referrer,
+            1,
             0,
             0,
             0
         );
 
-        out[2] = CohortWeeks.packFlushScores(
-            _referredScore,
+        out[2] = block.timestamp / CohortWeeks.WEEK - 1;
+
+        out[3] = CohortWeeks._packLanes(
+            _referredAverage * CohortWeeks.WEEK,
+            0,
             0
-        );
+        ) | CohortWeeks.CRUMB_WRITTEN_BIT;
 
         bytes memory payload = abi.encodePacked(
             out
         );
 
         bytes32 messageId = keccak256(
-            abi.encode(_selector, meshNonce)
+            abi.encode(
+                _selector,
+                meshNonce
+            )
         );
 
         meshNonce += 1;
@@ -2769,6 +3123,7 @@ contract CcipFlushMeshFork is Test {
 
         hub.applyFlush(
             messageId,
+            _selector,
             _chainId,
             vaultAddr,
             payload
@@ -2809,7 +3164,7 @@ contract CcipFlushMeshFork is Test {
         returns (bytes memory)
     {
         return abi.encode(
-            uint256(1),
+            uint256(2),
             referrer,
             _payout,
             _setAt,

@@ -66,7 +66,9 @@ abstract contract CcipBridgeForkBase is CcipForkHarness {
         _onSrc();
 
         assertEq(
-            ICcipBridgeVault(src.diamond).balanceOf(alice),
+            ICcipBridgeVault(src.diamond).balanceOf(
+                alice
+            ),
             0
         );
 
@@ -87,7 +89,9 @@ abstract contract CcipBridgeForkBase is CcipForkHarness {
         );
 
         assertTrue(
-            ICcipBridgeVault(dst.diamond).processedMessageId(sent.messageId)
+            ICcipBridgeVault(dst.diamond).processedMessageId(
+                sent.messageId
+            )
         );
     }
 

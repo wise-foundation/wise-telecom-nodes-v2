@@ -137,7 +137,10 @@ contract ForkMainnetUSDTPermit2Test is ForkBase {
         );
 
         usd = USDT_MAINNET;
-        user = vm.addr(USER_PK);
+
+        user = vm.addr(
+            USER_PK
+        );
 
         diamond = _deployDiamond(
             usd
@@ -190,13 +193,17 @@ contract ForkMainnetUSDTPermit2Test is ForkBase {
         );
 
         assertEq(
-            diamond.balanceOf(user),
+            diamond.balanceOf(
+                user
+            ),
             amount,
             "shares minted from real USDT via real Permit2"
         );
 
         assertEq(
-            IERC20(usd).balanceOf(thirdPty),
+            IERC20(usd).balanceOf(
+                thirdPty
+            ),
             amount,
             "real USDT moved to thirdPartyAddress via Permit2"
         );
@@ -221,7 +228,9 @@ contract ForkMainnetUSDTPermit2Test is ForkBase {
             deadline
         );
 
-        uint256 usdBefore = IERC20(usd).balanceOf(user);
+        uint256 usdBefore = IERC20(usd).balanceOf(
+            user
+        );
 
         vm.prank(
             user
@@ -241,7 +250,9 @@ contract ForkMainnetUSDTPermit2Test is ForkBase {
         );
 
         assertEq(
-            IERC20(usd).balanceOf(user),
+            IERC20(usd).balanceOf(
+                user
+            ),
             usdBefore - amount + claimed,
             "user nets the interest payout in real USDT"
         );
@@ -266,7 +277,9 @@ contract ForkMainnetUSDTPermit2Test is ForkBase {
             deadline
         );
 
-        uint256 sharesBefore = diamond.balanceOf(user);
+        uint256 sharesBefore = diamond.balanceOf(
+            user
+        );
 
         vm.prank(
             user
@@ -286,7 +299,9 @@ contract ForkMainnetUSDTPermit2Test is ForkBase {
         );
 
         assertEq(
-            diamond.balanceOf(user),
+            diamond.balanceOf(
+                user
+            ),
             sharesBefore + amount + compounded,
             "shares = prior + new deposit + compounded interest"
         );
@@ -412,13 +427,19 @@ contract ForkMainnetUSDTPermit2Test is ForkBase {
         );
 
         assertEq(
-            diamond.balanceOf(user),
-            diamond.balanceOf(legacyUser),
+            diamond.balanceOf(
+                user
+            ),
+            diamond.balanceOf(
+                legacyUser
+            ),
             "Permit2 path == approve+deposit path on real USDT"
         );
 
         assertEq(
-            IERC20(usd).balanceOf(thirdPty),
+            IERC20(usd).balanceOf(
+                thirdPty
+            ),
             amount * 2,
             "both flows land at thirdPartyAddress"
         );
@@ -462,7 +483,10 @@ contract ForkMainnetUSDCPermit2Test is ForkBase {
         );
 
         usd = USDC_MAINNET;
-        user = vm.addr(USER_PK);
+
+        user = vm.addr(
+            USER_PK
+        );
 
         diamond = _deployDiamond(
             usd
@@ -509,13 +533,17 @@ contract ForkMainnetUSDCPermit2Test is ForkBase {
         );
 
         assertEq(
-            diamond.balanceOf(user),
+            diamond.balanceOf(
+                user
+            ),
             amount,
             "shares minted from real mainnet USDC via Permit2"
         );
 
         assertEq(
-            IERC20(usd).balanceOf(thirdPty),
+            IERC20(usd).balanceOf(
+                thirdPty
+            ),
             amount,
             "real mainnet USDC moved to thirdPartyAddress via Permit2"
         );
@@ -534,7 +562,10 @@ contract ForkArbitrumUSDCPermit2Test is ForkBase {
         );
 
         usd = USDC_ARB;
-        user = vm.addr(USER_PK);
+
+        user = vm.addr(
+            USER_PK
+        );
 
         diamond = _deployDiamond(
             usd
@@ -581,13 +612,17 @@ contract ForkArbitrumUSDCPermit2Test is ForkBase {
         );
 
         assertEq(
-            diamond.balanceOf(user),
+            diamond.balanceOf(
+                user
+            ),
             amount,
             "shares minted from real arb USDC via Permit2"
         );
 
         assertEq(
-            IERC20(usd).balanceOf(thirdPty),
+            IERC20(usd).balanceOf(
+                thirdPty
+            ),
             amount,
             "real arb USDC moved to thirdPartyAddress via Permit2"
         );
@@ -606,7 +641,10 @@ contract ForkArbitrumUSDT0Permit2Test is ForkBase {
         );
 
         usd = USDT0_ARB;
-        user = vm.addr(USER_PK);
+
+        user = vm.addr(
+            USER_PK
+        );
 
         diamond = _deployDiamond(
             usd
@@ -653,13 +691,17 @@ contract ForkArbitrumUSDT0Permit2Test is ForkBase {
         );
 
         assertEq(
-            diamond.balanceOf(user),
+            diamond.balanceOf(
+                user
+            ),
             amount,
             "shares minted from real USDT0 via Permit2"
         );
 
         assertEq(
-            IERC20(usd).balanceOf(thirdPty),
+            IERC20(usd).balanceOf(
+                thirdPty
+            ),
             amount,
             "real USDT0 moved to thirdPartyAddress via Permit2"
         );

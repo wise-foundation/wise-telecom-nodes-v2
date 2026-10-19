@@ -327,7 +327,9 @@ contract CcipRobinhoodBridgeFork is CcipForkHarness {
         _onSrc();
 
         assertEq(
-            ICcipBridgeVault(src.diamond).balanceOf(alice),
+            ICcipBridgeVault(src.diamond).balanceOf(
+                alice
+            ),
             0,
             "robinhood must burn the bridged shares"
         );
@@ -351,7 +353,9 @@ contract CcipRobinhoodBridgeFork is CcipForkHarness {
         );
 
         assertTrue(
-            ICcipBridgeVault(dst.diamond).processedMessageId(sent.messageId),
+            ICcipBridgeVault(dst.diamond).processedMessageId(
+                sent.messageId
+            ),
             "message not marked processed on mainnet"
         );
     }

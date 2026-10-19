@@ -64,7 +64,7 @@ interface IWtnStatesVault {
  *      slice leaves as one aggregate that lands in one slot, and only
  *      the bystander's cover stays behind;
  *   5. a cohort aged past its first year rides the second-year lane
- *      and lands on ring two one week ahead of arrival;
+ *      and lands on ring two at its own slot;
  *   6. a cohort aged past its second year rides the mature lane and
  *      lands on the week-less mature lane without any ring write;
  *   7. a bridge there and back over the reverse lane returns the
@@ -93,8 +93,14 @@ interface IWtnStatesVault {
  * aligned copy of the off-ramp shim that warps the destination
  * forward to the source clock only after its own fork switch, which
  * keeps the destination merge from ever running behind the registry
- * key it adopts. Landing slots are read back from the settle
- * timestamp the delivery stamps on the destination book, never
+ * key it adopts. The second-year scenario delivers at its send
+ * instant instead of its seed clock: a pair that arrives in a week
+ * before the week it was captured in is aged back by that lag, so a
+ * delivery at the seed clock would land the aged cohort on the
+ * first-year ring, which no real message can do. It then rewinds the
+ * destination to the clock it read before the delivery, so the aged
+ * clock leaks on neither fork. Landings are checked as ring totals,
+ * since every carried pair keeps its own slot, never against a slot
  * predicted from a clock read before a switch.
  *
  * Source log discipline. Scenarios that pin the ORDER of source-side
@@ -249,21 +255,6 @@ abstract contract CohortBridgeAttributionMatrixForkGroupB is CohortBridgeAttribu
         ) = IWtnMatrixVault(_ctx.diamond).getCohortBook(
             _referrer
         );
-    }
-
-    function _landingSlotOn(
-        ChainCtx storage _ctx,
-        address _referrer
-    )
-        internal
-        returns (uint256)
-    {
-        uint256 lastSettle = _lastSettleOn(
-            _ctx,
-            _referrer
-        );
-
-        return (lastSettle / CohortWeeks.WEEK + 1) % CohortWeeks.RING_SLOTS;
     }
 
     // ---- scaling ----
@@ -602,7 +593,9 @@ abstract contract CohortBridgeAttributionMatrixForkGroupB is CohortBridgeAttribu
             ++seen;
         }
 
-        revert("requested log occurrence not found");
+        revert(
+            "requested log occurrence not found"
+        );
     }
 
     function _deficitTrace(
@@ -878,7 +871,9 @@ abstract contract CohortBridgeAttributionMatrixForkGroupB is CohortBridgeAttribu
         );
 
         assertEq(
-            keccak256(_wire.rampData),
+            keccak256(
+                _wire.rampData
+            ),
             keccak256(
                 abi.encode(
                     _sent.user,
@@ -974,41 +969,35 @@ abstract contract CohortBridgeAttributionMatrixForkGroupB is CohortBridgeAttribu
     )
         internal
     {
-        uint256 slot = _landingSlotOn(
+        (
+            uint64[52] memory ring1,
+            uint64[52] memory ring2
+        ) = _ringsOn(
             _ctx,
             _referrer
         );
 
-        (
-            uint256 ring1,
-            uint256 ring2
-        ) = _ringOn(
-            _ctx,
-            _referrer,
-            slot
-        );
+        uint256 ring1Sum;
+
+        uint256 ring2Sum;
+
+        for (uint256 s; s < CohortWeeks.RING_SLOTS; ++s) {
+
+            ring1Sum += uint256(ring1[s]);
+
+            ring2Sum += uint256(ring2[s]);
+        }
 
         assertEq(
-            ring1,
+            ring1Sum,
             _year1,
-            "the first-year aggregate must land one week ahead of the arrival week"
+            "the first-year pairs must land on the first-year ring at their own slots"
         );
 
         assertEq(
-            ring2,
+            ring2Sum,
             _year2,
-            "the second-year aggregate must land one week ahead of the arrival week"
-        );
-
-        uint256 expectedSlots = (_year1 > 0 ? 1 : 0) + (_year2 > 0 ? 1 : 0);
-
-        assertEq(
-            _nonzeroRingSlots(
-                _ctx,
-                _referrer
-            ),
-            expectedSlots,
-            "the landing must touch exactly the carried rings"
+            "the second-year pairs must land on the second-year ring at their own slots"
         );
     }
 
@@ -1548,8 +1537,12 @@ abstract contract CohortBridgeAttributionMatrixForkGroupB is CohortBridgeAttribu
         );
 
         assertEq(
-            _scaleToDst(run.srcBefore.tracked - destroyed),
-            _scaleToDst(run.srcAfter.tracked)
+            _scaleToDst(
+                run.srcBefore.tracked - destroyed
+            ),
+            _scaleToDst(
+                run.srcAfter.tracked
+            )
                 + (run.dstAfter.tracked - run.dstBefore.tracked),
             "tracked must be conserved net of the destroyed deficit"
         );
@@ -2276,9 +2269,13 @@ abstract contract CohortBridgeAttributionMatrixForkGroupB is CohortBridgeAttribu
             run.srcAt
         );
 
+        _onDst();
+
+        run.dstAt = block.timestamp;
+
         run.logs = _deliverAligned(
             run.sent,
-            run.srcAt
+            run.sent.sentAt
         );
 
         run.dstAfter = _sideState(
@@ -2359,6 +2356,12 @@ abstract contract CohortBridgeAttributionMatrixForkGroupB is CohortBridgeAttribu
             0,
             0,
             0
+        );
+
+        _onDst();
+
+        vm.warp(
+            run.dstAt
         );
     }
 

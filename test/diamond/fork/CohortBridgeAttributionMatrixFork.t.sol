@@ -20,6 +20,7 @@ import {
 import {ReferralRegistry} from "../../../src/registry/pending/ReferralRegistry.sol";
 
 import {CohortWeeks} from "../../../src/diamond/shared/pending/CohortWeeks.sol";
+import {BridgeCarryTestCodec} from "../utils/BridgeCarryTestCodec.sol";
 
 /**
  * @dev The few extra entrypoints of the LIVE diamond the attribution
@@ -85,7 +86,11 @@ interface IWtnMatrixVault {
  * lane decimals with floor, tracked conservation, registry pair and
  * pending-flip marker on both forks, the full destination mint, the
  * decoded wire, and the carry events on their forks with every
- * degrade event asserted absent.
+ * degrade event asserted absent. The wire length is the version 3
+ * envelope's own length, three header words plus one word per two
+ * carried pairs, the only shape the destination accepts; the fee
+ * quote reserves `BRIDGE_CARRY_BYTES`, the 104 pair maximum, which is
+ * never the length of a real send.
  *
  * Clock discipline. Warps persist per fork across fork switches, so
  * key ordering is created only by moving one fork forward, never by
@@ -93,7 +98,15 @@ interface IWtnMatrixVault {
  * destination assignment at its natural clock followed by a source
  * clock advanced past it; a later destination key comes from the
  * mirror image. The destination clock is aligned to the source clock
- * before every delivery, exactly as the carry base does.
+ * before every delivery, exactly as the carry base does. The wire
+ * carries the capture week, the source clock's week at the send,
+ * which the wire assertion pins against the send stamp the harness
+ * records with the message (`SentMessage.sentAt`), never against a
+ * source clock read later, and the destination lands every carried
+ * pair at its own slot, aged by the weekly boundaries crossed between
+ * that week and its own clock; the aligned clocks keep that count at
+ * zero in these lanes, so every landing expectation is the credit slot
+ * of the capture week.
  */
 abstract contract CohortBridgeAttributionMatrixForkBase is CcipCarryUpgradeRehearsalForkBase {
 
@@ -109,6 +122,11 @@ abstract contract CohortBridgeAttributionMatrixForkBase is CcipCarryUpgradeRehea
         uint256 mature;
     }
 
+    struct RingPair {
+        uint64[52] ring1;
+        uint64[52] ring2;
+    }
+
     struct SideState {
         uint256 balance;
         uint256 tracked;
@@ -118,6 +136,8 @@ abstract contract CohortBridgeAttributionMatrixForkBase is CcipCarryUpgradeRehea
         uint256 ring1AtCredit;
         uint256 ring1AtLand;
         uint256 ring2AtLand;
+        uint256 ring1Sum;
+        uint256 ring2Sum;
     }
 
     struct WireCapture {
@@ -129,6 +149,7 @@ abstract contract CohortBridgeAttributionMatrixForkBase is CcipCarryUpgradeRehea
         uint256 carryYear1;
         uint256 carryYear2;
         uint256 carryMature;
+        address carryBookReferrer;
         address wireUser;
         uint256 wireAmount;
         bytes referralData;
@@ -144,6 +165,8 @@ abstract contract CohortBridgeAttributionMatrixForkBase is CcipCarryUpgradeRehea
         uint256 year1;
         uint256 year2;
         uint256 mature;
+        uint256 captureWeek;
+        uint256 pairCount;
     }
 
     struct CarryExpect {
@@ -275,8 +298,6 @@ abstract contract CohortBridgeAttributionMatrixForkBase is CcipCarryUpgradeRehea
     uint256 internal constant BRIDGE_UNITS = 1_000;
 
     uint256 internal constant DESTINATION_UNITS = 500;
-
-    uint256 internal constant FOREIGN_RANK = 4;
 
     address internal dstReferrer = makeAddr(
         "matrixDestinationReferrer"
@@ -498,6 +519,21 @@ abstract contract CohortBridgeAttributionMatrixForkBase is CcipCarryUpgradeRehea
         );
     }
 
+    function _foreignRank()
+        internal
+        pure
+        returns (uint256)
+    {
+        for (uint256 rank; rank < 4; ++rank) {
+
+            if (rank != _srcChainRank() && rank != _dstChainRank()) {
+                return rank;
+            }
+        }
+
+        return 0;
+    }
+
     function _mergeOnRegistry(
         ChainCtx storage _ctx,
         ReferralRegistry _registry,
@@ -570,6 +606,16 @@ abstract contract CohortBridgeAttributionMatrixForkBase is CcipCarryUpgradeRehea
         }
 
         return block.timestamp;
+    }
+
+    function _sourceWeekOf(
+        SentMessage memory _sent
+    )
+        internal
+        pure
+        returns (uint256)
+    {
+        return _sent.sentAt / CohortWeeks.WEEK;
     }
 
     // ---- readers ----
@@ -683,6 +729,68 @@ abstract contract CohortBridgeAttributionMatrixForkBase is CcipCarryUpgradeRehea
         }
     }
 
+    function _ringPairOn(
+        ChainCtx storage _ctx,
+        address _referrer
+    )
+        internal
+        returns (RingPair memory rings)
+    {
+        (
+            rings.ring1,
+            rings.ring2
+        ) = _ringsOn(
+            _ctx,
+            _referrer
+        );
+    }
+
+    function _assertReplanted(
+        RingPair memory _old,
+        RingPair memory _newBefore,
+        RingPair memory _newAfter
+    )
+        internal
+        pure
+    {
+        for (uint256 s; s < CohortWeeks.RING_SLOTS; ++s) {
+
+            assertEq(
+                uint256(_newAfter.ring1[s]),
+                uint256(_newBefore.ring1[s]) + uint256(_old.ring1[s]),
+                "poke must replant every first-year slot at the same slot"
+            );
+
+            assertEq(
+                uint256(_newAfter.ring2[s]),
+                uint256(_newBefore.ring2[s]) + uint256(_old.ring2[s]),
+                "poke must replant every second-year slot at the same slot"
+            );
+        }
+    }
+
+    function _ringsOn(
+        ChainCtx storage _ctx,
+        address _referrer
+    )
+        internal
+        returns (
+            uint64[52] memory ring1,
+            uint64[52] memory ring2
+        )
+    {
+        vm.selectFork(
+            _ctx.forkId
+        );
+
+        (
+            ring1,
+            ring2
+        ) = IWtnCarryVault(_ctx.diamond).getCohortRings(
+            _referrer
+        );
+    }
+
     function _sideState(
         ChainCtx storage _ctx,
         address _who,
@@ -728,6 +836,21 @@ abstract contract CohortBridgeAttributionMatrixForkBase is CcipCarryUpgradeRehea
             _bookReferrer,
             state.landSlot
         );
+
+        (
+            uint64[52] memory ring1,
+            uint64[52] memory ring2
+        ) = _ringsOn(
+            _ctx,
+            _bookReferrer
+        );
+
+        for (uint256 s; s < CohortWeeks.RING_SLOTS; ++s) {
+
+            state.ring1Sum += uint256(ring1[s]);
+
+            state.ring2Sum += uint256(ring2[s]);
+        }
     }
 
     function _dstState(
@@ -874,10 +997,11 @@ abstract contract CohortBridgeAttributionMatrixForkBase is CcipCarryUpgradeRehea
             _wire.carryTrackedDelta,
             _wire.carryYear1,
             _wire.carryYear2,
-            _wire.carryMature
+            _wire.carryMature,
+            _wire.carryBookReferrer
         ) = abi.decode(
             _entry.data,
-            (uint256, uint256, uint256, uint256)
+            (uint256, uint256, uint256, uint256, address)
         );
     }
 
@@ -985,48 +1109,58 @@ abstract contract CohortBridgeAttributionMatrixForkBase is CcipCarryUpgradeRehea
         returns (CarryPayload memory payload)
     {
         require(
-            _referralData.length == CohortWeeks.BRIDGE_CARRY_BYTES,
+            _referralData.length >= CohortWeeks.BRIDGE_CARRY_HEADER_BYTES,
             "wire referralData is not a carry payload"
         );
 
-        (
-            uint256 word0,
-            uint256 word1,
-            uint256 word2,
-            uint256 word3
-        ) = CohortWeeks.unpackBridgeCarry(
+        uint256[] memory words = CohortWeeks._unpackBridgeCarry(
             _referralData
         );
 
-        payload.referrer = CohortWeeks.carryEnvelopeReferrer(
+        uint256 word0 = words[0];
+
+        uint256 word1 = words[1];
+
+        payload.referrer = CohortWeeks._carryEnvelopeReferrer(
             word0
         );
 
-        payload.version = CohortWeeks.carryEnvelopeVersion(
+        payload.version = CohortWeeks._carryEnvelopeVersion(
             word0
         );
 
-        payload.trackedDelta = CohortWeeks.carryTrackedDelta(
+        payload.trackedDelta = CohortWeeks._carryTrackedDelta(
             word1
         );
 
-        payload.assignedAt = CohortWeeks.bridgeCarryAssignedAt(
+        payload.assignedAt = CohortWeeks._bridgeCarryAssignedAt(
             word1
         );
 
-        payload.rank = CohortWeeks.bridgeCarryRank(
+        payload.rank = CohortWeeks._bridgeCarryRank(
             word1
         );
 
-        payload.year1 = CohortWeeks.carryPairLo(
-            word2
+        (
+            payload.year1,
+            payload.year2
+        ) = CohortWeeks._carryPairSums(
+            words,
+            CohortWeeks.BRIDGE_CARRY_HEADER_WORDS,
+            CohortWeeks._bridgeCarryPairCount(
+                word0
+            )
         );
 
-        payload.year2 = CohortWeeks.carryPairHi(
-            word2
+        payload.mature = words[2];
+
+        payload.captureWeek = CohortWeeks._bridgeCarryCaptureWeek(
+            word0
         );
 
-        payload.mature = word3;
+        payload.pairCount = CohortWeeks._bridgeCarryPairCount(
+            word0
+        );
     }
 
     function _deliver(
@@ -1228,13 +1362,17 @@ abstract contract CohortBridgeAttributionMatrixForkBase is CcipCarryUpgradeRehea
         );
 
         assertEq(
-            _registry.referrerOf(_who),
+            _registry.referrerOf(
+                _who
+            ),
             address(0),
             "registry must start unassigned"
         );
 
         assertEq(
-            _registry.referrerKey(_who),
+            _registry.referrerKey(
+                _who
+            ),
             0,
             "registry key must start empty"
         );
@@ -1348,6 +1486,12 @@ abstract contract CohortBridgeAttributionMatrixForkBase is CcipCarryUpgradeRehea
         );
 
         assertEq(
+            _wire.carryBookReferrer,
+            _expect.referrer,
+            "carry-sent book referrer must be the source book the capture charged"
+        );
+
+        assertEq(
             _wire.wireUser,
             _sent.user,
             "wire user mismatch"
@@ -1359,14 +1503,14 @@ abstract contract CohortBridgeAttributionMatrixForkBase is CcipCarryUpgradeRehea
             "wire amount mismatch"
         );
 
-        assertEq(
-            _wire.referralData.length,
-            CohortWeeks.BRIDGE_CARRY_BYTES,
-            "wire referralData must be the fixed 128-byte carry payload"
-        );
-
         CarryPayload memory payload = _decodeCarry(
             _wire.referralData
+        );
+
+        assertEq(
+            _wire.referralData.length,
+            CohortWeeks.BRIDGE_CARRY_HEADER_BYTES + (payload.pairCount + 1) / 2 * 32,
+            "wire referralData must be the carry header plus one word per two pairs"
         );
 
         assertEq(
@@ -1379,6 +1523,14 @@ abstract contract CohortBridgeAttributionMatrixForkBase is CcipCarryUpgradeRehea
             payload.version,
             CohortWeeks.BRIDGE_CARRY_VERSION,
             "wire envelope version mismatch"
+        );
+
+        assertEq(
+            payload.captureWeek,
+            _sourceWeekOf(
+                _sent
+            ),
+            "wire capture week must be the source week at the send"
         );
 
         assertEq(
@@ -1418,7 +1570,7 @@ abstract contract CohortBridgeAttributionMatrixForkBase is CcipCarryUpgradeRehea
         );
 
         assertTrue(
-            CohortWeeks.bridgeCarryValid(
+            CohortWeeks._bridgeCarryValid(
                 _wire.referralData,
                 _sent.dstAmount
             ),
@@ -1446,7 +1598,9 @@ abstract contract CohortBridgeAttributionMatrixForkBase is CcipCarryUpgradeRehea
         );
 
         assertTrue(
-            ICcipBridgeVault(dst.diamond).processedMessageId(_run.sent.messageId),
+            ICcipBridgeVault(dst.diamond).processedMessageId(
+                _run.sent.messageId
+            ),
             "message not marked processed on the destination"
         );
     }
@@ -1458,26 +1612,36 @@ abstract contract CohortBridgeAttributionMatrixForkBase is CcipCarryUpgradeRehea
         view
     {
         assertEq(
-            _scaleToDst(_run.srcBefore.book.year1 - _run.srcAfter.book.year1),
+            _scaleToDst(
+                _run.srcBefore.book.year1 - _run.srcAfter.book.year1
+            ),
             _run.dstAfter.book.year1 - _run.dstBefore.book.year1,
             "first-year lane not conserved across the lane"
         );
 
         assertEq(
-            _scaleToDst(_run.srcBefore.book.year2 - _run.srcAfter.book.year2),
+            _scaleToDst(
+                _run.srcBefore.book.year2 - _run.srcAfter.book.year2
+            ),
             _run.dstAfter.book.year2 - _run.dstBefore.book.year2,
             "second-year lane not conserved across the lane"
         );
 
         assertEq(
-            _scaleToDst(_run.srcBefore.book.mature - _run.srcAfter.book.mature),
+            _scaleToDst(
+                _run.srcBefore.book.mature - _run.srcAfter.book.mature
+            ),
             _run.dstAfter.book.mature - _run.dstBefore.book.mature,
             "mature lane not conserved across the lane"
         );
 
         assertEq(
-            _scaleToDst(_run.srcBefore.tracked),
-            _scaleToDst(_run.srcAfter.tracked)
+            _scaleToDst(
+                _run.srcBefore.tracked
+            ),
+            _scaleToDst(
+                _run.srcAfter.tracked
+            )
                 + (_run.dstAfter.tracked - _run.dstBefore.tracked),
             "tracked contribution not conserved across the lane"
         );
@@ -1490,9 +1654,9 @@ abstract contract CohortBridgeAttributionMatrixForkBase is CcipCarryUpgradeRehea
         pure
     {
         assertEq(
-            _run.dstAfter.ring1AtLand - _run.dstBefore.ring1AtLand,
+            _run.dstAfter.ring1AtCredit - _run.dstBefore.ring1AtCredit,
             _run.carried,
-            "carried slice must land one week ahead of the arrival week"
+            "carried slice must land at the credit slot of its capture week"
         );
 
         assertEq(
@@ -1502,9 +1666,9 @@ abstract contract CohortBridgeAttributionMatrixForkBase is CcipCarryUpgradeRehea
         );
 
         assertEq(
-            _run.dstAfter.ring1AtCredit,
-            _run.dstBefore.ring1AtCredit,
-            "destination credit slot must not move on arrival"
+            _run.dstAfter.ring1AtLand,
+            _run.dstBefore.ring1AtLand,
+            "the next graduating slot must not move on arrival"
         );
 
         assertEq(
@@ -1527,7 +1691,9 @@ abstract contract CohortBridgeAttributionMatrixForkBase is CcipCarryUpgradeRehea
         );
 
         assertEq(
-            _registry.referrerOf(_who),
+            _registry.referrerOf(
+                _who
+            ),
             _expect.referrer,
             "registry referrer mismatch"
         );
@@ -1579,7 +1745,9 @@ abstract contract CohortBridgeAttributionMatrixForkBase is CcipCarryUpgradeRehea
         );
 
         assertEq(
-            IWtnCarryVault(_ctx.diamond).getReferrerOf(_who),
+            IWtnCarryVault(_ctx.diamond).getReferrerOf(
+                _who
+            ),
             _expect.referrer,
             "diamond referrer view mismatch"
         );
@@ -1764,6 +1932,16 @@ abstract contract CohortBridgeAttributionMatrixForkBase is CcipCarryUpgradeRehea
             _newReferrer
         );
 
+        RingPair memory oldRings = _ringPairOn(
+            dst,
+            _oldReferrer
+        );
+
+        RingPair memory newRingsBefore = _ringPairOn(
+            dst,
+            _newReferrer
+        );
+
         uint256 trackedBefore = _trackedOn(
             dst,
             _who
@@ -1846,19 +2024,28 @@ abstract contract CohortBridgeAttributionMatrixForkBase is CcipCarryUpgradeRehea
         assertEq(
             newBookAfter.year1,
             newBookBefore.year1 + oldBook.year1,
-            "poke must replant the first-year lane one to one"
+            "poke must move the first-year lane total"
         );
 
         assertEq(
             newBookAfter.year2,
             newBookBefore.year2 + oldBook.year2,
-            "poke must replant the second-year lane one to one"
+            "poke must move the second-year lane total"
         );
 
         assertEq(
             newBookAfter.mature,
             newBookBefore.mature + oldBook.mature,
-            "poke must replant the mature lane one to one"
+            "poke must move the mature lane total"
+        );
+
+        _assertReplanted(
+            oldRings,
+            newRingsBefore,
+            _ringPairOn(
+                dst,
+                _newReferrer
+            )
         );
 
         assertEq(
@@ -1939,7 +2126,7 @@ abstract contract CohortBridgeAttributionMatrixForkBase is CcipCarryUpgradeRehea
  *   6. a destination holding a different referrer with the later key
  *      flips to the carried referrer, marks the destination vault
  *      pending, lands the lanes under the old book holder and
- *      relocates them one to one on the poke;
+ *      replants every pair at its own slot on the poke;
  *   7. a destination whose flip is already pending keeps the first
  *      marker through a second flip, lands under the old book holder
  *      and moves everything to the final winner on the poke.
@@ -2218,14 +2405,22 @@ abstract contract CohortBridgeAttributionMatrixForkGroupA is CohortBridgeAttribu
         );
 
         assertEq(
-            keccak256(run.wire.rampData),
-            keccak256(plainWire.rampData),
+            keccak256(
+                run.wire.rampData
+            ),
+            keccak256(
+                plainWire.rampData
+            ),
             "junk bytes must leave the wire data byte-identical"
         );
 
         assertEq(
-            keccak256(run.wire.referralData),
-            keccak256(plainWire.referralData),
+            keccak256(
+                run.wire.referralData
+            ),
+            keccak256(
+                plainWire.referralData
+            ),
             "junk bytes must leave the referral payload byte-identical"
         );
 
@@ -2341,24 +2536,20 @@ abstract contract CohortBridgeAttributionMatrixForkGroupA is CohortBridgeAttribu
             referrer
         );
 
-        bytes memory forged = CohortWeeks.packBridgeCarry(
-            CohortWeeks.packBridgeCarryEnvelope(
-                forger
-            ),
-            CohortWeeks.packBridgeCarryTracked(
-                run.carried,
-                1,
-                0
-            ),
-            CohortWeeks.packCarryPairsWord(
-                run.carried,
-                0
-            ),
+        bytes memory forged = BridgeCarryTestCodec._pack(
+            forger,
+            CohortWeeks.BRIDGE_CARRY_VERSION,
+            block.timestamp / CohortWeeks.WEEK,
+            run.carried,
+            1,
+            0,
+            run.carried,
+            0,
             0
         );
 
         assertTrue(
-            CohortWeeks.bridgeCarryValid(
+            CohortWeeks._bridgeCarryValid(
                 forged,
                 run.carried
             ),
@@ -3047,14 +3238,14 @@ abstract contract CohortBridgeAttributionMatrixForkGroupA is CohortBridgeAttribu
 
         assertEq(
             creditRing,
-            run.dstBefore.ring1AtCredit,
-            "poke must replant the destination deposit at its original slot"
+            run.carried + run.dstBefore.ring1AtCredit,
+            "poke must keep the carried slice and the deposit at their credit slot"
         );
 
         assertEq(
             landRing,
-            run.carried,
-            "poke must replant the carried slice at its landing slot"
+            run.dstBefore.ring1AtLand,
+            "poke must not move anything onto the next graduating slot"
         );
     }
 
@@ -3111,7 +3302,7 @@ abstract contract CohortBridgeAttributionMatrixForkGroupA is CohortBridgeAttribu
             user,
             thirdReferrer,
             run.srcAt + 1,
-            FOREIGN_RANK
+            _foreignRank()
         );
 
         _assertRegistryOn(
@@ -3121,7 +3312,7 @@ abstract contract CohortBridgeAttributionMatrixForkGroupA is CohortBridgeAttribu
             RegistryExpect({
                 referrer: thirdReferrer,
                 assignedAt: run.srcAt + 1,
-                rank: FOREIGN_RANK,
+                rank: _foreignRank(),
                 pending: dstReferrer
             })
         );

@@ -96,7 +96,10 @@ abstract contract CcipLaneDiscoveryForkBase is Test {
 
         assertEq(
             v.ccipRouter(),
-            vm.parseJsonAddress(ccipSelf, ".router")
+            vm.parseJsonAddress(
+                ccipSelf,
+                ".router"
+            )
         );
 
         string[] memory remotes = _remoteNetworks();

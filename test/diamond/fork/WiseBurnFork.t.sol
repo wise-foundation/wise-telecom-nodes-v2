@@ -135,17 +135,22 @@ contract WiseBurnEthUsdcFork is Test {
         returns (string memory)
     {
         return string.concat(
-            vm.toString(_bps / 100),
+            vm.toString(
+                _bps / 100
+            ),
             "%"
         );
     }
 
     // ---- one send + one burn: reports the slice actually burned ----
 
+    /**
+     * @dev Seeds 1,000 WISE (18 decimals).
+     */
     function test_ethUsdc_sendWise_thenBurn_reportsPercentBurned()
         public
     {
-        uint256 seed = 1_000 ether; // 1,000 WISE (18 decimals)
+        uint256 seed = 1_000 ether;
 
         _sendWiseToVault(
             seed
@@ -153,7 +158,11 @@ contract WiseBurnEthUsdcFork is Test {
 
         uint256 scheduledBps = v.getNextBurnPercentage();
         uint256 indexBefore = v.burnWiseIndex();
-        uint256 balBefore = wise.balanceOf(VAULT);
+
+        uint256 balBefore = wise.balanceOf(
+            VAULT
+        );
+
         uint256 supplyBefore = wise.totalSupply();
 
         uint256 expectedBurn = balBefore
@@ -170,16 +179,58 @@ contract WiseBurnEthUsdcFork is Test {
 
         uint256 amount = v.burnWise();
 
-        emit log_string("--- burnWise() on LIVE ETH USDC vault ---");
-        emit log_named_uint("WISE sent to vault (wei)", seed);
-        emit log_named_uint("rotation index before", indexBefore);
-        emit log_named_uint("scheduled slice (bps)", scheduledBps);
-        emit log_named_string("scheduled slice (percent)", _pctString(scheduledBps));
-        emit log_named_uint("WISE burned (wei)", amount);
-        emit log_named_uint("vault WISE before", balBefore);
-        emit log_named_uint("vault WISE after", wise.balanceOf(VAULT));
-        emit log_named_uint("WISE totalSupply drop", supplyBefore - wise.totalSupply());
-        emit log_named_uint("rotation index after", v.burnWiseIndex());
+        emit log_string(
+            "--- burnWise() on LIVE ETH USDC vault ---"
+        );
+
+        emit log_named_uint(
+            "WISE sent to vault (wei)",
+            seed
+        );
+
+        emit log_named_uint(
+            "rotation index before",
+            indexBefore
+        );
+
+        emit log_named_uint(
+            "scheduled slice (bps)",
+            scheduledBps
+        );
+
+        emit log_named_string(
+            "scheduled slice (percent)",
+            _pctString(
+                scheduledBps
+            )
+        );
+
+        emit log_named_uint(
+            "WISE burned (wei)",
+            amount
+        );
+
+        emit log_named_uint(
+            "vault WISE before",
+            balBefore
+        );
+
+        emit log_named_uint(
+            "vault WISE after",
+            wise.balanceOf(
+                VAULT
+            )
+        );
+
+        emit log_named_uint(
+            "WISE totalSupply drop",
+            supplyBefore - wise.totalSupply()
+        );
+
+        emit log_named_uint(
+            "rotation index after",
+            v.burnWiseIndex()
+        );
 
         assertEq(
             amount,
@@ -188,7 +239,9 @@ contract WiseBurnEthUsdcFork is Test {
         );
 
         assertEq(
-            wise.balanceOf(VAULT),
+            wise.balanceOf(
+                VAULT
+            ),
             balBefore - amount,
             "vault WISE balance not reduced by the burn"
         );
@@ -222,8 +275,14 @@ contract WiseBurnEthUsdcFork is Test {
 
         uint256 startIndex = v.burnWiseIndex();
 
-        emit log_string("--- 6 sequential burns (fresh callers dodge the 1-day cooldown) ---");
-        emit log_named_uint("starting rotation index", startIndex);
+        emit log_string(
+            "--- 6 sequential burns (fresh callers dodge the 1-day cooldown) ---"
+        );
+
+        emit log_named_uint(
+            "starting rotation index",
+            startIndex
+        );
 
         for (uint256 i; i < SEQUENCE_LENGTH; ++i) {
 
@@ -232,11 +291,20 @@ contract WiseBurnEthUsdcFork is Test {
             );
 
             uint256 bps = v.getNextBurnPercentage();
-            uint256 balBefore = wise.balanceOf(VAULT);
+
+            uint256 balBefore = wise.balanceOf(
+                VAULT
+            );
+
             uint256 supplyBefore = wise.totalSupply();
 
             address caller = makeAddr(
-                string.concat("burner-", vm.toString(i))
+                string.concat(
+                    "burner-",
+                    vm.toString(
+                        i
+                    )
+                )
             );
 
             vm.prank(
@@ -246,11 +314,25 @@ contract WiseBurnEthUsdcFork is Test {
             uint256 amount = v.burnWise();
 
             emit log_named_string(
-                string.concat("slot ", vm.toString((startIndex + i) % SEQUENCE_LENGTH), " slice"),
-                _pctString(bps)
+                string.concat(
+                    "slot ",
+                    vm.toString(
+                        (startIndex + i) % SEQUENCE_LENGTH
+                    ),
+                    " slice"
+                ),
+                _pctString(
+                    bps
+                )
             );
             emit log_named_uint(
-                string.concat("slot ", vm.toString((startIndex + i) % SEQUENCE_LENGTH), " burned (wei)"),
+                string.concat(
+                    "slot ",
+                    vm.toString(
+                        (startIndex + i) % SEQUENCE_LENGTH
+                    ),
+                    " burned (wei)"
+                ),
                 amount
             );
 
