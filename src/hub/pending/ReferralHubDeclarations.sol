@@ -2,167 +2,95 @@
 
 pragma solidity =0.8.36;
 
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
 import {OwnableMaster} from "../../diamond/shared/OwnableMaster.sol";
 import {CohortWeeks} from "../../diamond/shared/pending/CohortWeeks.sol";
 
 /**
- * @dev Storage, events, errors and constants for the mainnet
- * referral hub. One standalone mainnet contract (never a facet,
- * never delegatecalled), so this chain owns its layout outright and
- * `check_storage_layout.sh` deliberately does not cover it. Inherits
- * {OwnableMaster} (slots 0-1) as the house two-step ownership base;
- * governance here is plain `onlyMaster`; parameter timelocks are a
- * future hardening item.
- *
- * Keying: intake cursors and per-source score reports are keyed by
- * `bytes32 source`, not `address`, because CREATE3 gives each product
- * the SAME diamond address on every chain it runs on; address keys
- * would collide the day remote spokes report cross-chain. The local
- * form is `bytes32(uint256(uint160(reporter)))` (top 96 bits zero,
- * reserved); remote sources derive `keccak256(chainId, vault)`
- * instead. Claimable balances and payout designations are keyed per
- * source CHAIN (chain id → referrer/owner): a chain's designation
- * moves only money earned on the chain where control of the address
- * was proven, so a same-address stranger on another chain can never
- * redirect it. Local intake and designation write the executing
- * chain's bucket; remote deliveries thread their authenticated
- * origin chain through the mailbox. Score and rate aggregation stay
- * global per referrer address.
- *
- * Packed formats owned by this contract (the crumb/gap word formats
- * belong to {CohortWeeks} and are never restated):
- * - referrerCheckpoints entry: `week << 224 | referred << 112 | self`
- *   (u32 | u112 | u112). Values are the referrer's GLOBAL running
- *   scores after the last report of that week; entries for past weeks
- *   are immutable, the current week's tail entry updates in place.
- *   u112 is structurally unreachable: one source's report is bounded
- *   at intake to `3 × LANE_MASK_80` and a u112 fits ~1.4e9 such
- *   sources, so no guard (and no untestable revert arm) is needed.
- * - lastSourceReport entry: `week << 224 | referred << 128 | self`
- *   (u32 | u96 | u128; both scores bounded to `3 × LANE_MASK_80` at
- *   intake). The week is the one the source vouched in: the hub week
- *   for a local reporter, the envelope's build week for a mailbox
- *   delivery; it drives the freshness expiry, and an expired entry
- *   keeps its week with both scores zeroed.
- * - previousSourceReport entry: the `lastSourceReport` word that a
- *   report vouched in a newer week displaced, copied verbatim when
- *   it still carried a score. It keeps a source counting in the
- *   earlier of the two aggregate buckets ({ReferralHubIntake})
- *   until its newer report lands; a stale copy is simply ignored.
- * - dwellMinLog entry: `effectiveFromWeek << 1 | enabled`. Append-only
- *   and future-only exactly like `rateTables`, so the dwell setting
- *   that priced any week whose opening boundary has passed can never
- *   change.
- * - paidCursor entry: three 80-bit token-second lanes in the crumb
- *   geometry (Y1 at bit 0, Y2 at 80, M at 160), decoded with the
- *   {CohortWeeks} lane accessors.
- * - payoutStamp entry: `setAt << 8 | chainRank`, the freshness
- *   stamp of a payout designation. Local designations (this chain
- *   is the mesh's rank-0 chain) always overwrite and re-stamp;
- *   transported designations apply latest-wins/idempotent against
- *   the stored stamp; the strict-greater compare makes replays and
- *   reordered deliveries no-ops.
- *
- * Cross-chain flush mailbox: the hub is its own CCIP endpoint
- * (router set once, never rotated). Two master-registered source
- * classes per (chain selector, sender address) pair, each mapped to
- * its origin chain id: `flushSourceChainId` names the spoke VAULTS
- * whose flush envelopes are accepted, `designationSourceChainId`
- * the spoke REGISTRIES whose payout-designation pushes are. A flush
- * receive does O(1) work under the source-paid gas budget: it
- * stores `keccak256(chainId, vault, payload)` into
- * `flushCommitment[messageId]` (the commitment map doubles as the
- * replay guard) and emits the payload; the permissionless
- * `applyFlush` later re-supplies the payload, proves it against the
- * commitment, and walks the entries through the SAME intake
- * internals under the reserved remote source key
- * `keccak256(chainId, vault)`. Because envelopes may apply in any
- * order, `appliedScoreStamp` gates each entry's absolute score
- * report by the envelope's build stamp, and the stamp's week becomes
- * the report's freshness week; crumbs, gaps and
- * designations need no such gate (cursors and designation stamps
- * already order them). A designation push applies inline on receive
- * (one stamped write, idempotent; replays need no guard).
- * `botShareBps` is the courier share deducted at delivery pricing
- * for remote deliveries whose stamped deliverer is not the referrer;
- * the share credits the deliverer's own (source chain, deliverer)
- * claimable bucket, so courier money follows the same
- * control-proven-on-source-chain rule as referrer money.
- *
- * Threat model: score truth enters ONLY through `allowedReporter`
- * (master-gated allowlist) and the master-registered flush sources;
- * one trust class: system-owned infrastructure, each contained to
- * its own source key by the cursors and per-source score diffs.
- * The spoke-side keeper-bot policy matrix gates who may BUILD a
- * flush; the hub prices whatever authenticated envelopes deliver.
- * Cursors make every delivery idempotent and replay-safe;
- * the append-only checkpoint log, the future-only rate tables and
- * the future-only dwell-min schedule together make every past week's
- * rates a pure function of frozen data, immutable even against
- * master. Pricing floors per lane so the hub can never overpay
- * exact.
+ * @dev Storage, constants, events and errors of the referral hub, shared by
+ * the hub diamond and every facet. Sources are keyed by bytes32 because the
+ * CREATE3 vaults share one address across chains, and claimables are kept
+ * per source chain. Week W's ladder inputs live in W's own bucket: the
+ * referred averages and the self averages, each summed over the sources.
+ * `sourceWeekOf[source][referrer][week]` holds a source's reported referred
+ * average for the week in the low half and the commission units already
+ * paid for it in the high half; `sourceSelfOf[source][referrer][week]` holds
+ * the source's reported self average; both are merged by maximum, so a
+ * source's report for a closed week only rises.
+ * `weekInputsOf[referrer][week]` holds the referred sum in the low half and
+ * the self sum in the high half. An average is at most three 80-bit lanes
+ * over one week by construction, so no half can overflow.
+ * `sourceChainIdOf` is the chain a source credits, written at its first
+ * delivery; `sourceListedFor` guards the per-referrer source list.
+ * `sourceSystemOf` tags a source with its vault system for indexers and the
+ * umbrella's accounting; pricing no longer reads it, and it freezes once
+ * the source delivered. MAX_SYSTEMS is permanent.
+ * `leverChangeQueuedAt` holds the proposal time of a queued master lever
+ * call, keyed by the hash of its canonical calldata (the setter rebuilds
+ * it from its decoded arguments, so trailing bytes never make a second
+ * usable key): a proposal is accepted only after `finalizeSetup`, and a
+ * grant (allowing a reporter, setting the router, setting a flush or
+ * designation source to a chain id) runs only as that exact call at least
+ * SELECTOR_CHANGE_DELAY after its proposal, the delay the vault side
+ * `payoutHub` pointer and every hub selector change already wait, and each
+ * proposal runs once; a revocation never waits. Threat model: only
+ * master-registered sources write, every write is a maximum or a cursor
+ * advance, and a cell is paid at most its cumulative due, so a replayed,
+ * reordered or duplicated delivery can never pay twice. The state the
+ * buckets retired (the score aggregates, checkpoints, freshness words,
+ * report retention and the remainder park) stays declared and unused, so
+ * the layout only ever grows at its tail.
  */
 abstract contract ReferralHubDeclarations is OwnableMaster {
 
-    uint256 internal constant CHECKPOINT_WEEK_SHIFT = 224;
+    uint256 internal constant WEEK_HALF_SHIFT = 128;
 
-    uint256 internal constant CHECKPOINT_REFERRED_SHIFT = 112;
+    uint256 internal constant WEEK_HALF_MASK = (1 << 128) - 1;
 
-    uint256 internal constant CHECKPOINT_VALUE_MASK = (1 << 112) - 1;
+    uint256 internal constant RATE_MASK = (1 << 16) - 1;
 
-    uint256 internal constant REPORT_REFERRED_SHIFT = 128;
+    uint256 internal constant RATE_Y2_SHIFT = 16;
 
-    uint256 internal constant REPORT_VALUE_MASK = (1 << 128) - 1;
-
-    uint256 internal constant REPORT_REFERRED_MASK = (1 << 96) - 1;
-
-    uint256 internal constant REPORT_WEEK_SHIFT = 224;
-
-    uint256 internal constant REPORT_WEEK_MASK = (1 << 32) - 1;
-
-    uint256 internal constant REPORT_SCORES_MASK = REPORT_VALUE_MASK
-        | (REPORT_REFERRED_MASK << REPORT_REFERRED_SHIFT);
-
-    uint256 internal constant REPORT_FRESHNESS_WEEKS = 1;
+    uint256 internal constant RATE_M_SHIFT = 32;
 
     uint256 internal constant GAP_WEEK_MASK = (1 << 32) - 1;
-
-    uint256 internal constant MAX_SOURCE_SCORE = 3 * CohortWeeks.LANE_MASK_80;
 
     uint256 internal constant BPS_DENOMINATOR = 10_000;
 
     uint256 internal constant PAYOUT_STAMP_SHIFT = 8;
 
-    uint256 internal constant DESIGNATION_VERSION = 1;
+    uint256 internal constant DESIGNATION_VERSION = 2;
 
     uint256 internal constant DESIGNATION_PAYLOAD_LENGTH = 160;
 
     uint256 internal constant MAX_DESIGNATION_FUTURE_DRIFT = 1 hours;
 
-    uint256 internal constant GENESIS_BOT_SHARE_BPS = 1_000;
+    uint256 internal constant MAX_BOT_SHARE_BPS = 2_000;
+
+    uint256 internal constant MAX_SCHEDULE_HORIZON_WEEKS = 520;
 
     struct RateTable {
         uint32 effectiveFromWeek;
         uint16 capBps;
         uint16 y2RateBps;
         uint16 mRateBps;
+        uint16 botShareBps;
         uint16[8] tierBps;
         uint96[8] thresholds;
     }
 
-    // ---- Global scores ----
+    // ---- Retired score state (unused, kept for the layout) ----
 
-    mapping(address => uint256) public globalReferredScore;
+    mapping(address => uint256) internal globalReferredScore;
 
-    mapping(address => uint256) public globalSelfScore;
-
-    // ---- Append-only history ----
+    mapping(address => uint256) internal globalSelfScore;
 
     mapping(address => uint256[]) internal referrerCheckpoints;
 
-    // ---- Per-source reports ----
-
     mapping(bytes32 => mapping(address => uint256)) internal lastSourceReport;
+
+    // ---- The sources a referrer was ever reported from (and a retired report word) ----
 
     mapping(address => bytes32[]) internal sourcesOf;
 
@@ -176,6 +104,8 @@ abstract contract ReferralHubDeclarations is OwnableMaster {
 
     mapping(bytes32 => mapping(address => mapping(uint256 => uint256))) internal paidCursor;
 
+    mapping(bytes32 => mapping(address => mapping(uint256 => uint256))) internal paidRemainder;
+
     mapping(uint256 => mapping(address => uint256)) public claimable;
 
     uint256 public totalAccrued;
@@ -184,10 +114,13 @@ abstract contract ReferralHubDeclarations is OwnableMaster {
 
     uint256 public totalBooked;
 
+    uint256 public totalPayable;
+
     // ---- Access + policy knobs ----
 
     mapping(address => bool) public allowedReporter;
 
+    // Retired with the dwell-min schedule.
     uint256[] internal dwellMinLog;
 
     address public payoutVault;
@@ -206,40 +139,50 @@ abstract contract ReferralHubDeclarations is OwnableMaster {
 
     mapping(bytes32 => bytes32) public flushCommitment;
 
-    mapping(bytes32 => mapping(address => uint256)) public appliedScoreStamp;
+    // Retired with the per-envelope score report.
+    mapping(bytes32 => mapping(address => uint256)) internal appliedScoreStamp;
 
-    uint256 public botShareBps;
+    // ---- Diamond proxy ----
+
+    IERC20 public USD_TOKEN;
+
+    mapping(bytes4 => address) public selectorToFacet;
+
+    mapping(bytes4 => address) public proposedSelectorFacet;
+
+    mapping(bytes4 => uint256) public selectorChangeQueuedAt;
+
+    bool public initialized;
+
+    uint256 internal constant SELECTOR_CHANGE_DELAY = 3 days;
+
+    // ---- Courier share cap ----
+
+    uint256 public delivererShareCap;
+
+    // ---- Vault systems ----
+
+    uint256 public constant MAX_SYSTEMS = 8;
+
+    mapping(bytes32 => uint256) public sourceSystemOf;
+
+    // ---- Week buckets ----
+
+    mapping(bytes32 => mapping(address => mapping(uint256 => uint256))) internal sourceWeekOf;
+
+    mapping(address => mapping(uint256 => uint256)) internal weekInputsOf;
+
+    mapping(bytes32 => mapping(address => mapping(uint256 => uint256))) internal sourceSelfOf;
+
+    mapping(bytes32 => uint256) public sourceChainIdOf;
+
+    mapping(address => mapping(bytes32 => bool)) internal sourceListedFor;
+
+    // ---- Lever timelock ----
+
+    mapping(bytes32 => uint256) public leverChangeQueuedAt;
 
     // ---- Events ----
-
-    event SourceScoresReported(
-        bytes32 indexed source,
-        address indexed referrer,
-        uint256 referredScore,
-        uint256 selfScore
-    );
-
-    event SourceReportExpired(
-        bytes32 indexed source,
-        address indexed referrer,
-        uint256 referredDropped,
-        uint256 selfDropped
-    );
-
-    event SourceReportRetained(
-        bytes32 indexed source,
-        address indexed referrer,
-        uint256 week,
-        uint256 referredScore,
-        uint256 selfScore
-    );
-
-    event ReferrerCheckpointed(
-        address indexed referrer,
-        uint256 indexed week,
-        uint256 referredScore,
-        uint256 selfScore
-    );
 
     event RateTableScheduled(
         uint256 indexed index,
@@ -280,11 +223,6 @@ abstract contract ReferralHubDeclarations is OwnableMaster {
         bool allowed
     );
 
-    event DwellMinScheduled(
-        uint256 indexed effectiveFromWeek,
-        bool enabled
-    );
-
     event PayoutAddressSet(
         uint256 indexed chainId,
         address indexed owner,
@@ -296,6 +234,16 @@ abstract contract ReferralHubDeclarations is OwnableMaster {
     );
 
     event PayoutLiabilityBooked(
+        uint256 amount
+    );
+
+    event PotClaimBooked(
+        uint256 amount
+    );
+
+    event PayoutBacklogReleased(
+        uint256 indexed chainId,
+        address indexed owner,
         uint256 amount
     );
 
@@ -356,8 +304,78 @@ abstract contract ReferralHubDeclarations is OwnableMaster {
         uint256 stamp
     );
 
-    event BotShareBpsSet(
-        uint256 botShareBps
+    event SetupFinalized();
+
+    event SelectorProposed(
+        bytes4 indexed selector,
+        address indexed facet,
+        uint256 executableAt
+    );
+
+    event SelectorsProposed(
+        bytes4[] selectors,
+        address indexed facet,
+        uint256 executableAt
+    );
+
+    event SelectorUpdated(
+        bytes4 indexed selector,
+        address indexed facet
+    );
+
+    event SelectorProposalCancelled(
+        bytes4 indexed selector
+    );
+
+    event DelivererShareCapSet(
+        uint256 cap
+    );
+
+    event SourceListed(
+        address indexed referrer,
+        bytes32 indexed source,
+        uint256 chainId
+    );
+
+    event WeekReferredReported(
+        bytes32 indexed source,
+        address indexed referrer,
+        uint256 indexed week,
+        uint256 referredAverage
+    );
+
+    event WeekSelfReported(
+        bytes32 indexed source,
+        address indexed referrer,
+        uint256 indexed week,
+        uint256 selfAverage
+    );
+
+    event WeekRatesRaised(
+        address indexed referrer,
+        uint256 indexed week
+    );
+
+    event WeekToppedUp(
+        bytes32 indexed source,
+        address indexed referrer,
+        uint256 indexed week,
+        uint256 amount
+    );
+
+    event SourceSystemSet(
+        bytes32 indexed source,
+        uint256 systemId
+    );
+
+    event LeverChangeProposed(
+        bytes32 indexed changeHash,
+        bytes call,
+        uint256 executableAt
+    );
+
+    event LeverChangeCancelled(
+        bytes32 indexed changeHash
     );
 
     // ---- Errors ----
@@ -367,6 +385,10 @@ abstract contract ReferralHubDeclarations is OwnableMaster {
     error NotReporter();
 
     error FutureWeek();
+
+    error WeekNotClosed();
+
+    error InvalidSelfRun();
 
     error LengthMismatch();
 
@@ -378,15 +400,9 @@ abstract contract ReferralHubDeclarations is OwnableMaster {
 
     error InvalidWindow();
 
-    error ScoreReportOutOfRange();
-
     error TableNotFuture();
 
     error TableNotOrdered();
-
-    error DwellMinNotFuture();
-
-    error DwellMinNotOrdered();
 
     error InvalidRateTable();
 
@@ -398,8 +414,6 @@ abstract contract ReferralHubDeclarations is OwnableMaster {
 
     error NotCcipRouter();
 
-    error RouterAlreadySet();
-
     error UnknownFlushSource();
 
     error FlushAlreadyReceived();
@@ -409,4 +423,92 @@ abstract contract ReferralHubDeclarations is OwnableMaster {
     error FlushPayloadInvalid();
 
     error BotShareTooHigh();
+
+    error PayoutNotDesignated();
+
+    error SourceOnHubChain();
+
+    error InvalidPayoutVault();
+
+    error WeekOutOfRange();
+
+    error PotClosed();
+
+    error SourceAlreadySet();
+
+    error SystemOutOfRange();
+
+    error LeverChangeNotQueued();
+
+    error LeverTimelockNotElapsed();
+
+    error SetupNotFinalized();
+
+    function _consumeLeverChange(
+        bytes32 _changeHash
+    )
+        internal
+    {
+        if (initialized == false) {
+            return;
+        }
+
+        uint256 queuedAt = leverChangeQueuedAt[_changeHash];
+
+        require(
+            queuedAt > 0,
+            LeverChangeNotQueued()
+        );
+
+        require(
+            block.timestamp >= queuedAt + SELECTOR_CHANGE_DELAY,
+            LeverTimelockNotElapsed()
+        );
+
+        leverChangeQueuedAt[_changeHash] = 0;
+    }
+
+    /**
+     * @dev The launch ladder: thresholds 5k to 1M USD, tiers 1 to 8
+     * percent, cap 1_000 bps, year-2 500 bps, mature 100 bps, courier share
+     * 500 bps.
+     */
+    function _seedGenesisRateTable()
+        internal
+    {
+        rateTables.push(
+            RateTable({
+                effectiveFromWeek: 0,
+                capBps: 1_000,
+                y2RateBps: 500,
+                mRateBps: 100,
+                botShareBps: 500,
+                tierBps: [
+                    uint16(100),
+                    200,
+                    300,
+                    400,
+                    500,
+                    600,
+                    700,
+                    800
+                ],
+                thresholds: [
+                    uint96(5_000 * 1e6),
+                    10_000 * 1e6,
+                    20_000 * 1e6,
+                    30_000 * 1e6,
+                    50_000 * 1e6,
+                    100_000 * 1e6,
+                    500_000 * 1e6,
+                    1_000_000 * 1e6
+                ]
+            })
+        );
+
+        emit RateTableScheduled(
+            0,
+            0
+        );
+    }
 }

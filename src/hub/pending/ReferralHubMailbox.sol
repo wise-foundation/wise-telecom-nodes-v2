@@ -3,57 +3,20 @@
 pragma solidity =0.8.36;
 
 import {ReferralHubIntake} from "./ReferralHubIntake.sol";
+import {CohortFlushCodec} from "../../diamond/shared/pending/CohortFlushCodec.sol";
 import {CohortWeeks} from "../../diamond/shared/pending/CohortWeeks.sol";
 
 /**
- * @dev Cross-chain mailbox layer: the internals behind the hub's
- * CCIP receive surface. A flush envelope is never applied under the
- * source-paid delivery gas budget: `_receiveFlush` does O(1) work,
- * storing `keccak256(chainId, vault, payload)` into
- * `flushCommitment[messageId]` (a nonzero commitment doubles as the
- * replay guard) and emitting the full payload, so any keeper can
- * later call the permissionless apply with the payload from the
- * event. `_applyFlushEnvelope` proves the supplied bytes against the
- * commitment (the commitment binds origin chain, vault AND payload,
- * so nothing the applier passes is trusted), then walks the entries
- * through the SAME intake internals every local reporter uses,
- * under the reserved remote source key `keccak256(chainId, vault)`.
- *
- * Idempotence and ordering: applying an envelope any number of
- * times, in any order relative to other envelopes, converges: paid
- * cursors absorb crumb and gap re-sends, absolute score reports are
- * gated per (source, referrer) by the envelope's build stamp
- * (`appliedScoreStamp`, greater-or-equal so a re-apply of the
- * freshest envelope still reaches the intake) and stored under the
- * build stamp's WEEK as their freshness week, so a re-applied
- * envelope lands as the same report (a no-op) or, once its week has
- * aged past the intake's freshness window, as a dropped one: no
- * replay can re-stamp a source as fresh; and designations apply
- * latest-wins by their own stamps. The commitment entry is therefore
- * kept forever and apply never marks anything consumed; re-applying
- * is always safe and pays nothing twice.
- *
- * Validation is wholesale and strict: version and crumb-version
- * bytes, reserved bits, entry count, exact payload length, per-slice
- * gap spans and the total work cap all reject the entire envelope;
- * the sources are the system's own authenticated contracts, so a
- * malformed envelope is a bug to surface loudly, never data to
- * salvage; the spoke can always re-flush. One deliberate exception
- * inside a valid envelope: a week the intake still considers future
- * (spoke clocks may run seconds ahead of this chain near a week
- * boundary) reverts the apply, and the SAME apply call simply
- * succeeds once this chain crosses the boundary; lazy application
- * makes the revert self-healing. A designation pair with a zero or
- * far-future set-time or an overflowing rank is skipped with an
- * anomaly event instead: designations are an auxiliary word inside
- * an envelope that moves money, and the registry's caller-paid push
- * is their recovery rail.
- *
- * Designation pushes (`_receiveDesignationPush`) apply inline on
- * receive: one strict 160-byte versioned payload, one stamped
- * latest-wins write, cheap enough for the delivery budget and
- * idempotent by stamp, so the push path needs no replay guard and no
- * mailbox entry.
+ * @dev ReferralHubMailbox: the CCIP intake of flush envelopes and payout
+ * designations. A commitment binds selector, chain id, vault and payload,
+ * so applying an envelope twice pays nothing twice. Each entry reports its
+ * self runs before its crumbs and gap weeks, all for closed weeks only,
+ * into the week buckets, whatever the envelope's build stamp. A zero header
+ * deliverer means no courier (a vault packs one for any caller that is not
+ * an allowed flush bot), so such an envelope pays no courier fee. A
+ * malformed envelope reverts as a whole; a bad designation is skipped with
+ * an event. Every path that stamps a designation books the backlog it
+ * releases, so the payout vault reserves it before any sweep.
  */
 abstract contract ReferralHubMailbox is ReferralHubIntake {
 
@@ -61,7 +24,6 @@ abstract contract ReferralHubMailbox is ReferralHubIntake {
         bytes32 source;
         uint256 chainId;
         address deliverer;
-        uint256 stamp;
         uint256 cursor;
         uint256 work;
         bytes32 messageId;
@@ -81,12 +43,11 @@ abstract contract ReferralHubMailbox is ReferralHubIntake {
             FlushAlreadyReceived()
         );
 
-        flushCommitment[_messageId] = keccak256(
-            abi.encode(
-                _chainId,
-                _vault,
-                _payload
-            )
+        flushCommitment[_messageId] = _flushCommitmentOf(
+            _srcChainSelector,
+            _chainId,
+            _vault,
+            _payload
         );
 
         emit FlushReceived(
@@ -100,6 +61,7 @@ abstract contract ReferralHubMailbox is ReferralHubIntake {
 
     function _applyFlushEnvelope(
         bytes32 _messageId,
+        uint64 _srcChainSelector,
         uint256 _chainId,
         address _vault,
         bytes calldata _payload
@@ -107,14 +69,18 @@ abstract contract ReferralHubMailbox is ReferralHubIntake {
         internal
     {
         require(
-            flushCommitment[_messageId] == keccak256(
-                abi.encode(
-                    _chainId,
-                    _vault,
-                    _payload
-                )
+            flushCommitment[_messageId] == _flushCommitmentOf(
+                _srcChainSelector,
+                _chainId,
+                _vault,
+                _payload
             ),
             UnknownFlushCommitment()
+        );
+
+        require(
+            flushSourceChainId[_srcChainSelector][_vault] == _chainId,
+            UnknownFlushSource()
         );
 
         uint256 header = _flushWordAt(
@@ -123,19 +89,19 @@ abstract contract ReferralHubMailbox is ReferralHubIntake {
         );
 
         require(
-            CohortWeeks.flushHeaderVersion(header) == CohortWeeks.FLUSH_VERSION
-                && CohortWeeks.flushHeaderCrumbVersion(header) == CohortWeeks.CRUMB_VERSION
-                && header >> CohortWeeks.FLUSH_HEADER_RESERVED_SHIFT == 0,
+            CohortFlushCodec._flushHeaderVersion(header) == CohortFlushCodec.FLUSH_VERSION
+                && CohortFlushCodec._flushHeaderCrumbVersion(header) == CohortWeeks.CRUMB_VERSION
+                && header >> CohortFlushCodec.FLUSH_HEADER_RESERVED_SHIFT == 0,
             FlushPayloadInvalid()
         );
 
-        uint256 entryCount = CohortWeeks.flushHeaderEntryCount(
+        uint256 entryCount = CohortFlushCodec._flushHeaderEntryCount(
             header
         );
 
         require(
             entryCount > 0
-                && entryCount <= CohortWeeks.MAX_FLUSH_ENTRIES,
+                && entryCount <= CohortFlushCodec.MAX_FLUSH_ENTRIES,
             FlushPayloadInvalid()
         );
 
@@ -147,10 +113,7 @@ abstract contract ReferralHubMailbox is ReferralHubIntake {
                 )
             ),
             chainId: _chainId,
-            deliverer: CohortWeeks.flushHeaderDeliverer(
-                header
-            ),
-            stamp: CohortWeeks.flushHeaderStamp(
+            deliverer: CohortFlushCodec._flushHeaderDeliverer(
                 header
             ),
             cursor: 1,
@@ -171,7 +134,7 @@ abstract contract ReferralHubMailbox is ReferralHubIntake {
         );
 
         require(
-            context.work <= CohortWeeks.MAX_FLUSH_WORK,
+            context.work <= CohortFlushCodec.MAX_FLUSH_WORK,
             FlushPayloadInvalid()
         );
 
@@ -196,11 +159,11 @@ abstract contract ReferralHubMailbox is ReferralHubIntake {
         );
 
         require(
-            entryWord >> CohortWeeks.FLUSH_ENTRY_RESERVED_SHIFT == 0,
+            entryWord >> CohortFlushCodec.FLUSH_ENTRY_RESERVED_SHIFT == 0,
             FlushPayloadInvalid()
         );
 
-        address referrer = CohortWeeks.flushEntryReferrer(
+        address referrer = CohortFlushCodec._flushEntryReferrer(
             entryWord
         );
 
@@ -209,45 +172,18 @@ abstract contract ReferralHubMailbox is ReferralHubIntake {
             FlushPayloadInvalid()
         );
 
-        uint256 flags = CohortWeeks.flushEntryFlags(
+        uint256 flags = CohortFlushCodec._flushEntryFlags(
             entryWord
         );
 
         require(
-            flags & ~CohortWeeks.FLUSH_FLAG_DESIGNATION == 0,
+            flags & ~CohortFlushCodec.FLUSH_FLAG_DESIGNATION == 0,
             FlushPayloadInvalid()
         );
 
-        uint256 scoresWord = _flushWordAt(
-            _payload,
-            _context.cursor + 1
-        );
+        ++_context.cursor;
 
-        require(
-            scoresWord >> CohortWeeks.FLUSH_SCORE_RESERVED_SHIFT == 0,
-            FlushPayloadInvalid()
-        );
-
-        _context.cursor += 2;
-
-        if (_context.stamp >= appliedScoreStamp[_context.source][referrer]) {
-
-            appliedScoreStamp[_context.source][referrer] = _context.stamp;
-
-            _applyScoreReport(
-                _context.source,
-                referrer,
-                CohortWeeks.flushScoreReferred(
-                    scoresWord
-                ),
-                CohortWeeks.flushScoreSelf(
-                    scoresWord
-                ),
-                _context.stamp / CohortWeeks.WEEK
-            );
-        }
-
-        if (flags & CohortWeeks.FLUSH_FLAG_DESIGNATION != 0) {
+        if (flags & CohortFlushCodec.FLUSH_FLAG_DESIGNATION != 0) {
 
             uint256 designationWord = _flushWordAt(
                 _payload,
@@ -255,7 +191,7 @@ abstract contract ReferralHubMailbox is ReferralHubIntake {
             );
 
             require(
-                designationWord >> CohortWeeks.FLUSH_DESIGNATION_RESERVED_SHIFT == 0,
+                designationWord >> CohortFlushCodec.FLUSH_DESIGNATION_RESERVED_SHIFT == 0,
                 FlushPayloadInvalid()
             );
 
@@ -264,23 +200,32 @@ abstract contract ReferralHubMailbox is ReferralHubIntake {
             _applyDesignationPair(
                 _context.chainId,
                 referrer,
-                CohortWeeks.flushDesignationPayout(
+                CohortFlushCodec._flushDesignationPayout(
                     designationWord
                 ),
-                CohortWeeks.flushDesignationSetAt(
+                CohortFlushCodec._flushDesignationSetAt(
                     designationWord
                 ),
-                CohortWeeks.flushDesignationRank(
+                CohortFlushCodec._flushDesignationRank(
                     designationWord
                 )
             );
         }
 
+        _applyFlushSelfRuns(
+            _context,
+            _payload,
+            referrer,
+            CohortFlushCodec._flushEntrySelfRunCount(
+                entryWord
+            )
+        );
+
         _applyFlushCrumbs(
             _context,
             _payload,
             referrer,
-            CohortWeeks.flushEntryCrumbCount(
+            CohortFlushCodec._flushEntryCrumbCount(
                 entryWord
             )
         );
@@ -289,10 +234,34 @@ abstract contract ReferralHubMailbox is ReferralHubIntake {
             _context,
             _payload,
             referrer,
-            CohortWeeks.flushEntryGapCount(
+            CohortFlushCodec._flushEntryGapCount(
                 entryWord
             )
         );
+    }
+
+    function _applyFlushSelfRuns(
+        FlushApplyContext memory _context,
+        bytes calldata _payload,
+        address _referrer,
+        uint256 _runCount
+    )
+        internal
+    {
+        for (uint256 k; k < _runCount; ++k) {
+
+            _context.work += _applySelfRun(
+                _context.source,
+                _referrer,
+                _flushWordAt(
+                    _payload,
+                    _context.cursor
+                ),
+                _context.chainId
+            );
+
+            ++_context.cursor;
+        }
     }
 
     function _applyFlushCrumbs(
@@ -363,11 +332,11 @@ abstract contract ReferralHubMailbox is ReferralHubIntake {
     )
         internal
     {
-        uint256 fromWeek = CohortWeeks.gapRecordFromWeek(
+        uint256 fromWeek = CohortWeeks._gapRecordFromWeek(
             _record
         );
 
-        uint256 toWeek = CohortWeeks.gapRecordToWeek(
+        uint256 toWeek = CohortWeeks._gapRecordToWeek(
             _record
         );
 
@@ -411,7 +380,13 @@ abstract contract ReferralHubMailbox is ReferralHubIntake {
             uint256 rank
         ) = abi.decode(
             _data,
-            (uint256, address, address, uint256, uint256)
+            (
+                uint256,
+                address,
+                address,
+                uint256,
+                uint256
+            )
         );
 
         require(
@@ -437,6 +412,8 @@ abstract contract ReferralHubMailbox is ReferralHubIntake {
             setAt,
             rank
         );
+
+        _bookAccrual();
     }
 
     function _applyDesignationPair(
@@ -465,13 +442,19 @@ abstract contract ReferralHubMailbox is ReferralHubIntake {
             return;
         }
 
-        if (stamp <= payoutStamp[_chainId][_owner]) {
+        uint256 stored = payoutStamp[_chainId][_owner];
+
+        if (stamp <= stored) {
             return;
         }
 
-        payoutAddress[_chainId][_owner] = _payout;
+        _stampPayout(
+            _chainId,
+            _owner,
+            stamp
+        );
 
-        payoutStamp[_chainId][_owner] = stamp;
+        payoutAddress[_chainId][_owner] = _payout;
 
         emit PayoutAddressSet(
             _chainId,
@@ -492,6 +475,26 @@ abstract contract ReferralHubMailbox is ReferralHubIntake {
             deliverer: _context.deliverer,
             messageId: _context.messageId
         });
+    }
+
+    function _flushCommitmentOf(
+        uint64 _srcChainSelector,
+        uint256 _chainId,
+        address _vault,
+        bytes calldata _payload
+    )
+        internal
+        pure
+        returns (bytes32)
+    {
+        return keccak256(
+            abi.encode(
+                _srcChainSelector,
+                _chainId,
+                _vault,
+                _payload
+            )
+        );
     }
 
     function _flushWordAt(

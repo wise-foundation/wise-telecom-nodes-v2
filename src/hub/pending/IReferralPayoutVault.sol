@@ -3,18 +3,16 @@
 pragma solidity =0.8.36;
 
 /**
- * @dev Hub-facing subset of the payout vault's routed referral
- * payout surface. `raisePendingReferralPayout` books freshly priced
- * commission as liability on the vault (called once per delivery
- * batch or catch-up poke); `fundReferralPayout` pulls the USD that
- * covers a claim and lowers the booked liability in the same call;
- * `getPendingReferralPayout` bounds a partial claim's fundable
- * amount. Both writers are gated vault-side to the timelocked hub
- * address. Failures bubble to the delivering or claiming
- * transaction on purpose: a booking or funding that cannot land
- * must never be silently dropped.
+ * @dev The payout vault surface the hub calls. Both writers are gated to
+ * the vault's timelocked hub, and their failures bubble so a booking or a
+ * funding can never be dropped silently.
  */
 interface IReferralPayoutVault {
+
+    function USD_TOKEN()
+        external
+        view
+        returns (address);
 
     function raisePendingReferralPayout(
         uint256 _amount
@@ -30,4 +28,9 @@ interface IReferralPayoutVault {
         external
         view
         returns (uint256);
+
+    function getPayoutHub()
+        external
+        view
+        returns (address);
 }
