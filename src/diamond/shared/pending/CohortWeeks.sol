@@ -3,120 +3,37 @@
 pragma solidity =0.8.36;
 
 /**
- * @dev CohortWeeks: the single source of truth for every week-epoch
- * and lane-packing constant of the referral cohort recorder, shared by
- * the recorder facets today and by the planned mainnet hub and its
- * cross-chain flush messages. One epoch definition everywhere
- * (`week = timestamp / WEEK`, year = 52 weeks): a mismatch between
- * recorder and hub arithmetic would be a silent fund bug, so no other
- * contract may restate these numbers.
+ * @dev CohortWeeks: the week epoch, lane geometry and carry codecs of the
+ * referral cohort recorder, shared by the vault facets and the hub so no
+ * contract restates these numbers (`week = timestamp / WEEK`).
  *
- * Lane geometry: the packed book word and every crumb word share the
- * same three 80-bit lanes (year-1 at bit 0, year-2 at bit 80, mature
- * at bit 160). Crumb words additionally carry the written flag at bit
- * 252; bits 240..251 and 253..255 stay zero forever. The crumb word
- * format is FROZEN and consumed by the hub's pricing intake;
- * `CRUMB_VERSION` is stamped into every flush envelope so the
- * hub can accept version 1 forever. Ring slots pack four uint64 lanes
- * per storage word (52 slots = 13 words per ring per referrer).
+ * The book word and every crumb word hold three 80-bit lanes (year-1,
+ * year-2, mature); a crumb word also sets bit 252 when written, and its
+ * format is frozen because the hub prices it. Ring slots pack four uint64
+ * lanes per storage word. The saturating helpers return the clipped
+ * remainder and never revert, since they run inside the transfer hook.
  *
- * The saturating helpers return the clipped remainder alongside the
- * result so callers can emit the anomaly event on any clip; they
- * never revert because callers pass lane-bounded values (the
- * checked raw uint256 sum cannot overflow below 2^129), which
- * matters because they run inside the transfer hook where a revert
- * would veto the transfer itself. All members are `internal`, inlined
- * at compile time, and therefore safe under DELEGATECALL from any
- * facet.
+ * Same-chain carry (moves only, staged and consumed in one transaction):
+ * word0 `referrer(160) | version(8) | pairCount(8)`, word1
+ * `trackedDelta(128) | mature(128)`, then two pairs per word, a pair being
+ * `amount(64) | slot(8) | ring(8)`. Bridge carry (cross-chain only), three
+ * header words `referrer(160) | version(8) | captureWeek(32) |
+ * pairCount(8)`, `trackedDelta(128) | assignedAt(64) | originRank(8)` and
+ * `mature(128)`, then the pairs two per word in the same pair format.
+ * `_bridgeCarryValid` rejects a payload wholesale unless its length and
+ * layout hold, every reserved bit is zero, its lanes sum to at most
+ * trackedDelta and trackedDelta is at most the amount the same message
+ * mints. Every carried pair lands at the slot of its own credit week,
+ * aged only by the week boundaries crossed between capture and landing
+ * (`_landedCarryPair`), so a relocation never changes a cohort's age. A
+ * destination clock behind the capture week takes the lag off the age,
+ * floored at zero: a slot ahead of the destination week is the one its
+ * next boundary graduates, so only credit younger than the lag lands in
+ * the destination's current week.
  *
- * Carry codec (same-chain moves ONLY): the attribution-carry
- * payload staged through the chain registry during `moveBetweenVaults`
- * is word0 envelope `referrer(160) | version(8) | pairCount(8)`, word1
- * `trackedDelta(uint128 low) | mature(uint128 high)`, then two pairs
- * per word (low/high uint128 half each), pair = `amount(64) | slot(8)
- * | ring(8)` with ring 0 = year-1, 1 = year-2. Bounds: pairCount is at
- * most `MAX_CARRY_PAIRS` (52 slots per ring, both rings), so a payload
- * is at most `MAX_CARRY_WORDS`; amounts fit their lanes by
- * construction (ring lanes are uint64, book lanes 80-bit, tracked is
- * bounded by the vault deposit cap); the destination enforces the
- * same conservation ceiling as the bridge codec below, the lane sum
- * (pairs plus mature) at most trackedDelta and trackedDelta at most
- * the mover's post-mint headroom, checked wholesale before any lane
- * is touched. SAME-CHAIN-ONLY ASSUMPTION: pairs address ring slots by
- * index, which is meaningful only while source and destination share
- * `block.timestamp` inside one atomic move transaction. The
- * cross-chain bridge carry MUST NOT reuse this encoding: it carries
- * the three aggregate lanes instead, landing them at the oldest live
- * position, and applies at all only when the destination recipient
- * equals the source owner (a different recipient is an ownership
- * change; the credit is destroyed, not carried).
- *
- * Bridge carry codec (cross-chain ONLY): the aggregate payload that
- * rides the bridge wire's `referralData` field is exactly four packed
- * words = `BRIDGE_CARRY_BYTES`. word0 `referrer(160) | version(8)`
- * with bits 168+ zero; word1 `trackedDelta(uint128) |
- * assignedAt(uint64 at bit 128) | originRank(uint8 at bit 192)` with
- * bits 200+ zero; word2 `year1Aggregate(uint128 low) |
- * year2Aggregate(uint128 high)`; word3 `matureAggregate(uint128 low)`
- * with the high half zero. The assignedAt/rank pair is the ORIGIN
- * sync key of the user's referrer assignment and travels unchanged
- * through relays; the destination registry's earliest-wins merge
- * depends on never re-stamping it. `bridgeCarryValid` rejects a
- * payload wholesale unless every structural rule holds: exact length,
- * version match, reserved bits zero, an unreferred envelope
- * (referrer zero) carrying zero book lanes, a referred envelope whose
- * lane sum never exceeds trackedDelta (the lanes carry the attributed
- * slice, trackedDelta the whole deficit slice), a nonzero trackedDelta
- * or lane sum (a payload carrying only the sync key is rejected),
- * and trackedDelta bounded by the amount the same message
- * mints, the conservation ceiling that prices any forged book credit
- * at one-to-one in burned shares. Per-component floor scaling at the
- * source keeps the lane sum at or below the scaled burn, so every
- * honestly built payload passes the ceiling. Landing rule (the
- * destination applies after settling the effective referrer): the
- * year-1 aggregate lands in ring-1 slot `(arrivalWeek + 1) % 52`
- * (the cohort that graduates at the very next weekly boundary), the
- * year-2 aggregate in the same index on ring 2 (the cohort that
- * matures next), and the mature aggregate on the week-less mature
- * lane, all via the saturating helpers with the full pre-clip
- * aggregates added to the book word. Every hop therefore leaves at
- * most one week to the next graduation on each carried lane, so
- * relocation only ever accelerates the year-1 to year-2 to mature
- * walk and a round trip can never refresh a cohort's age.
- *
- * Flush envelope codec (spoke book to mainnet hub, info-only): the
- * envelope is a tightly packed sequence of 32-byte words
- * (`abi.encodePacked` of uint256 values, no ABI framing). Word 0 is
- * the header `deliverer(160) | flushVersion(8 at 160) |
- * crumbVersion(8 at 168) | entryCount(8 at 176) | flushStamp(64 at
- * 184)` with bits 248+ zero; the deliverer is the spoke-side
- * `msg.sender` stamped by the flush facet (the courier the hub's
- * bot share pays), and the stamp is the source chain's
- * `block.timestamp` at build time (the hub's per-referrer score
- * staleness gate: envelopes may be stored and applied lazily in
- * any order, so absolute score reports need a freshness order that
- * message transport cannot provide; the stamp's week is also the
- * freshness week the hub stores for the entry's scores, so an
- * envelope applied late or replayed can never present its scores
- * as newer than its build). Each entry is, in order: the
- * entry word `referrer(160) | crumbCount(8 at 160) | gapCount(8 at
- * 168) | flags(8 at 176)` with bits 184+ zero and flag bit 0 =
- * designation word present; the scores word `selfScore(112) |
- * referredScore(112 at 112)` with bits 224+ zero (absolute
- * per-source scores; the hub diffs internally, so re-sends are
- * idempotent); the optional designation word `payout(160) |
- * setAt(64 at 160) | chainRank(8 at 224)` with bits 232+ zero
- * (read from the chain registry at build time, applied latest-wins
- * at the hub); `crumbCount` pairs of (absolute week word, RAW
- * stored crumb word including the written bit); and `gapCount` raw
- * gap-record words, each pre-sliced by the builder to span at most
- * MAX_SETTLE_BOUNDARIES weeks so every record fully applies in one
- * pass. Caps: 1 to MAX_FLUSH_ENTRIES entries, and total work
- * (crumb words plus gap-record spanned weeks) at most
- * MAX_FLUSH_WORK per envelope, enforced by the builder and
- * re-validated wholesale by the hub mailbox. `FLUSH_VERSION` and
- * `CRUMB_VERSION` both travel in the header; the hub accepts
- * version 1 of each forever.
+ * Self crumb word: `currentWeekSeconds(80) | previousWeekSeconds(80) |
+ * settledAt(64)`. It is settled before every change of the tracked
+ * contribution, which keeps the completed previous week exact.
  */
 library CohortWeeks {
 
@@ -124,6 +41,9 @@ library CohortWeeks {
 
     uint256 internal constant RING_SLOTS = 52;
 
+    // The 52-week year, the divisor of the commission rate: a rate is per
+    // 52 weeks, the length of one ring year, so every full ring year pays
+    // exactly the stated rate.
     uint256 internal constant YEAR = RING_SLOTS * WEEK;
 
     uint256 internal constant MAX_SETTLE_BOUNDARIES = 104;
@@ -133,6 +53,10 @@ library CohortWeeks {
     uint256 internal constant LANE_Y2_SHIFT = 80;
 
     uint256 internal constant LANE_M_SHIFT = 160;
+
+    uint256 internal constant SELF_STAMP_SHIFT = 160;
+
+    uint256 internal constant SELF_STAMP_MASK = (1 << 64) - 1;
 
     uint256 internal constant CRUMB_WRITTEN_BIT = 1 << 252;
 
@@ -168,61 +92,40 @@ library CohortWeeks {
 
     uint256 internal constant CARRY_PAIR_RING_SHIFT = 72;
 
-    uint256 internal constant BRIDGE_CARRY_VERSION = 1;
+    uint256 internal constant CARRY_PAIR_RESERVED_SHIFT = 80;
 
-    uint256 internal constant BRIDGE_CARRY_WORDS = 4;
+    uint256 internal constant CARRY_LANE_MATURE = 2;
 
-    uint256 internal constant BRIDGE_CARRY_BYTES = 128;
+    uint256 internal constant BRIDGE_CARRY_VERSION = 3;
+
+    uint256 internal constant BRIDGE_CARRY_HEADER_WORDS = 3;
+
+    uint256 internal constant BRIDGE_CARRY_HEADER_BYTES = 96;
+
+    // The longest bridge carry: three header words and 104 pairs.
+    uint256 internal constant BRIDGE_CARRY_BYTES = 1_760;
+
+    uint256 internal constant BRIDGE_CARRY_PAIR_COUNT_SHIFT = 200;
 
     uint256 internal constant BRIDGE_CARRY_ASSIGNED_AT_SHIFT = 128;
 
     uint256 internal constant BRIDGE_CARRY_RANK_SHIFT = 192;
 
-    uint256 internal constant BRIDGE_CARRY_ENVELOPE_RESERVED_SHIFT = 168;
+    uint256 internal constant BRIDGE_CARRY_CAPTURE_WEEK_SHIFT = 168;
+
+    uint256 internal constant BRIDGE_CARRY_CAPTURE_WEEK_MASK = (1 << 32) - 1;
+
+    uint256 internal constant BRIDGE_CARRY_ENVELOPE_RESERVED_SHIFT = 208;
 
     uint256 internal constant BRIDGE_CARRY_TRACKED_RESERVED_SHIFT = 200;
 
-    uint256 internal constant FLUSH_VERSION = 1;
+    uint256 internal constant SELF_LOG_WEEK_MASK = (1 << 32) - 1;
 
-    uint256 internal constant FLUSH_VERSION_SHIFT = 160;
+    uint256 internal constant SELF_LOG_SECONDS_SHIFT = 32;
 
-    uint256 internal constant FLUSH_CRUMB_VERSION_SHIFT = 168;
+    uint256 internal constant SELF_LOG_STAKE_SHIFT = 112;
 
-    uint256 internal constant FLUSH_ENTRY_COUNT_SHIFT = 176;
-
-    uint256 internal constant FLUSH_STAMP_SHIFT = 184;
-
-    uint256 internal constant FLUSH_HEADER_RESERVED_SHIFT = 248;
-
-    uint256 internal constant FLUSH_ENTRY_CRUMBS_SHIFT = 160;
-
-    uint256 internal constant FLUSH_ENTRY_GAPS_SHIFT = 168;
-
-    uint256 internal constant FLUSH_ENTRY_FLAGS_SHIFT = 176;
-
-    uint256 internal constant FLUSH_ENTRY_RESERVED_SHIFT = 184;
-
-    uint256 internal constant FLUSH_FLAG_DESIGNATION = 1;
-
-    uint256 internal constant FLUSH_SCORE_REFERRED_SHIFT = 112;
-
-    uint256 internal constant FLUSH_SCORE_RESERVED_SHIFT = 224;
-
-    uint256 internal constant FLUSH_SCORE_MASK = (1 << 112) - 1;
-
-    uint256 internal constant FLUSH_DESIGNATION_SET_AT_SHIFT = 160;
-
-    uint256 internal constant FLUSH_DESIGNATION_RANK_SHIFT = 224;
-
-    uint256 internal constant FLUSH_DESIGNATION_RESERVED_SHIFT = 232;
-
-    uint256 internal constant DESIGNATION_STAMP_SHIFT = 8;
-
-    uint256 internal constant MAX_FLUSH_ENTRIES = 16;
-
-    uint256 internal constant MAX_FLUSH_WORK = 208;
-
-    function packCarryEnvelope(
+    function _packCarryEnvelope(
         address _referrer,
         uint256 _pairCount
     )
@@ -235,7 +138,7 @@ library CohortWeeks {
             | (_pairCount << CARRY_PAIR_COUNT_SHIFT);
     }
 
-    function carryEnvelopeReferrer(
+    function _carryEnvelopeReferrer(
         uint256 _word
     )
         internal
@@ -247,7 +150,7 @@ library CohortWeeks {
         );
     }
 
-    function carryEnvelopeVersion(
+    function _carryEnvelopeVersion(
         uint256 _word
     )
         internal
@@ -257,7 +160,7 @@ library CohortWeeks {
         return (_word >> CARRY_VERSION_SHIFT) & CARRY_BYTE_MASK;
     }
 
-    function carryEnvelopePairCount(
+    function _carryEnvelopePairCount(
         uint256 _word
     )
         internal
@@ -267,7 +170,7 @@ library CohortWeeks {
         return (_word >> CARRY_PAIR_COUNT_SHIFT) & CARRY_BYTE_MASK;
     }
 
-    function packCarryAmounts(
+    function _packCarryAmounts(
         uint256 _trackedDelta,
         uint256 _mature
     )
@@ -279,7 +182,7 @@ library CohortWeeks {
             | (_mature << CARRY_HALF_SHIFT);
     }
 
-    function carryTrackedDelta(
+    function _carryTrackedDelta(
         uint256 _word
     )
         internal
@@ -289,7 +192,7 @@ library CohortWeeks {
         return _word & CARRY_HALF_MASK;
     }
 
-    function carryMature(
+    function _carryMature(
         uint256 _word
     )
         internal
@@ -299,7 +202,7 @@ library CohortWeeks {
         return _word >> CARRY_HALF_SHIFT;
     }
 
-    function packCarryPair(
+    function _packCarryPair(
         uint256 _amount,
         uint256 _slot,
         uint256 _ring
@@ -313,7 +216,7 @@ library CohortWeeks {
             | (_ring << CARRY_PAIR_RING_SHIFT);
     }
 
-    function carryPairAmount(
+    function _carryPairAmount(
         uint256 _pair
     )
         internal
@@ -323,7 +226,7 @@ library CohortWeeks {
         return _pair & RING_LANE_MAX;
     }
 
-    function carryPairSlot(
+    function _carryPairSlot(
         uint256 _pair
     )
         internal
@@ -333,7 +236,7 @@ library CohortWeeks {
         return (_pair >> CARRY_PAIR_SLOT_SHIFT) & CARRY_BYTE_MASK;
     }
 
-    function carryPairRing(
+    function _carryPairRing(
         uint256 _pair
     )
         internal
@@ -343,7 +246,7 @@ library CohortWeeks {
         return (_pair >> CARRY_PAIR_RING_SHIFT) & CARRY_BYTE_MASK;
     }
 
-    function packCarryPairsWord(
+    function _packCarryPairsWord(
         uint256 _pairLo,
         uint256 _pairHi
     )
@@ -355,7 +258,7 @@ library CohortWeeks {
             | (_pairHi << CARRY_HALF_SHIFT);
     }
 
-    function carryPairLo(
+    function _carryPairLo(
         uint256 _word
     )
         internal
@@ -365,7 +268,7 @@ library CohortWeeks {
         return _word & CARRY_HALF_MASK;
     }
 
-    function carryPairHi(
+    function _carryPairHi(
         uint256 _word
     )
         internal
@@ -375,18 +278,22 @@ library CohortWeeks {
         return _word >> CARRY_HALF_SHIFT;
     }
 
-    function packBridgeCarryEnvelope(
-        address _referrer
+    function _packBridgeCarryEnvelope(
+        address _referrer,
+        uint256 _captureWeek,
+        uint256 _pairCount
     )
         internal
         pure
         returns (uint256)
     {
         return uint256(uint160(_referrer))
-            | (BRIDGE_CARRY_VERSION << CARRY_VERSION_SHIFT);
+            | (BRIDGE_CARRY_VERSION << CARRY_VERSION_SHIFT)
+            | (_captureWeek << BRIDGE_CARRY_CAPTURE_WEEK_SHIFT)
+            | (_pairCount << BRIDGE_CARRY_PAIR_COUNT_SHIFT);
     }
 
-    function packBridgeCarryTracked(
+    function _packBridgeCarryTracked(
         uint256 _trackedDelta,
         uint256 _assignedAt,
         uint256 _rank
@@ -400,7 +307,7 @@ library CohortWeeks {
             | (_rank << BRIDGE_CARRY_RANK_SHIFT);
     }
 
-    function bridgeCarryAssignedAt(
+    function _bridgeCarryAssignedAt(
         uint256 _word
     )
         internal
@@ -410,7 +317,7 @@ library CohortWeeks {
         return (_word >> BRIDGE_CARRY_ASSIGNED_AT_SHIFT) & RING_LANE_MAX;
     }
 
-    function bridgeCarryRank(
+    function _bridgeCarryRank(
         uint256 _word
     )
         internal
@@ -420,45 +327,179 @@ library CohortWeeks {
         return (_word >> BRIDGE_CARRY_RANK_SHIFT) & CARRY_BYTE_MASK;
     }
 
-    function packBridgeCarry(
-        uint256 _word0,
-        uint256 _word1,
-        uint256 _word2,
-        uint256 _word3
+    function _bridgeCarryCaptureWeek(
+        uint256 _word0
+    )
+        internal
+        pure
+        returns (uint256)
+    {
+        return (_word0 >> BRIDGE_CARRY_CAPTURE_WEEK_SHIFT) & BRIDGE_CARRY_CAPTURE_WEEK_MASK;
+    }
+
+    function _bridgeCarryPairCount(
+        uint256 _word0
+    )
+        internal
+        pure
+        returns (uint256)
+    {
+        return (_word0 >> BRIDGE_CARRY_PAIR_COUNT_SHIFT) & CARRY_BYTE_MASK;
+    }
+
+    function _packBridgeCarry(
+        uint256[] memory _words
     )
         internal
         pure
         returns (bytes memory)
     {
         return abi.encodePacked(
-            _word0,
-            _word1,
-            _word2,
-            _word3
+            _words
         );
     }
 
-    function unpackBridgeCarry(
+    function _unpackBridgeCarry(
         bytes memory _data
     )
         internal
         pure
-        returns (
-            uint256 word0,
-            uint256 word1,
-            uint256 word2,
-            uint256 word3
-        )
+        returns (uint256[] memory words)
     {
-        assembly {
-            word0 := mload(add(_data, 0x20))
-            word1 := mload(add(_data, 0x40))
-            word2 := mload(add(_data, 0x60))
-            word3 := mload(add(_data, 0x80))
+        words = new uint256[](
+            _data.length / 32
+        );
+
+        for (uint256 i; i < words.length; ++i) {
+
+            uint256 word;
+
+            assembly {
+                word := mload(add(_data, mul(add(i, 1), 0x20)))
+            }
+
+            words[i] = word;
         }
     }
 
-    function bridgeCarryValid(
+    function _carryPairOf(
+        uint256[] memory _words,
+        uint256 _firstPairWord,
+        uint256 _index
+    )
+        internal
+        pure
+        returns (uint256)
+    {
+        uint256 word = _words[_firstPairWord + _index / 2];
+
+        return _index % 2 == 0
+            ? _carryPairLo(
+                word
+            )
+            : _carryPairHi(
+                word
+            );
+    }
+
+    function _carryPairSums(
+        uint256[] memory _words,
+        uint256 _firstPairWord,
+        uint256 _pairCount
+    )
+        internal
+        pure
+        returns (
+            uint256 year1,
+            uint256 year2
+        )
+    {
+        for (uint256 i; i < _pairCount; ++i) {
+
+            uint256 pair = _carryPairOf(
+                _words,
+                _firstPairWord,
+                i
+            );
+
+            if (_carryPairRing(pair) == CARRY_RING_YEAR1) {
+                year1 += _carryPairAmount(
+                    pair
+                );
+            } else {
+                year2 += _carryPairAmount(
+                    pair
+                );
+            }
+        }
+    }
+
+    function _carryPairsValid(
+        uint256[] memory _words,
+        uint256 _firstPairWord,
+        uint256 _pairCount,
+        uint256 _laneSum,
+        bool _checkReserved
+    )
+        internal
+        pure
+        returns (
+            bool ok,
+            uint256 laneSum
+        )
+    {
+        laneSum = _laneSum;
+
+        if (
+            _pairCount % 2 == 1
+                && _carryPairHi(_words[_words.length - 1]) != 0
+        ) {
+            return (
+                false,
+                _laneSum
+            );
+        }
+
+        for (uint256 i; i < _pairCount; ++i) {
+
+            uint256 pair = _carryPairOf(
+                _words,
+                _firstPairWord,
+                i
+            );
+
+            if (
+                _checkReserved
+                    && pair >> CARRY_PAIR_RESERVED_SHIFT != 0
+            ) {
+                return (
+                    false,
+                    _laneSum
+                );
+            }
+
+            if (
+                _carryPairSlot(pair) >= RING_SLOTS
+                    || _carryPairRing(pair) > CARRY_RING_YEAR2
+            ) {
+                return (
+                    false,
+                    _laneSum
+                );
+            }
+
+            laneSum += _carryPairAmount(
+                pair
+            );
+        }
+
+        return (
+            true,
+            laneSum
+        );
+    }
+
+    function _bridgeCarryValid(
         bytes memory _data,
         uint256 _mintAmount
     )
@@ -466,46 +507,54 @@ library CohortWeeks {
         pure
         returns (bool)
     {
-        if (_data.length != BRIDGE_CARRY_BYTES) {
+        if (
+            _data.length < BRIDGE_CARRY_HEADER_BYTES
+                || _data.length > BRIDGE_CARRY_BYTES
+                || _data.length % 32 != 0
+        ) {
+            return false;
+        }
+
+        uint256[] memory words = _unpackBridgeCarry(
+            _data
+        );
+
+        uint256 pairCount = _bridgeCarryPairCount(
+            words[0]
+        );
+
+        if (
+            _carryEnvelopeVersion(words[0]) != BRIDGE_CARRY_VERSION
+                || words[0] >> BRIDGE_CARRY_ENVELOPE_RESERVED_SHIFT != 0
+                || words[1] >> BRIDGE_CARRY_TRACKED_RESERVED_SHIFT != 0
+                || words[2] >> CARRY_HALF_SHIFT != 0
+                || words.length != BRIDGE_CARRY_HEADER_WORDS + (pairCount + 1) / 2
+        ) {
             return false;
         }
 
         (
-            uint256 word0,
-            uint256 word1,
-            uint256 word2,
-            uint256 word3
-        ) = unpackBridgeCarry(
-            _data
+            bool pairsOk,
+            uint256 laneSum
+        ) = _carryPairsValid(
+            words,
+            BRIDGE_CARRY_HEADER_WORDS,
+            pairCount,
+            words[2],
+            true
         );
 
-        if (carryEnvelopeVersion(word0) != BRIDGE_CARRY_VERSION) {
+        if (pairsOk == false) {
             return false;
         }
 
-        if (word0 >> BRIDGE_CARRY_ENVELOPE_RESERVED_SHIFT != 0) {
-            return false;
-        }
-
-        if (word1 >> BRIDGE_CARRY_TRACKED_RESERVED_SHIFT != 0) {
-            return false;
-        }
-
-        if (word3 >> CARRY_HALF_SHIFT != 0) {
-            return false;
-        }
-
-        uint256 trackedDelta = carryTrackedDelta(
-            word1
+        uint256 trackedDelta = _carryTrackedDelta(
+            words[1]
         );
 
-        uint256 laneSum = carryPairLo(word2)
-            + carryPairHi(word2)
-            + carryPairLo(word3);
+        if (_carryEnvelopeReferrer(words[0]) == address(0)) {
 
-        if (carryEnvelopeReferrer(word0) == address(0)) {
-
-            if (laneSum != 0) {
+            if (laneSum != 0 || pairCount != 0) {
                 return false;
             }
         } else {
@@ -519,218 +568,95 @@ library CohortWeeks {
             return false;
         }
 
-        if (trackedDelta > _mintAmount) {
-            return false;
+        return trackedDelta <= _mintAmount;
+    }
+
+    function _landedCarryPair(
+        uint256 _pair,
+        uint256 _captureWeek,
+        uint256 _arrivalWeek
+    )
+        internal
+        pure
+        returns (
+            uint256 slot,
+            uint256 lane
+        )
+    {
+        uint256 age = (_captureWeek + RING_SLOTS - _carryPairSlot(_pair)) % RING_SLOTS
+            + _carryPairRing(_pair) * RING_SLOTS;
+
+        if (_arrivalWeek > _captureWeek) {
+            age += _arrivalWeek - _captureWeek;
         }
 
-        return true;
-    }
+        if (_captureWeek > _arrivalWeek) {
 
-    function packFlushHeader(
-        address _deliverer,
-        uint256 _entryCount,
-        uint256 _stamp
-    )
-        internal
-        pure
-        returns (uint256)
-    {
-        return uint256(uint160(_deliverer))
-            | (FLUSH_VERSION << FLUSH_VERSION_SHIFT)
-            | (CRUMB_VERSION << FLUSH_CRUMB_VERSION_SHIFT)
-            | (_entryCount << FLUSH_ENTRY_COUNT_SHIFT)
-            | (_stamp << FLUSH_STAMP_SHIFT);
-    }
+            uint256 lag = _captureWeek - _arrivalWeek;
 
-    function flushHeaderDeliverer(
-        uint256 _word
-    )
-        internal
-        pure
-        returns (address)
-    {
-        return address(
-            uint160(_word)
+            age = age > lag
+                ? age - lag
+                : 0;
+        }
+
+        if (age >= 2 * RING_SLOTS) {
+            return (
+                0,
+                CARRY_LANE_MATURE
+            );
+        }
+
+        return (
+            (_arrivalWeek + 2 * RING_SLOTS - age) % RING_SLOTS,
+            age / RING_SLOTS
         );
     }
 
-    function flushHeaderVersion(
-        uint256 _word
+    function _packSelfLogRecord(
+        uint256 _fromWeek,
+        uint256 _completedSeconds,
+        uint256 _stake
     )
         internal
         pure
         returns (uint256)
     {
-        return (_word >> FLUSH_VERSION_SHIFT) & CARRY_BYTE_MASK;
+        return _fromWeek
+            | (_completedSeconds << SELF_LOG_SECONDS_SHIFT)
+            | (_stake << SELF_LOG_STAKE_SHIFT);
     }
 
-    function flushHeaderCrumbVersion(
-        uint256 _word
+    function _selfLogFromWeek(
+        uint256 _record
     )
         internal
         pure
         returns (uint256)
     {
-        return (_word >> FLUSH_CRUMB_VERSION_SHIFT) & CARRY_BYTE_MASK;
+        return _record & SELF_LOG_WEEK_MASK;
     }
 
-    function flushHeaderEntryCount(
-        uint256 _word
+    function _selfLogSeconds(
+        uint256 _record
     )
         internal
         pure
         returns (uint256)
     {
-        return (_word >> FLUSH_ENTRY_COUNT_SHIFT) & CARRY_BYTE_MASK;
+        return (_record >> SELF_LOG_SECONDS_SHIFT) & LANE_MASK_80;
     }
 
-    function flushHeaderStamp(
-        uint256 _word
+    function _selfLogStake(
+        uint256 _record
     )
         internal
         pure
         returns (uint256)
     {
-        return (_word >> FLUSH_STAMP_SHIFT) & RING_LANE_MAX;
+        return (_record >> SELF_LOG_STAKE_SHIFT) & LANE_MASK_80;
     }
 
-    function packFlushEntry(
-        address _referrer,
-        uint256 _crumbCount,
-        uint256 _gapCount,
-        uint256 _flags
-    )
-        internal
-        pure
-        returns (uint256)
-    {
-        return uint256(uint160(_referrer))
-            | (_crumbCount << FLUSH_ENTRY_CRUMBS_SHIFT)
-            | (_gapCount << FLUSH_ENTRY_GAPS_SHIFT)
-            | (_flags << FLUSH_ENTRY_FLAGS_SHIFT);
-    }
-
-    function flushEntryReferrer(
-        uint256 _word
-    )
-        internal
-        pure
-        returns (address)
-    {
-        return address(
-            uint160(_word)
-        );
-    }
-
-    function flushEntryCrumbCount(
-        uint256 _word
-    )
-        internal
-        pure
-        returns (uint256)
-    {
-        return (_word >> FLUSH_ENTRY_CRUMBS_SHIFT) & CARRY_BYTE_MASK;
-    }
-
-    function flushEntryGapCount(
-        uint256 _word
-    )
-        internal
-        pure
-        returns (uint256)
-    {
-        return (_word >> FLUSH_ENTRY_GAPS_SHIFT) & CARRY_BYTE_MASK;
-    }
-
-    function flushEntryFlags(
-        uint256 _word
-    )
-        internal
-        pure
-        returns (uint256)
-    {
-        return (_word >> FLUSH_ENTRY_FLAGS_SHIFT) & CARRY_BYTE_MASK;
-    }
-
-    function packFlushScores(
-        uint256 _referredScore,
-        uint256 _selfScore
-    )
-        internal
-        pure
-        returns (uint256)
-    {
-        return _selfScore
-            | (_referredScore << FLUSH_SCORE_REFERRED_SHIFT);
-    }
-
-    function flushScoreReferred(
-        uint256 _word
-    )
-        internal
-        pure
-        returns (uint256)
-    {
-        return (_word >> FLUSH_SCORE_REFERRED_SHIFT) & FLUSH_SCORE_MASK;
-    }
-
-    function flushScoreSelf(
-        uint256 _word
-    )
-        internal
-        pure
-        returns (uint256)
-    {
-        return _word & FLUSH_SCORE_MASK;
-    }
-
-    function packFlushDesignation(
-        address _payout,
-        uint256 _setAt,
-        uint256 _rank
-    )
-        internal
-        pure
-        returns (uint256)
-    {
-        return uint256(uint160(_payout))
-            | (_setAt << FLUSH_DESIGNATION_SET_AT_SHIFT)
-            | (_rank << FLUSH_DESIGNATION_RANK_SHIFT);
-    }
-
-    function flushDesignationPayout(
-        uint256 _word
-    )
-        internal
-        pure
-        returns (address)
-    {
-        return address(
-            uint160(_word)
-        );
-    }
-
-    function flushDesignationSetAt(
-        uint256 _word
-    )
-        internal
-        pure
-        returns (uint256)
-    {
-        return (_word >> FLUSH_DESIGNATION_SET_AT_SHIFT) & RING_LANE_MAX;
-    }
-
-    function flushDesignationRank(
-        uint256 _word
-    )
-        internal
-        pure
-        returns (uint256)
-    {
-        return (_word >> FLUSH_DESIGNATION_RANK_SHIFT) & CARRY_BYTE_MASK;
-    }
-
-    function packGapRecord(
+    function _packGapRecord(
         uint256 _fromWeek,
         uint256 _toWeekExclusive,
         uint256 _mature
@@ -744,7 +670,7 @@ library CohortWeeks {
             | (_mature << GAP_MATURE_SHIFT);
     }
 
-    function gapRecordFromWeek(
+    function _gapRecordFromWeek(
         uint256 _record
     )
         internal
@@ -754,7 +680,7 @@ library CohortWeeks {
         return _record & ((1 << GAP_TO_SHIFT) - 1);
     }
 
-    function gapRecordToWeek(
+    function _gapRecordToWeek(
         uint256 _record
     )
         internal
@@ -764,7 +690,7 @@ library CohortWeeks {
         return (_record >> GAP_TO_SHIFT) & ((1 << GAP_TO_SHIFT) - 1);
     }
 
-    function gapRecordMature(
+    function _gapRecordMature(
         uint256 _record
     )
         internal
@@ -774,7 +700,7 @@ library CohortWeeks {
         return (_record >> GAP_MATURE_SHIFT) & LANE_MASK_80;
     }
 
-    function laneY1(
+    function _laneY1(
         uint256 _word
     )
         internal
@@ -784,7 +710,7 @@ library CohortWeeks {
         return _word & LANE_MASK_80;
     }
 
-    function laneY2(
+    function _laneY2(
         uint256 _word
     )
         internal
@@ -794,7 +720,7 @@ library CohortWeeks {
         return (_word >> LANE_Y2_SHIFT) & LANE_MASK_80;
     }
 
-    function laneM(
+    function _laneM(
         uint256 _word
     )
         internal
@@ -804,7 +730,7 @@ library CohortWeeks {
         return (_word >> LANE_M_SHIFT) & LANE_MASK_80;
     }
 
-    function packLanes(
+    function _packLanes(
         uint256 _y1,
         uint256 _y2,
         uint256 _m
@@ -818,9 +744,10 @@ library CohortWeeks {
             | (_m << LANE_M_SHIFT);
     }
 
-    function saturatingAdd80(
+    function _saturatingAddCapped(
         uint256 _lane,
-        uint256 _add
+        uint256 _add,
+        uint256 _cap
     )
         internal
         pure
@@ -831,10 +758,10 @@ library CohortWeeks {
     {
         uint256 sum = _lane + _add;
 
-        if (sum > LANE_MASK_80) {
+        if (sum > _cap) {
             return (
-                LANE_MASK_80,
-                sum - LANE_MASK_80
+                _cap,
+                sum - _cap
             );
         }
 
@@ -844,7 +771,7 @@ library CohortWeeks {
         );
     }
 
-    function saturatingAdd64(
+    function _saturatingAdd80(
         uint256 _lane,
         uint256 _add
     )
@@ -855,22 +782,32 @@ library CohortWeeks {
             uint256 clipped
         )
     {
-        uint256 sum = _lane + _add;
-
-        if (sum > RING_LANE_MAX) {
-            return (
-                RING_LANE_MAX,
-                sum - RING_LANE_MAX
-            );
-        }
-
-        return (
-            sum,
-            0
+        return _saturatingAddCapped(
+            _lane,
+            _add,
+            LANE_MASK_80
         );
     }
 
-    function saturatingSub(
+    function _saturatingAdd64(
+        uint256 _lane,
+        uint256 _add
+    )
+        internal
+        pure
+        returns (
+            uint256 result,
+            uint256 clipped
+        )
+    {
+        return _saturatingAddCapped(
+            _lane,
+            _add,
+            RING_LANE_MAX
+        );
+    }
+
+    function _saturatingSub(
         uint256 _value,
         uint256 _sub
     )
@@ -892,5 +829,166 @@ library CohortWeeks {
             _value - _sub,
             0
         );
+    }
+
+    function _clampLane80(
+        uint256 _value
+    )
+        internal
+        pure
+        returns (uint256)
+    {
+        return _value < LANE_MASK_80
+            ? _value
+            : LANE_MASK_80;
+    }
+
+    function _packSelfCrumb(
+        uint256 _currentSeconds,
+        uint256 _previousSeconds,
+        uint256 _settledAt
+    )
+        internal
+        pure
+        returns (uint256)
+    {
+        return _currentSeconds
+            | (_previousSeconds << LANE_Y2_SHIFT)
+            | (_settledAt << SELF_STAMP_SHIFT);
+    }
+
+    function _selfCrumbCurrent(
+        uint256 _word
+    )
+        internal
+        pure
+        returns (uint256)
+    {
+        return _word & LANE_MASK_80;
+    }
+
+    function _selfCrumbPrevious(
+        uint256 _word
+    )
+        internal
+        pure
+        returns (uint256)
+    {
+        return (_word >> LANE_Y2_SHIFT) & LANE_MASK_80;
+    }
+
+    function _selfCrumbSettledAt(
+        uint256 _word
+    )
+        internal
+        pure
+        returns (uint256)
+    {
+        return (_word >> SELF_STAMP_SHIFT) & SELF_STAMP_MASK;
+    }
+
+    function _settleSelfCrumb(
+        uint256 _word,
+        uint256 _tracked,
+        uint256 _to
+    )
+        internal
+        pure
+        returns (uint256)
+    {
+        uint256 settledAt = _selfCrumbSettledAt(
+            _word
+        );
+
+        if (settledAt >= _to) {
+            return _word;
+        }
+
+        uint256 stake = _clampLane80(
+            _tracked
+        );
+
+        uint256 fromWeek = settledAt / WEEK;
+
+        uint256 toWeek = _to / WEEK;
+
+        uint256 current = _selfCrumbCurrent(
+            _word
+        );
+
+        uint256 previous = _selfCrumbPrevious(
+            _word
+        );
+
+        if (toWeek == fromWeek) {
+            current = _clampLane80(
+                current + stake * (_to - settledAt)
+            );
+        } else {
+            previous = _completedPreviousSeconds(
+                current,
+                stake,
+                settledAt,
+                toWeek
+            );
+
+            current = _clampLane80(
+                stake * (_to - toWeek * WEEK)
+            );
+        }
+
+        return _packSelfCrumb(
+            current,
+            previous,
+            _to
+        );
+    }
+
+    function _completedPreviousSeconds(
+        uint256 _current,
+        uint256 _stake,
+        uint256 _settledAt,
+        uint256 _week
+    )
+        internal
+        pure
+        returns (uint256)
+    {
+        if (_settledAt / WEEK + 1 == _week) {
+            return _clampLane80(
+                _current + _stake * (_week * WEEK - _settledAt)
+            );
+        }
+
+        return _clampLane80(
+            _stake * WEEK
+        );
+    }
+
+    function _liveSecondsCohort(
+        uint256 _from,
+        uint256 _to,
+        uint256 _disarmedAt,
+        uint256 _rearmedAt
+    )
+        internal
+        pure
+        returns (uint256)
+    {
+        uint256 skipFrom = _from > _disarmedAt
+            ? _from
+            : _disarmedAt;
+
+        uint256 skipTo = _to < _rearmedAt
+            ? _to
+            : _rearmedAt;
+
+        if (skipTo <= skipFrom) {
+            return _to - _from;
+        }
+
+        return _to
+            - _from
+            - (skipTo - skipFrom);
     }
 }
