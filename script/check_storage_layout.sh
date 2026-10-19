@@ -105,7 +105,6 @@ PINNED_FACETS=(
     CohortMoveHookFacet
     InterestAdminFacet
     QueueForecastFacet
-    ReferralPayoutFacet
     RescueFacet
 )
 
