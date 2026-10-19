@@ -2,6 +2,7 @@
 pragma solidity =0.8.36;
 
 import "forge-std/console2.sol";
+import {VmSafe} from "forge-std/Vm.sol";
 
 import {VaultConfig} from "../vault/VaultConfig.sol";
 import {ReferralRegistry} from "../../src/registry/pending/ReferralRegistry.sol";
@@ -13,25 +14,54 @@ import {ReferralRegistry} from "../../src/registry/pending/ReferralRegistry.sol"
 /// round's `proposePointer()` reads the address this script records in
 /// `config/registry.<network>.json`.
 ///
-/// Phases (chain via --rpc-url; VAULT_PRODUCT is NOT used; all products are scanned):
+/// Phases (chain via --rpc-url; only `allow()` reads VAULT_PRODUCT, `deploy()` scans all products):
 ///   `deploy()` : refuses to run if the chain's registry config already points at deployed
 ///                code (one registry per chain, ever). Broadcasts `new ReferralRegistry(master, rank)`
 ///                (master = broadcast key), then `setAllowedVault(diamond, true)` for every
 ///                product whose `config/vault.<product>.<network>.json` exists on this
-///                chain, and records the address in `config/registry.<network>.json`.
-///   `allow()`  : idempotent allowlist top-up for a later product on the same chain.
+///                chain (refusing a config address without code, so a phantom address can
+///                never take one of the permanent tracked slots), and records the address in
+///                `config/registry.<network>.json` (written only by a `--broadcast` run; a
+///                simulation logs the address it would have recorded and leaves the file
+///                untouched). The registry's sync key floor is a
+///                compile-time constant every chain shares, and `deploy()` refuses a chain
+///                whose clock sits below it, so every key it mints sorts above every
+///                corrected key. The registry's merge refuses any sync key whose chain rank
+///                sits above `maxSyncRank` (three at construction, the four-chain mesh); when
+///                a fifth chain joins, master raises it on every existing registry with
+///                `raiseMaxSyncRank` before the new peer is wired, or the new chain's keys
+///                are refused.
+///   `allow()`  : idempotent allowlist top-up for ONE later product on the same chain, named
+///                through VAULT_PRODUCT (its diamond must have code). Instant while the sync
+///                setup is unfinalized or for a diamond the registry ever allowed before;
+///                once the sync setup is finalized, a new diamond takes the registry's 3-day
+///                propose and execute lane (`proposeAllowedVault`, then
+///                `executeAllowedVaultChange`): run it twice, three days apart.
 ///   `wirePayoutRoute()` : SPOKE chains only: points the registry's caller-paid
 ///                `pushPayoutAddress` at the mainnet hub (`proposePayoutHub(hub,
 ///                mainnetSelector)` + `executePayoutHubChange`; instant while the sync
 ///                setup is unfinalized, a second run after the 3-day window otherwise),
-///                reading the hub from `config/hub.mainnet.json`. On the hub chain the
+///                reading the hub from `config/hub.mainnet.json`. It executes only a
+///                proposal that names exactly that (hub, selector) pair: a pending
+///                proposal naming anything else is logged and overwritten by a fresh
+///                one, which restarts the 3-day window once the sync setup is
+///                finalized, and the wired route is asserted right after the execute.
+///                With the route already wired, a mismatched pending proposal is logged
+///                and cancelled. On the hub chain the
 ///                route deliberately stays detached: referrers there designate at the
 ///                hub directly. Requires `setCcipRouter` to have been run as part of the
 ///                sync wiring (the push shares the sync gas limit and router).
-///   `latch()`   : fires the registry's ONE-WAY correction latch (idempotent: skips when
-///                already latched). Runbook: run on EVERY chain's registry before payouts
-///                arm at the hub; there is no unlatch, on purpose.
-///   `status()` : read-only sanity print (no broadcast).
+///   `latch()`   : fires the registry's ONE-WAY seed latch `latchSeeds` (idempotent: skips
+///                when already latched), which ends the vaults' retroactive seed. It never
+///                fires `latchCorrections`: the correction lane stays open after payouts arm,
+///                guarded by the user veto, and closing it is a manual master call outside
+///                every script. Runbook: run on EVERY chain's registry before payouts arm at
+///                the hub; there is no unlatch, on purpose.
+///   `status()` : read-only sanity print (no broadcast). It reverts while the registry's
+///                `maxSyncRank` sits below the rank of any network in `_rankedNetworks()`
+///                whose `config/registry.<network>.json` is recorded, so no registry is
+///                peered with a chain whose keys it would refuse: run it on every existing
+///                chain before `RegisterRegistrySyncPeers.wire()` proposes a new chain's peer.
 ///
 ///   forge script script/registry/DeployReferralRegistry.s.sol --sig "deploy()" --rpc-url mainnet --broadcast
 ///   forge script script/registry/DeployReferralRegistry.s.sol --sig "status()" --rpc-url mainnet
@@ -45,6 +75,8 @@ import {ReferralRegistry} from "../../src/registry/pending/ReferralRegistry.sol"
 /// src/registry/pending/ in the same
 /// commit.
 contract DeployReferralRegistry is VaultConfig {
+
+    uint256 internal constant SYNC_KEY_FLOOR = 1_700_000_000;
 
     function deploy()
         external
@@ -80,6 +112,11 @@ contract DeployReferralRegistry is VaultConfig {
             )
         );
 
+        require(
+            block.timestamp >= SYNC_KEY_FLOOR,
+            "DeployReferralRegistry: chain clock below the sync key floor"
+        );
+
         _allowKnownVaults(
             registry,
             network
@@ -87,14 +124,32 @@ contract DeployReferralRegistry is VaultConfig {
 
         vm.stopBroadcast();
 
-        _saveRegistry(
-            network,
+        if (vm.isContext(VmSafe.ForgeContext.ScriptBroadcast)) {
+            _saveRegistry(
+                network,
+                address(registry)
+            );
+        } else {
+            console2.log(
+                "simulation only: config/registry not written, it would record",
+                address(registry)
+            );
+        }
+
+        console2.log(
+            "deployed ReferralRegistry",
             address(registry)
         );
 
-        console2.log("deployed ReferralRegistry", address(registry));
-        console2.log("  network", network);
-        console2.log("  master ", registry.master());
+        console2.log(
+            "  network",
+            network
+        );
+
+        console2.log(
+            "  master ",
+            registry.master()
+        );
     }
 
     function allow()
@@ -117,16 +172,112 @@ contract DeployReferralRegistry is VaultConfig {
             "DeployReferralRegistry: recorded registry has no code"
         );
 
-        vm.startBroadcast(
-            privKey
+        string memory product = vm.envString(
+            "VAULT_PRODUCT"
         );
 
-        _allowKnownVaults(
-            registry,
+        require(
+            vm.exists(
+                _vaultConfigPath(
+                    product,
+                    network
+                )
+            ),
+            "DeployReferralRegistry: no vault config for VAULT_PRODUCT on this chain"
+        );
+
+        address diamond = _loadVaultDiamond(
+            product,
             network
         );
 
-        vm.stopBroadcast();
+        require(
+            diamond.code.length > 0,
+            "DeployReferralRegistry: VAULT_PRODUCT diamond has no code on this chain"
+        );
+
+        if (registry.allowedVault(diamond)) {
+            console2.log(
+                "already allowed",
+                product,
+                diamond
+            );
+
+            return;
+        }
+
+        if (
+            registry.syncInitialized() == false
+                || registry.everAllowedVault(diamond)
+        ) {
+            vm.startBroadcast(
+                privKey
+            );
+
+            registry.setAllowedVault(
+                diamond,
+                true
+            );
+
+            vm.stopBroadcast();
+
+            console2.log(
+                "allowlisted vault",
+                product,
+                diamond
+            );
+
+            return;
+        }
+
+        uint256 queuedAt = registry.allowedVaultQueuedAt(
+            diamond
+        );
+
+        if (queuedAt == 0) {
+            vm.startBroadcast(
+                privKey
+            );
+
+            registry.proposeAllowedVault(
+                diamond
+            );
+
+            vm.stopBroadcast();
+
+            console2.log(
+                "allowlisting proposed; re-run allow() after the 3-day window",
+                product,
+                diamond
+            );
+
+            return;
+        }
+
+        if (block.timestamp >= queuedAt + 3 days) {
+            vm.startBroadcast(
+                privKey
+            );
+
+            registry.executeAllowedVaultChange(
+                diamond
+            );
+
+            vm.stopBroadcast();
+
+            console2.log(
+                "allowlisting executed",
+                product,
+                diamond
+            );
+
+            return;
+        }
+
+        console2.log(
+            "allowlisting still timelocked; seconds remaining",
+            queuedAt + 3 days - block.timestamp
+        );
     }
 
     function wirePayoutRoute()
@@ -162,47 +313,12 @@ contract DeployReferralRegistry is VaultConfig {
             "mainnet"
         );
 
-        if (
-            registry.payoutHub() == hub
-                && registry.payoutHubChainSelector() == chainSelector
-        ) {
-            console2.log("payout route already wired", hub);
-            return;
-        }
-
-        require(
-            registry.ccipRouter() != address(0),
-            "DeployReferralRegistry: sync router not set (run RegisterRegistrySyncPeers.wire() first)"
-        );
-
-        vm.startBroadcast(
+        _wirePayoutRoute(
+            registry,
+            hub,
+            chainSelector,
             privKey
         );
-
-        if (registry.payoutHubChangeQueuedAt() == 0) {
-            registry.proposePayoutHub(
-                hub,
-                chainSelector
-            );
-        }
-
-        if (
-            registry.syncInitialized() == false
-                || block.timestamp >= registry.payoutHubChangeQueuedAt() + 3 days
-        ) {
-            registry.executePayoutHubChange();
-        }
-
-        vm.stopBroadcast();
-
-        if (registry.payoutHub() == hub) {
-            console2.log("payout route wired on registry", address(registry));
-        } else {
-            console2.log("payout route proposed; re-run wirePayoutRoute() after the 3-day window");
-        }
-
-        console2.log("  hub          ", hub);
-        console2.log("  chainSelector", chainSelector);
     }
 
     function latch()
@@ -225,8 +341,12 @@ contract DeployReferralRegistry is VaultConfig {
             "DeployReferralRegistry: recorded registry has no code"
         );
 
-        if (registry.correctionsLatched()) {
-            console2.log("corrections already latched on registry", address(registry));
+        if (registry.seedsLatched()) {
+            console2.log(
+                "seeds already latched on registry",
+                address(registry)
+            );
+
             return;
         }
 
@@ -234,11 +354,14 @@ contract DeployReferralRegistry is VaultConfig {
             privKey
         );
 
-        registry.latchCorrections();
+        registry.latchSeeds();
 
         vm.stopBroadcast();
 
-        console2.log("corrections latched on registry", address(registry));
+        console2.log(
+            "seeds latched on registry",
+            address(registry)
+        );
     }
 
     function status()
@@ -247,7 +370,11 @@ contract DeployReferralRegistry is VaultConfig {
         string memory network = _networkName();
 
         if (_registryConfigExists(network) == false) {
-            console2.log("no registry config for network", network);
+            console2.log(
+                "no registry config for network",
+                network
+            );
+
             return;
         }
 
@@ -257,15 +384,49 @@ contract DeployReferralRegistry is VaultConfig {
             )
         );
 
-        console2.log("registry", address(registry));
-        console2.log("  code size", address(registry).code.length);
+        console2.log(
+            "registry",
+            address(registry)
+        );
+
+        console2.log(
+            "  code size",
+            address(registry).code.length
+        );
 
         if (address(registry).code.length == 0) {
             return;
         }
 
-        console2.log("  master", registry.master());
-        console2.log("  correctionsLatched", registry.correctionsLatched());
+        console2.log(
+            "  master",
+            registry.master()
+        );
+
+        console2.log(
+            "  seedsLatched",
+            registry.seedsLatched()
+        );
+
+        console2.log(
+            "  correctionsLatched",
+            registry.correctionsLatched()
+        );
+
+        console2.log(
+            "  syncKeyFloor",
+            SYNC_KEY_FLOOR
+        );
+
+        console2.log(
+            "  maxSyncRank",
+            registry.maxSyncRank()
+        );
+
+        console2.log(
+            "  trackedVaultCount",
+            registry.trackedVaultCount()
+        );
 
         string[3] memory products = _products();
 
@@ -280,10 +441,155 @@ contract DeployReferralRegistry is VaultConfig {
                 network
             );
 
-            console2.log("  product", products[i]);
-            console2.log("    diamond", diamond);
-            console2.log("    allowed", registry.allowedVault(diamond));
+            console2.log(
+                "  product",
+                products[i]
+            );
+
+            console2.log(
+                "    diamond",
+                diamond
+            );
+
+            console2.log(
+                "    allowed",
+                registry.allowedVault(
+                    diamond
+                )
+            );
         }
+
+        string[] memory networks = _rankedNetworks();
+
+        for (uint256 i; i < networks.length; ++i) {
+
+            if (_registryConfigExists(networks[i]) == false) {
+                continue;
+            }
+
+            require(
+                registry.maxSyncRank() >= i,
+                "DeployReferralRegistry: maxSyncRank below a recorded chain's rank (raiseMaxSyncRank before peering)"
+            );
+        }
+    }
+
+    /// @dev The decision logic of `wirePayoutRoute()`, with the registry, the hub, the chain
+    /// selector and the broadcast key passed in, so a rehearsal drives the very code the
+    /// script broadcasts without a PRIVATE_KEY variable or a config file. Only a proposal
+    /// naming exactly (`_hub`, `_chainSelector`) is ever executed; any other pending
+    /// proposal is logged and overwritten, or cancelled once the route is wired.
+    function _wirePayoutRoute(
+        ReferralRegistry _registry,
+        address _hub,
+        uint64 _chainSelector,
+        uint256 _privKey
+    )
+        internal
+    {
+        bool pending = _registry.payoutHubChangeQueuedAt() > 0;
+
+        bool pendingMatches = pending
+            && _registry.proposedPayoutHub() == _hub
+            && _registry.proposedPayoutHubChainSelector() == _chainSelector;
+
+        if (
+            _registry.payoutHub() == _hub
+                && _registry.payoutHubChainSelector() == _chainSelector
+        ) {
+            console2.log(
+                "payout route already wired",
+                _hub
+            );
+
+            if (pending && pendingMatches == false) {
+                console2.log(
+                    "cancelling mismatched pending payout hub proposal",
+                    _registry.proposedPayoutHub()
+                );
+
+                console2.log(
+                    "  proposed chainSelector",
+                    uint256(_registry.proposedPayoutHubChainSelector())
+                );
+
+                vm.startBroadcast(
+                    _privKey
+                );
+
+                _registry.cancelPayoutHubChange();
+
+                vm.stopBroadcast();
+            }
+
+            return;
+        }
+
+        require(
+            _registry.ccipRouter() != address(0),
+            "DeployReferralRegistry: sync router not set (run RegisterRegistrySyncPeers.wire() first)"
+        );
+
+        vm.startBroadcast(
+            _privKey
+        );
+
+        if (pendingMatches == false) {
+
+            if (pending) {
+                console2.log(
+                    "overwriting mismatched pending payout hub proposal",
+                    _registry.proposedPayoutHub()
+                );
+
+                console2.log(
+                    "  proposed chainSelector",
+                    uint256(_registry.proposedPayoutHubChainSelector())
+                );
+            }
+
+            _registry.proposePayoutHub(
+                _hub,
+                _chainSelector
+            );
+        }
+
+        uint256 queuedAt = _registry.payoutHubChangeQueuedAt();
+
+        if (
+            _registry.syncInitialized() == false
+                || block.timestamp >= queuedAt + 3 days
+        ) {
+            _registry.executePayoutHubChange();
+
+            require(
+                _registry.payoutHub() == _hub
+                    && _registry.payoutHubChainSelector() == _chainSelector,
+                "DeployReferralRegistry: executed payout route does not match the config hub"
+            );
+
+            console2.log(
+                "payout route wired on registry",
+                address(_registry)
+            );
+        } else {
+            console2.log(
+                "payout route proposed; re-run wirePayoutRoute() after the 3-day window, seconds remaining",
+                queuedAt + 3 days - block.timestamp
+            );
+        }
+
+        vm.stopBroadcast();
+
+        console2.log(
+            "  hub          ",
+            _hub
+        );
+
+        console2.log(
+            "  chainSelector",
+            uint256(_chainSelector)
+        );
     }
 
     function _allowKnownVaults(
@@ -309,12 +615,21 @@ contract DeployReferralRegistry is VaultConfig {
                 continue;
             }
 
+            require(
+                diamond.code.length > 0,
+                "DeployReferralRegistry: vault config names an address without code"
+            );
+
             _registry.setAllowedVault(
                 diamond,
                 true
             );
 
-            console2.log("allowlisted vault", products[i], diamond);
+            console2.log(
+                "allowlisted vault",
+                products[i],
+                diamond
+            );
         }
     }
 
@@ -330,12 +645,27 @@ contract DeployReferralRegistry is VaultConfig {
         ];
     }
 
+    /// @dev Every network of the registry mesh in rank order: a network's index is its fixed
+    /// sync tie-break rank, so a new chain is appended here and takes the next unused number.
+    /// `_localChainRank` and the `status()` rank check both read this one list.
+    function _rankedNetworks()
+        internal
+        pure
+        returns (string[] memory networks)
+    {
+        networks = new string[](4);
+        networks[0] = "mainnet";
+        networks[1] = "base";
+        networks[2] = "arbitrum";
+        networks[3] = "robinhood";
+    }
+
     /// @dev The fixed per-chain tie-break rank of the cross-chain
     /// referrer sync: Ethereum mainnet wins same-second ties, then the
     /// remaining chains in a deterministic lane-centrality order. Every
     /// chain's registry must be deployed with its own rank and the set
     /// must stay collision-free forever; a new chain takes the next
-    /// unused number.
+    /// unused number. The rank is the network's index in `_rankedNetworks()`.
     function _localChainRank(
         string memory _network
     )
@@ -343,26 +673,17 @@ contract DeployReferralRegistry is VaultConfig {
         pure
         returns (uint256)
     {
-        bytes32 tag = keccak256(
-            bytes(_network)
+        string[] memory networks = _rankedNetworks();
+
+        for (uint256 i; i < networks.length; ++i) {
+
+            if (_sameString(networks[i], _network)) {
+                return i;
+            }
+        }
+
+        revert(
+            "DeployReferralRegistry: unknown network rank"
         );
-
-        if (tag == keccak256("mainnet")) {
-            return 0;
-        }
-
-        if (tag == keccak256("base")) {
-            return 1;
-        }
-
-        if (tag == keccak256("arbitrum")) {
-            return 2;
-        }
-
-        if (tag == keccak256("robinhood")) {
-            return 3;
-        }
-
-        revert("DeployReferralRegistry: unknown network rank");
     }
 }
