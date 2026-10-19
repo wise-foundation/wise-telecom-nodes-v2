@@ -3,52 +3,13 @@
 pragma solidity =0.8.36;
 
 /**
- * @dev Cross-chain flush transport tail shard. `flushHub` +
- * `flushHubChainSelector` (packed into one slot) name the mainnet
- * referral hub the {CohortFlushFacet} delivers this vault's cohort
- * book to: a nonzero selector sends a CCIP flush envelope to the hub
- * on the selector's chain, a zero selector with a nonzero hub
- * delivers by direct local call (the hub-chain vaults themselves).
- * `flushedThroughWeek` and `flushGapCursor` (gap-log index in the
- * low 128 bits, intra-record resume week in the high 128) are
- * per-referrer send cursors: pure fee optimizations, because the
- * hub's paid-cursors make every re-send idempotent; they only mark
- * what has already been carried so builders skip it. A batch flush
- * by any permitted caller advances them from the stored cursor; a
- * window sent by a bot or a public flusher delivers but never moves
- * a cursor, so only the referrer's own window can pick the week a
- * cursor jumps to.
- * `allowedFlushBot` + `publicFlushEnabled` gate flushing OTHER
- * referrers' books (a referrer's own-book flush is ungated forever);
- * `flushGasLimit` is the CCIP destination gas budget (zero =
- * FLUSH_GAS_LIMIT default). While `flushHub` is `ZERO_ADDRESS` (the
- * virgin default), every flush entrypoint reverts {FlushHubNotSet},
- * so a live diamond with virgin tail storage (and every
- * intermediate state of any upgrade sequence) behaves byte-for-byte
- * as today (default-off convention).
- *
- * `proposedFlushHub` + `proposedFlushHubChainSelector` +
- * `flushHubChangeQueuedAt` back the propose/execute/cancel flow
- * cloned from {PayoutHubPointerDeclaration}: instant while the
- * diamond is still in setup (before `finalizeSetup`), 3-day
- * timelocked afterwards, and proposing `ZERO_ADDRESS` reverts back
- * to the off default. Unlike the payout-hub pointer there is NO
- * execute-time shape probe: the hub usually lives on another chain,
- * where no probe is possible, so the 3-day window itself is the
- * review period; a zero hub with a nonzero selector is the one
- * shape execute rejects. Nothing in this shard is touched by any
- * deposit, transfer, compound, queue or bridge path: the cursors and
- * policy fields are written only by the explicit flush entrypoints
- * and the {AdminFacet} surface, so the recorder's hot-path gas
- * envelope is untouched. The only pointer writers are the
- * {AdminFacet} trio through {WiseTelecomNodesBaseHelper}; every
- * mutation MUST emit the matching {FlushHubSet} / {FlushHubProposed}
- * / {FlushHubProposalCancelled} event. All fields are `internal`
- * rather than `public`: the live genesis dispatcher cannot route
- * auto-getters, so the external read surface is the routed
- * {AdminFacet} getter trio plus the {CohortFlushFacet} views.
- * Appended after {PayoutHubPointerDeclaration} (slots 80-82) so it
- * takes fresh tail slots 83-89 and moves no pre-existing slot.
+ * @dev Tail shard at slots 83 to 89: the flush transport. The hub pointer
+ * and chain selector with their timelocked change, each referrer's send
+ * cursors (`flushedThroughWeek`; `flushGapCursor` with the gap index in the
+ * low 128 bits and the resume week in the high 128), the courier allowlist,
+ * the public flush switch and the message gas limit (zero means the
+ * default). A zero hub, the virgin default, makes every flush revert
+ * FlushHubNotSet.
  */
 abstract contract CohortFlushDeclaration {
 
