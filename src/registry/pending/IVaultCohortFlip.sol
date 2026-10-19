@@ -3,14 +3,20 @@
 pragma solidity =0.8.36;
 
 /**
- * @dev The one call the registry makes into a vault during a
- * referrer-flip migration: relocate the user's local book credit from
- * the old to the new referrer. The vault reverts while its cohort
- * recorder is disarmed, which the registry treats as "defer and
- * retry later": the pending-flip marker is restored and the
- * migration stays poke-able forever.
+ * @dev The two vault calls of a referrer flip: `getAttributedContribution`
+ * decides which vaults get a marker (a failed probe marks), and
+ * `receiveReferrerFlip` relocates the user's book credit. A disarmed vault
+ * holding credit for the user reverts, so the registry restores the marker
+ * and the flip stays pokeable.
  */
 interface IVaultCohortFlip {
+
+    function getAttributedContribution(
+        address _user
+    )
+        external
+        view
+        returns (uint256);
 
     function receiveReferrerFlip(
         address _user,

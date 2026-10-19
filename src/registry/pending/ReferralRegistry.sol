@@ -2,118 +2,32 @@
 
 pragma solidity =0.8.36;
 
-import {ReferralRegistryDeclarations} from "./ReferralRegistryDeclarations.sol";
-import {IVaultCohortFlip} from "./IVaultCohortFlip.sol";
+import {ReferralRegistryAdmin} from "./ReferralRegistryAdmin.sol";
 import {OwnableMaster} from "../../diamond/shared/OwnableMaster.sol";
 import {CohortWeeks} from "../../diamond/shared/pending/CohortWeeks.sol";
 
 import {Client} from "@chainlink/contracts-ccip/contracts/libraries/Client.sol";
-import {IRouterClient} from "@chainlink/contracts-ccip/contracts/interfaces/IRouterClient.sol";
 import {IAny2EVMMessageReceiver} from "@chainlink/contracts-ccip/contracts/interfaces/IAny2EVMMessageReceiver.sol";
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
 /**
- * @dev The per-chain referral registry: ONE standalone
- * deployed contract closing the chain over
- * {ReferralRegistryDeclarations}. `assignReferrer` is the single
- * LOCAL write path: allowlisted vaults forward `(user, referrer)`
- * from their referral deposit entrypoints, and this contract alone
- * enforces the assignment semantics: zero rejected, self rejected,
- * first assignment sticks against every later local write, event only
- * on the actual first-set transition. The first set also stamps the
- * packed sync key `(block.timestamp << 8) | LOCAL_CHAIN_RANK`.
- * Validation runs BEFORE the write-once check so a zero/self
- * referrer reverts even for an already-assigned user, preserving
- * the vaults' revert priority. The hardening set rejects the calling
- * vault, this registry and every locally allowed vault as referrers,
- * on assignment, on merge and on correction alike, so cohort credit
- * can never be laundered into system addresses: a vault can neither
- * claim at the hub nor designate a payout address, so commission
- * booked to it would sit as an unclaimable liability forever. The
- * allowed set is chain-local, so a product address that is a vault
- * on another chain but not here passes here; a synced assignment
- * that names a local vault reverts on receive and that user simply
- * stays unassigned on this chain. `assignReferrer` performs a pure
- * storage write plus event and makes NO external call; the vaults'
- * reentrancy reasoning relies on this staying true.
- *
- * Cross-chain min-merge: `_mergeReferrerPair` is one of exactly two
- * places an existing assignment can ever change; the other is the
- * pre-latch dual-consent correction lane. It is fed by two entrances,
- * `mergeReferrer` (an allowlisted vault relaying the pair carried on
- * a bridge message) and `ccipReceive` (a peer registry's sync
- * message), and applies the strictly-decreasing key rule: adopt when
- * unassigned, overwrite when the incoming packed key is strictly
- * smaller, ignore otherwise. A flip records pending-flip markers per
- * tracked vault and nothing else; the book migration runs later via
- * the permissionless `pokeMigration`, whose per-vault calls are
- * failure-tolerant (a reverting vault gets its marker back and stays
- * retryable). `effectiveReferrerOf` answers the marker while it
- * stands so interim recorder activity keeps hitting the book that
- * holds the cover.
- *
- * `broadcastSync` is permissionless and caller-paid: it sends this
- * registry's stored origin pair for one user to any set of enabled
- * peer lanes, refunding excess fee at the end. Out-of-order execution
- * is explicitly allowed; merge order cannot matter.
- *
- * Correction lane: `proposeCorrectReferrer` (master) opens a 3-day
- * window in which `cancelCorrectReferrer` (the user unilaterally, or
- * master) kills the proposal; `executeCorrectReferrer` (master, after
- * the window) then rewrites `referrerOf` and marks pending flips
- * exactly like a sync flip does; the book relocation itself stays
- * with the permissionless `pokeMigration`, so the correction rides
- * the one existing migration path. A matured proposal has no expiry:
- * it stays executable until executed, cancelled or latched, and the
- * user's cancel stays available up to the moment of execution: an
- * unbounded veto, not a 3-day one. Execute re-checks the vault
- * laundering guard (an address allowlisted during the window cannot
- * become a referrer) and that the target still differs from the
- * current referrer, so a proposal overtaken by a sync flip to the
- * same target dies with `NothingToCorrect`. The sync key is
- * deliberately left untouched; the full model lives in the
- * declarations contract's documentation block. `latchCorrections`
- * (master) permanently disables propose and execute (cancel stays
- * open for cleanup) and has no reverse operation; it is fired the
- * moment payouts arm, making the book immutable against master from
- * that point on.
- *
- * `setAllowedVault` is the master kill-switch for NEW assignments
- * from one vault; it is deliberately instant (no timelock) and
- * deliberately asymmetric: reads stay permissionless, so a revoked
- * vault's cohort recorder keeps resolving existing referrers and
- * only fresh `...WithReferral` deposits on that vault revert. The
- * allowlist doubles as the tracked-vault list the flip machinery
- * loops, bounded at `MAX_TRACKED_VAULTS`.
- *
- * Carry staging: `stageCarry`/`consumeCarry` are the
- * same-chain move-attribution mailbox (threat model and lifecycle in
- * the declarations block). `stageCarry`'s guards are guard-class only,
- * reachable solely through a buggy allowlisted vault, since the
- * vaults construct payloads from their own storage: nonzero
- * endpoints, no self-destination, payload length within
- * `(0, MAX_CARRY_WORDS]`. `consumeCarry` is deliberately guard-free:
- * an empty key returns an empty payload, the natural answer, and the
- * destination's `stagedAt == block.timestamp` check rejects
- * everything else. Consume keys the destination as `msg.sender`, so
- * a rogue allowlisted vault can only ever drain payloads addressed
- * to itself.
+ * @dev ReferralRegistry: the write-once referrer registry of one chain.
+ * An allowed vault assigns a user's referrer once; afterwards only the
+ * strictly decreasing cross-chain min-merge and the dual consent
+ * correction lane can change it. Sync keys travel over CCIP to the peer
+ * registries, a flip is marked per tracked vault and delivered by a
+ * permissionless poke, payout designations are set by the referrer and
+ * pushed to the hub, and the same-chain carry mailbox is keyed by the
+ * staging vault. Assign, merge, stage and consume make no external call,
+ * and the read paths never revert.
  */
 contract ReferralRegistry is
-    ReferralRegistryDeclarations,
+    ReferralRegistryAdmin,
     IAny2EVMMessageReceiver,
     IERC165
 {
 
     uint256 public immutable LOCAL_CHAIN_RANK;
-
-    modifier onlyAllowedVault() {
-        require(
-            allowedVault[msg.sender],
-            NotAllowedVault()
-        );
-        _;
-    }
 
     constructor(
         address _master,
@@ -129,6 +43,14 @@ contract ReferralRegistry is
         );
 
         LOCAL_CHAIN_RANK = _localChainRank;
+
+        maxSyncRank = _localChainRank > DEFAULT_MAX_SYNC_RANK
+            ? _localChainRank
+            : DEFAULT_MAX_SYNC_RANK;
+
+        emit MaxSyncRankRaised(
+            maxSyncRank
+        );
     }
 
     function assignReferrer(
@@ -139,12 +61,8 @@ contract ReferralRegistry is
         onlyAllowedVault
     {
         require(
-            _user != ZERO_ADDRESS,
-            ZeroAddress()
-        );
-
-        require(
-            _referrer != ZERO_ADDRESS,
+            _user != ZERO_ADDRESS
+                && _referrer != ZERO_ADDRESS,
             ZeroAddress()
         );
 
@@ -153,31 +71,22 @@ contract ReferralRegistry is
             SelfReferral()
         );
 
-        require(
-            _referrer != msg.sender,
-            InvalidReferrer()
-        );
-
-        require(
-            _referrer != address(this),
-            InvalidReferrer()
-        );
-
-        require(
-            allowedVault[_referrer] == false,
-            InvalidReferrer()
-        );
-
         if (referrerOf[_user] != ZERO_ADDRESS) {
             return;
         }
 
+        _requireReferrerIdentity(
+            _referrer
+        );
+
+        _requireNoReferralCycle(
+            _user,
+            _referrer
+        );
+
         referrerOf[_user] = _referrer;
 
-        referrerKey[_user] = _packSyncKey(
-            block.timestamp,
-            LOCAL_CHAIN_RANK
-        );
+        referrerKey[_user] = _localSyncKey();
 
         emit ReferralAssigned(
             _user,
@@ -232,11 +141,6 @@ contract ReferralRegistry is
         external
         onlyAllowedVault
     {
-        require(
-            _referrer != msg.sender,
-            InvalidReferrer()
-        );
-
         _mergeReferrerPair(
             _user,
             _referrer,
@@ -292,7 +196,13 @@ contract ReferralRegistry is
             uint256 rank
         ) = abi.decode(
             _message.data,
-            (uint256, address, address, uint256, uint256)
+            (
+                uint256,
+                address,
+                address,
+                uint256,
+                uint256
+            )
         );
 
         require(
@@ -332,31 +242,14 @@ contract ReferralRegistry is
         external
         payable
     {
-        require(
-            _selectors.length > 0,
-            NothingToSync()
+        (
+            uint256 key,
+            address router,
+            address referrer
+        ) = _syncLanePrelude(
+            _user,
+            _selectors
         );
-
-        require(
-            _selectors.length <= MAX_SYNC_LANES,
-            TooManySyncLanes()
-        );
-
-        uint256 key = referrerKey[_user];
-
-        require(
-            key != 0,
-            NothingToSync()
-        );
-
-        address router = ccipRouter;
-
-        require(
-            router != ZERO_ADDRESS,
-            RouterNotSet()
-        );
-
-        address referrer = referrerOf[_user];
 
         uint256 spentFee;
 
@@ -364,19 +257,15 @@ contract ReferralRegistry is
 
             uint64 selector = _selectors[i];
 
-            require(
-                syncPeerEnabled[selector] == true,
-                SyncPeerNotEnabled()
-            );
-
-            Client.EVM2AnyMessage memory message = _buildSyncMessage(
-                syncPeer[selector],
+            Client.EVM2AnyMessage memory message = _syncLaneMessage(
+                selector,
                 _user,
                 referrer,
                 key
             );
 
-            uint256 fee = IRouterClient(router).getFee(
+            uint256 fee = _routerFee(
+                router,
                 selector,
                 message
             );
@@ -388,9 +277,11 @@ contract ReferralRegistry is
                 InsufficientSyncFee()
             );
 
-            bytes32 messageId = IRouterClient(router).ccipSend{value: fee}(
+            bytes32 messageId = _routerSend(
+                router,
                 selector,
-                message
+                message,
+                fee
             );
 
             emit SyncBroadcast(
@@ -402,8 +293,9 @@ contract ReferralRegistry is
             );
         }
 
-        _refundExcessSyncFee(
-            spentFee
+        _refundExcess(
+            spentFee,
+            false
         );
     }
 
@@ -415,23 +307,21 @@ contract ReferralRegistry is
         view
         returns (uint256 totalFee)
     {
-        uint256 key = referrerKey[_user];
-
-        address referrer = referrerOf[_user];
+        (
+            uint256 key,
+            address router,
+            address referrer
+        ) = _syncLanePrelude(
+            _user,
+            _selectors
+        );
 
         for (uint256 i; i < _selectors.length; ++i) {
-
-            uint64 selector = _selectors[i];
-
-            require(
-                syncPeerEnabled[selector] == true,
-                SyncPeerNotEnabled()
-            );
-
-            totalFee += IRouterClient(ccipRouter).getFee(
-                selector,
-                _buildSyncMessage(
-                    syncPeer[selector],
+            totalFee += _routerFee(
+                router,
+                _selectors[i],
+                _syncLaneMessage(
+                    _selectors[i],
                     _user,
                     referrer,
                     key
@@ -445,9 +335,16 @@ contract ReferralRegistry is
     )
         external
     {
-        uint256 stamp = _packSyncKey(
-            block.timestamp,
-            LOCAL_CHAIN_RANK
+        require(
+            everAllowedVault[msg.sender] == false,
+            InvalidPayoutOwner()
+        );
+
+        uint256 stamp = _localSyncKey();
+
+        require(
+            stamp > payoutStamp[msg.sender],
+            PayoutStampNotNewer()
         );
 
         payoutAddress[msg.sender] = _payout;
@@ -467,39 +364,26 @@ contract ReferralRegistry is
         external
         payable
     {
-        uint256 stamp = payoutStamp[_owner];
-
-        require(
-            stamp != 0,
-            NothingToPush()
-        );
-
-        address hub = payoutHub;
-
-        require(
-            hub != ZERO_ADDRESS,
-            PayoutHubNotSet()
-        );
-
-        address router = ccipRouter;
-
-        require(
-            router != ZERO_ADDRESS,
-            RouterNotSet()
+        (
+            uint256 stamp,
+            address hub,
+            address router
+        ) = _payoutPushPrelude(
+            _owner
         );
 
         uint64 destChainSelector = payoutHubChainSelector;
 
         address payout = payoutAddress[_owner];
 
-        Client.EVM2AnyMessage memory message = _buildPayoutPushMessage(
+        Client.EVM2AnyMessage memory message = _payoutPushMessage(
             hub,
             _owner,
-            payout,
             stamp
         );
 
-        uint256 fee = IRouterClient(router).getFee(
+        uint256 fee = _routerFee(
+            router,
             destChainSelector,
             message
         );
@@ -509,12 +393,10 @@ contract ReferralRegistry is
             InsufficientPushFee()
         );
 
-        bytes32 messageId = IRouterClient(router).ccipSend{value: fee}(
+        bytes32 messageId = _routerSend(
+            router,
             destChainSelector,
-            message
-        );
-
-        _refundExcessPushFee(
+            message,
             fee
         );
 
@@ -525,6 +407,11 @@ contract ReferralRegistry is
             stamp,
             messageId
         );
+
+        _refundExcess(
+            fee,
+            true
+        );
     }
 
     function quotePushPayoutFee(
@@ -534,18 +421,21 @@ contract ReferralRegistry is
         view
         returns (uint256)
     {
-        require(
-            payoutHub != ZERO_ADDRESS,
-            PayoutHubNotSet()
+        (
+            uint256 stamp,
+            address hub,
+            address router
+        ) = _payoutPushPrelude(
+            _owner
         );
 
-        return IRouterClient(ccipRouter).getFee(
+        return _routerFee(
+            router,
             payoutHubChainSelector,
-            _buildPayoutPushMessage(
-                payoutHub,
+            _payoutPushMessage(
+                hub,
                 _owner,
-                payoutAddress[_owner],
-                payoutStamp[_owner]
+                stamp
             )
         );
     }
@@ -571,56 +461,27 @@ contract ReferralRegistry is
     )
         external
     {
-        address current = referrerOf[_user];
-
         uint256 count = trackedVaults.length;
 
         for (uint256 i; i < count; ++i) {
 
-            address vault = trackedVaults[i];
-
-            address old = pendingFlip[vault][_user];
-
-            if (old == ZERO_ADDRESS) {
-                continue;
-            }
-
-            delete pendingFlip[vault][_user];
-
-            if (old == current) {
-
-                emit FlipCleared(
-                    vault,
-                    _user,
-                    old
-                );
-
-                continue;
-            }
-
-            try IVaultCohortFlip(vault).receiveReferrerFlip(
-                _user,
-                old,
-                current
-            ) {
-                emit FlipMigrated(
-                    vault,
-                    _user,
-                    old,
-                    current
-                );
-            } catch {
-
-                pendingFlip[vault][_user] = old;
-
-                emit FlipMigrationDeferred(
-                    vault,
-                    _user,
-                    old,
-                    current
-                );
-            }
+            _pokeVault(
+                trackedVaults[i],
+                _user
+            );
         }
+    }
+
+    function pokeMigrationAt(
+        address _user,
+        address _vault
+    )
+        external
+    {
+        _pokeVault(
+            _vault,
+            _user
+        );
     }
 
     function proposeCorrectReferrer(
@@ -645,31 +506,33 @@ contract ReferralRegistry is
             SelfReferral()
         );
 
-        require(
-            _newReferrer != address(this),
-            InvalidReferrer()
+        _requireReferrerIdentity(
+            _newReferrer
         );
 
-        require(
-            allowedVault[_newReferrer] == false,
-            InvalidReferrer()
+        _requireNoReferralCycle(
+            _user,
+            _newReferrer
         );
 
         address current = referrerOf[_user];
 
         require(
-            current != ZERO_ADDRESS,
+            current != ZERO_ADDRESS
+                && _newReferrer != current,
             NothingToCorrect()
         );
 
         require(
-            _newReferrer != current,
-            NothingToCorrect()
+            (referrerKey[_user] & KEY_RANK_MASK) == LOCAL_CHAIN_RANK,
+            WrongCorrectionChain()
         );
 
         proposedCorrection[_user] = _newReferrer;
 
         correctionQueuedAt[_user] = block.timestamp;
+
+        proposedCorrectionKey[_user] = referrerKey[_user];
 
         emit ReferralCorrectionProposed(
             _user,
@@ -699,6 +562,8 @@ contract ReferralRegistry is
         delete proposedCorrection[_user];
 
         delete correctionQueuedAt[_user];
+
+        delete proposedCorrectionKey[_user];
 
         emit ReferralCorrectionCancelled(
             _user,
@@ -732,23 +597,45 @@ contract ReferralRegistry is
 
         address newReferrer = proposedCorrection[_user];
 
+        _requireReferrerIdentity(
+            newReferrer
+        );
+
+        _requireNoReferralCycle(
+            _user,
+            newReferrer
+        );
+
+        uint256 currentKey = referrerKey[_user];
+
         require(
-            allowedVault[newReferrer] == false,
-            InvalidReferrer()
+            currentKey == proposedCorrectionKey[_user],
+            NothingToCorrect()
+        );
+
+        uint256 correctedKey = block.timestamp < SYNC_KEY_MIRROR
+            ? _packSyncKey(
+                SYNC_KEY_MIRROR - block.timestamp,
+                LOCAL_CHAIN_RANK
+            )
+            : 0;
+
+        require(
+            correctedKey != 0 && correctedKey < currentKey,
+            CorrectionKeyNotLower()
         );
 
         address oldReferrer = referrerOf[_user];
-
-        require(
-            newReferrer != oldReferrer,
-            NothingToCorrect()
-        );
 
         delete proposedCorrection[_user];
 
         delete correctionQueuedAt[_user];
 
+        delete proposedCorrectionKey[_user];
+
         referrerOf[_user] = newReferrer;
+
+        referrerKey[_user] = correctedKey;
 
         _markPendingFlips(
             _user,
@@ -758,7 +645,8 @@ contract ReferralRegistry is
         emit ReferralCorrectionExecuted(
             _user,
             oldReferrer,
-            newReferrer
+            newReferrer,
+            correctedKey
         );
     }
 
@@ -776,277 +664,6 @@ contract ReferralRegistry is
         emit CorrectionsLatched();
     }
 
-    function setCcipRouter(
-        address _router
-    )
-        external
-        onlyMaster
-    {
-        require(
-            _router != ZERO_ADDRESS,
-            ZeroAddress()
-        );
-
-        require(
-            ccipRouter == ZERO_ADDRESS,
-            RouterAlreadySet()
-        );
-
-        ccipRouter = _router;
-
-        emit CcipRouterSet(
-            _router
-        );
-    }
-
-    function setSyncGasLimit(
-        uint64 _gasLimit
-    )
-        external
-        onlyMaster
-    {
-        require(
-            _gasLimit >= SYNC_GAS_LIMIT
-                && _gasLimit <= MAX_SYNC_GAS_LIMIT,
-            InvalidSyncGasLimit()
-        );
-
-        syncGasLimit = _gasLimit;
-
-        emit SyncGasLimitSet(
-            _gasLimit
-        );
-    }
-
-    function proposeSyncPeer(
-        uint64 _chainSelector,
-        address _peer
-    )
-        external
-        onlyMaster
-    {
-        require(
-            _peer != ZERO_ADDRESS,
-            ZeroAddress()
-        );
-
-        proposedSyncPeer[_chainSelector] = _peer;
-
-        syncPeerChangeQueuedAt[_chainSelector] = block.timestamp;
-
-        emit SyncPeerProposed(
-            _chainSelector,
-            _peer,
-            block.timestamp
-        );
-    }
-
-    function executeSyncPeerChange(
-        uint64 _chainSelector
-    )
-        external
-        onlyMaster
-    {
-        address peer = proposedSyncPeer[_chainSelector];
-
-        require(
-            peer != ZERO_ADDRESS,
-            NoSyncPeerProposed()
-        );
-
-        if (syncInitialized) {
-            require(
-                block.timestamp >= syncPeerChangeQueuedAt[_chainSelector] + SYNC_PEER_CHANGE_DELAY,
-                SyncPeerTimelockNotElapsed()
-            );
-        }
-
-        syncPeer[_chainSelector] = peer;
-
-        syncPeerEnabled[_chainSelector] = true;
-
-        delete proposedSyncPeer[_chainSelector];
-
-        delete syncPeerChangeQueuedAt[_chainSelector];
-
-        emit SyncPeerSet(
-            _chainSelector,
-            peer
-        );
-    }
-
-    function cancelSyncPeerChange(
-        uint64 _chainSelector
-    )
-        external
-        onlyMaster
-    {
-        address peer = proposedSyncPeer[_chainSelector];
-
-        require(
-            peer != ZERO_ADDRESS,
-            NoSyncPeerProposed()
-        );
-
-        delete proposedSyncPeer[_chainSelector];
-
-        delete syncPeerChangeQueuedAt[_chainSelector];
-
-        emit SyncPeerProposalCancelled(
-            _chainSelector,
-            peer
-        );
-    }
-
-    function removeSyncPeer(
-        uint64 _chainSelector
-    )
-        external
-        onlyMaster
-    {
-        address peer = syncPeer[_chainSelector];
-
-        if (peer == ZERO_ADDRESS) {
-            return;
-        }
-
-        syncPeerEnabled[_chainSelector] = false;
-
-        delete syncPeer[_chainSelector];
-
-        emit SyncPeerRemoved(
-            _chainSelector,
-            peer
-        );
-    }
-
-    function finalizeSyncSetup()
-        external
-        onlyMaster
-    {
-        require(
-            syncInitialized == false,
-            SyncSetupAlreadyFinalized()
-        );
-
-        require(
-            ccipRouter != ZERO_ADDRESS,
-            RouterNotSet()
-        );
-
-        syncInitialized = true;
-
-        emit SyncSetupFinalized();
-    }
-
-    function proposePayoutHub(
-        address _hub,
-        uint64 _chainSelector
-    )
-        external
-        onlyMaster
-    {
-        proposedPayoutHub = _hub;
-
-        proposedPayoutHubChainSelector = _chainSelector;
-
-        payoutHubChangeQueuedAt = block.timestamp;
-
-        emit PayoutHubProposed(
-            _hub,
-            _chainSelector,
-            block.timestamp
-        );
-    }
-
-    function executePayoutHubChange()
-        external
-        onlyMaster
-    {
-        require(
-            payoutHubChangeQueuedAt > 0,
-            NoPayoutHubProposed()
-        );
-
-        if (syncInitialized) {
-            require(
-                block.timestamp >= payoutHubChangeQueuedAt + PAYOUT_HUB_CHANGE_DELAY,
-                PayoutHubTimelockNotElapsed()
-            );
-        }
-
-        address hub = proposedPayoutHub;
-
-        uint64 chainSelector = proposedPayoutHubChainSelector;
-
-        require(
-            (hub == ZERO_ADDRESS) == (chainSelector == 0),
-            InvalidPayoutHub()
-        );
-
-        payoutHub = hub;
-
-        payoutHubChainSelector = chainSelector;
-
-        proposedPayoutHub = ZERO_ADDRESS;
-
-        proposedPayoutHubChainSelector = 0;
-
-        payoutHubChangeQueuedAt = 0;
-
-        emit PayoutHubSet(
-            hub,
-            chainSelector
-        );
-    }
-
-    function cancelPayoutHubChange()
-        external
-        onlyMaster
-    {
-        address hub = proposedPayoutHub;
-
-        proposedPayoutHub = ZERO_ADDRESS;
-
-        proposedPayoutHubChainSelector = 0;
-
-        payoutHubChangeQueuedAt = 0;
-
-        emit PayoutHubProposalCancelled(
-            hub
-        );
-    }
-
-    function setAllowedVault(
-        address _vault,
-        bool _allowed
-    )
-        external
-        onlyMaster
-    {
-        require(
-            _vault != ZERO_ADDRESS,
-            ZeroAddress()
-        );
-
-        allowedVault[_vault] = _allowed;
-
-        if (_allowed) {
-            _trackVault(
-                _vault
-            );
-        } else {
-            _untrackVault(
-                _vault
-            );
-        }
-
-        emit VaultAllowedSet(
-            _vault,
-            _allowed
-        );
-    }
-
     function stageCarry(
         address _dstVault,
         address _user,
@@ -1056,31 +673,17 @@ contract ReferralRegistry is
         onlyAllowedVault
     {
         require(
-            _dstVault != ZERO_ADDRESS,
+            _dstVault != ZERO_ADDRESS
+                && _user != ZERO_ADDRESS,
             ZeroAddress()
         );
 
         require(
-            _user != ZERO_ADDRESS,
-            ZeroAddress()
-        );
-
-        require(
-            _dstVault != msg.sender,
+            _dstVault != msg.sender
+                && _payload.length > 0
+                && _payload.length <= CohortWeeks.MAX_CARRY_WORDS,
             CarryPayloadInvalid()
         );
-
-        require(
-            _payload.length > 0,
-            CarryPayloadInvalid()
-        );
-
-        require(
-            _payload.length <= CohortWeeks.MAX_CARRY_WORDS,
-            CarryPayloadInvalid()
-        );
-
-        delete carryPayload[msg.sender][_dstVault][_user];
 
         carryPayload[msg.sender][_dstVault][_user] = _payload;
 
@@ -1145,314 +748,14 @@ contract ReferralRegistry is
         payload = carryPayload[_srcVault][_dstVault][_user];
     }
 
-    function _mergeReferrerPair(
-        address _user,
-        address _referrer,
-        uint256 _assignedAt,
-        uint256 _rank
-    )
-        internal
-    {
-        require(
-            _user != ZERO_ADDRESS,
-            ZeroAddress()
-        );
-
-        require(
-            _referrer != ZERO_ADDRESS,
-            ZeroAddress()
-        );
-
-        require(
-            _referrer != _user,
-            SelfReferral()
-        );
-
-        require(
-            _referrer != address(this),
-            InvalidReferrer()
-        );
-
-        require(
-            allowedVault[_referrer] == false,
-            InvalidReferrer()
-        );
-
-        require(
-            _assignedAt > 0,
-            SyncKeyInvalid()
-        );
-
-        require(
-            _assignedAt <= block.timestamp + MAX_SYNC_FUTURE_DRIFT,
-            SyncKeyInvalid()
-        );
-
-        require(
-            _rank <= MAX_CHAIN_RANK,
-            SyncKeyInvalid()
-        );
-
-        uint256 incomingKey = _packSyncKey(
-            _assignedAt,
-            _rank
-        );
-
-        uint256 localKey = referrerKey[_user];
-
-        address localReferrer = referrerOf[_user];
-
-        if (localKey == 0) {
-
-            referrerOf[_user] = _referrer;
-
-            referrerKey[_user] = incomingKey;
-
-            emit ReferralSyncAdopted(
-                _user,
-                _referrer,
-                incomingKey
-            );
-
-            return;
-        }
-
-        if (incomingKey >= localKey) {
-
-            if (incomingKey == localKey && _referrer != localReferrer) {
-                emit SyncKeyCollision(
-                    _user,
-                    localReferrer,
-                    _referrer,
-                    incomingKey
-                );
-            }
-
-            return;
-        }
-
-        referrerKey[_user] = incomingKey;
-
-        if (_referrer == localReferrer) {
-
-            emit ReferralSyncKeyLowered(
-                _user,
-                _referrer,
-                localKey,
-                incomingKey
-            );
-
-            return;
-        }
-
-        referrerOf[_user] = _referrer;
-
-        _markPendingFlips(
-            _user,
-            localReferrer
-        );
-
-        emit ReferralSyncFlipped(
-            _user,
-            localReferrer,
-            _referrer,
-            incomingKey
-        );
-    }
-
-    function _markPendingFlips(
-        address _user,
-        address _oldReferrer
-    )
-        internal
-    {
-        uint256 count = trackedVaults.length;
-
-        for (uint256 i; i < count; ++i) {
-
-            address vault = trackedVaults[i];
-
-            if (pendingFlip[vault][_user] != ZERO_ADDRESS) {
-                continue;
-            }
-
-            pendingFlip[vault][_user] = _oldReferrer;
-
-            emit FlipMarked(
-                vault,
-                _user,
-                _oldReferrer
-            );
-        }
-    }
-
-    function _buildSyncMessage(
-        address _peer,
-        address _user,
-        address _referrer,
-        uint256 _key
-    )
+    function _localSyncKey()
         internal
         view
-        returns (Client.EVM2AnyMessage memory)
-    {
-        uint64 gasLimit = syncGasLimit == 0
-            ? SYNC_GAS_LIMIT
-            : syncGasLimit;
-
-        return Client.EVM2AnyMessage({
-            receiver: abi.encode(
-                _peer
-            ),
-            data: abi.encode(
-                SYNC_VERSION,
-                _user,
-                _referrer,
-                _key >> KEY_RANK_SHIFT,
-                _key & KEY_RANK_MASK
-            ),
-            tokenAmounts: new Client.EVMTokenAmount[](0),
-            feeToken: ZERO_ADDRESS,
-            extraArgs: Client._argsToBytes(
-                Client.GenericExtraArgsV2({
-                    gasLimit: gasLimit,
-                    allowOutOfOrderExecution: true
-                })
-            )
-        });
-    }
-
-    function _refundExcessSyncFee(
-        uint256 _spentFee
-    )
-        internal
-    {
-        if (msg.value <= _spentFee) {
-            return;
-        }
-
-        (
-            bool ok,
-        ) = msg.sender.call{
-            value: msg.value - _spentFee
-        }("");
-
-        require(
-            ok,
-            SyncRefundFailed()
-        );
-    }
-
-    function _buildPayoutPushMessage(
-        address _hub,
-        address _owner,
-        address _payout,
-        uint256 _stamp
-    )
-        internal
-        view
-        returns (Client.EVM2AnyMessage memory)
-    {
-        uint64 gasLimit = syncGasLimit == 0
-            ? SYNC_GAS_LIMIT
-            : syncGasLimit;
-
-        return Client.EVM2AnyMessage({
-            receiver: abi.encode(
-                _hub
-            ),
-            data: abi.encode(
-                PAYOUT_PUSH_VERSION,
-                _owner,
-                _payout,
-                _stamp >> KEY_RANK_SHIFT,
-                _stamp & KEY_RANK_MASK
-            ),
-            tokenAmounts: new Client.EVMTokenAmount[](0),
-            feeToken: ZERO_ADDRESS,
-            extraArgs: Client._argsToBytes(
-                Client.GenericExtraArgsV2({
-                    gasLimit: gasLimit,
-                    allowOutOfOrderExecution: true
-                })
-            )
-        });
-    }
-
-    function _refundExcessPushFee(
-        uint256 _spentFee
-    )
-        internal
-    {
-        if (msg.value <= _spentFee) {
-            return;
-        }
-
-        (
-            bool ok,
-        ) = msg.sender.call{
-            value: msg.value - _spentFee
-        }("");
-
-        require(
-            ok,
-            PushRefundFailed()
-        );
-    }
-
-    function _trackVault(
-        address _vault
-    )
-        internal
-    {
-        uint256 count = trackedVaults.length;
-
-        for (uint256 i; i < count; ++i) {
-
-            if (trackedVaults[i] == _vault) {
-                return;
-            }
-        }
-
-        require(
-            count < MAX_TRACKED_VAULTS,
-            TooManyTrackedVaults()
-        );
-
-        trackedVaults.push(
-            _vault
-        );
-    }
-
-    function _untrackVault(
-        address _vault
-    )
-        internal
-    {
-        uint256 count = trackedVaults.length;
-
-        for (uint256 i; i < count; ++i) {
-
-            if (trackedVaults[i] != _vault) {
-                continue;
-            }
-
-            trackedVaults[i] = trackedVaults[count - 1];
-
-            trackedVaults.pop();
-
-            return;
-        }
-    }
-
-    function _packSyncKey(
-        uint256 _assignedAt,
-        uint256 _rank
-    )
-        internal
-        pure
         returns (uint256)
     {
-        return (_assignedAt << KEY_RANK_SHIFT) | _rank;
+        return _packSyncKey(
+            block.timestamp,
+            LOCAL_CHAIN_RANK
+        );
     }
 }
