@@ -121,10 +121,10 @@ contract WiseTelecomNodesDiamondSmokeTest is Test {
             )
         );
 
-        bytes4[] memory adminSels = WiseTelecomNodesDiamondSelectors.adminSelectors();
-        bytes4[] memory proxySels = WiseTelecomNodesDiamondSelectors.proxySelectors();
-        bytes4[] memory userSels = WiseTelecomNodesDiamondSelectors.userSelectors();
-        bytes4[] memory sweepSels = WiseTelecomNodesDiamondSelectors.sweepSelectors();
+        bytes4[] memory adminSels = WiseTelecomNodesDiamondSelectors._adminSelectors();
+        bytes4[] memory proxySels = WiseTelecomNodesDiamondSelectors._proxySelectors();
+        bytes4[] memory userSels = WiseTelecomNodesDiamondSelectors._userSelectors();
+        bytes4[] memory sweepSels = WiseTelecomNodesDiamondSelectors._sweepSelectors();
 
         d.proposeSelectors(
             adminSels,
@@ -206,7 +206,9 @@ contract WiseTelecomNodesDiamondSmokeTest is Test {
         );
 
         assertEq(
-            d.balanceOf(user1),
+            d.balanceOf(
+                user1
+            ),
             1_000 * 1e6
         );
     }
@@ -231,12 +233,16 @@ contract WiseTelecomNodesDiamondSmokeTest is Test {
         );
 
         assertEq(
-            d.balanceOf(user1),
+            d.balanceOf(
+                user1
+            ),
             800 * 1e6
         );
 
         assertEq(
-            d.balanceOf(user2),
+            d.balanceOf(
+                user2
+            ),
             200 * 1e6
         );
     }
@@ -287,7 +293,9 @@ contract WiseTelecomNodesDiamondSmokeTest is Test {
         );
 
         assertEq(
-            diamond.balanceOf(user2),
+            diamond.balanceOf(
+                user2
+            ),
             1_000 * 1e6
         );
 
@@ -358,7 +366,9 @@ contract WiseTelecomNodesDiamondSmokeTest is Test {
         );
 
         assertEq(
-            diamond.lastLargeDepositAt(user1),
+            diamond.lastLargeDepositAt(
+                user1
+            ),
             0
         );
 
@@ -401,7 +411,9 @@ contract WiseTelecomNodesDiamondSmokeTest is Test {
         );
 
         assertEq(
-            diamond.lastLargeDepositAt(user2),
+            diamond.lastLargeDepositAt(
+                user2
+            ),
             block.timestamp
         );
     }
@@ -426,7 +438,9 @@ contract WiseTelecomNodesDiamondSmokeTest is Test {
         );
 
         assertEq(
-            d.proxyBalance(user1),
+            d.proxyBalance(
+                user1
+            ),
             500 * 1e6
         );
 
@@ -440,7 +454,9 @@ contract WiseTelecomNodesDiamondSmokeTest is Test {
         );
 
         assertEq(
-            d.proxyBalance(user1),
+            d.proxyBalance(
+                user1
+            ),
             200 * 1e6
         );
     }

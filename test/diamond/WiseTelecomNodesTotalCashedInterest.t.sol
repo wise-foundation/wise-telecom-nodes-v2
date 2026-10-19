@@ -303,7 +303,9 @@ contract WiseTelecomNodesTotalCashedInterestTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.cashedInterest(user1),
+            diamond.cashedInterest(
+                user1
+            ),
             0
         );
 
@@ -343,7 +345,9 @@ contract WiseTelecomNodesTotalCashedInterestTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.cashedInterest(user1),
+            diamond.cashedInterest(
+                user1
+            ),
             cashed - amount
         );
 
@@ -391,7 +395,9 @@ contract WiseTelecomNodesTotalCashedInterestTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.cashedInterest(user1),
+            diamond.cashedInterest(
+                user1
+            ),
             0
         );
 
@@ -401,12 +407,16 @@ contract WiseTelecomNodesTotalCashedInterestTest is DiamondTestHarness {
         );
 
         assertEq(
-            usd.balanceOf(user1),
+            usd.balanceOf(
+                user1
+            ),
             amount
         );
 
         assertEq(
-            diamond.balanceOf(user1),
+            diamond.balanceOf(
+                user1
+            ),
             balanceBefore + cashed - amount
         );
     }
@@ -446,7 +456,9 @@ contract WiseTelecomNodesTotalCashedInterestTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.balanceOf(user1),
+            diamond.balanceOf(
+                user1
+            ),
             balanceBefore + cashed
         );
 
@@ -498,12 +510,16 @@ contract WiseTelecomNodesTotalCashedInterestTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.cashedInterest(user1),
+            diamond.cashedInterest(
+                user1
+            ),
             cashed1 - moveAmount
         );
 
         assertEq(
-            diamond.cashedInterest(user2),
+            diamond.cashedInterest(
+                user2
+            ),
             cashed2 + moveAmount
         );
 
@@ -550,12 +566,16 @@ contract WiseTelecomNodesTotalCashedInterestTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.cashedInterest(user1),
+            diamond.cashedInterest(
+                user1
+            ),
             pending1
         );
 
         assertEq(
-            diamond.cashedInterest(user2),
+            diamond.cashedInterest(
+                user2
+            ),
             pending2
         );
 
@@ -612,7 +632,9 @@ contract WiseTelecomNodesTotalCashedInterestTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.cashedInterest(user3),
+            diamond.cashedInterest(
+                user3
+            ),
             0
         );
 
@@ -670,7 +692,9 @@ contract WiseTelecomNodesTotalCashedInterestTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.cashedInterest(comp),
+            diamond.cashedInterest(
+                comp
+            ),
             0
         );
 
@@ -712,7 +736,9 @@ contract WiseTelecomNodesTotalCashedInterestTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.cashedInterest(comp),
+            diamond.cashedInterest(
+                comp
+            ),
             0
         );
 

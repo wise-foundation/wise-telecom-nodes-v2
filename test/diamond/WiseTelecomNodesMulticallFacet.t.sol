@@ -190,13 +190,19 @@ contract WiseTelecomNodesMulticallFacetTest is DiamondTestHarness {
         );
 
         assertGt(
-            diamond.balanceOf(user1),
+            diamond.balanceOf(
+                user1
+            ),
             0
         );
 
         assertEq(
-            diamond.balanceOf(user1),
-            diamond.balanceOf(user2)
+            diamond.balanceOf(
+                user1
+            ),
+            diamond.balanceOf(
+                user2
+            )
         );
     }
 
@@ -249,7 +255,9 @@ contract WiseTelecomNodesMulticallFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.balanceOf(user1),
+            diamond.balanceOf(
+                user1
+            ),
             2 * singleShares
         );
     }
@@ -317,7 +325,9 @@ contract WiseTelecomNodesMulticallFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.balanceOf(user1),
+            diamond.balanceOf(
+                user1
+            ),
             DEPOSIT
         );
     }
@@ -403,12 +413,16 @@ contract WiseTelecomNodesMulticallFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.balanceOf(user1),
+            diamond.balanceOf(
+                user1
+            ),
             0
         );
 
         assertEq(
-            usd.balanceOf(address(diamond)),
+            usd.balanceOf(
+                address(diamond)
+            ),
             0
         );
     }

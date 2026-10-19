@@ -135,8 +135,13 @@ contract WiseTelecomNodesMoveFacetTest is Test {
     {
         _ensurePermit2();
 
-        usdA = new MockUSDFlex(6);
-        usdB = new MockUSDFlex(6);
+        usdA = new MockUSDFlex(
+            6
+        );
+
+        usdB = new MockUSDFlex(
+            6
+        );
 
         vm.warp(
             1_700_000_000
@@ -213,43 +218,43 @@ contract WiseTelecomNodesMoveFacetTest is Test {
         _wireOne(
             _d,
             address(new AdminFacet()),
-            WiseTelecomNodesDiamondSelectors.adminSelectors()
+            WiseTelecomNodesDiamondSelectors._adminSelectors()
         );
 
         _wireOne(
             _d,
             address(new ProxyFacet()),
-            WiseTelecomNodesDiamondSelectors.proxySelectors()
+            WiseTelecomNodesDiamondSelectors._proxySelectors()
         );
 
         _wireOne(
             _d,
             address(new UserFacet()),
-            WiseTelecomNodesDiamondSelectors.userSelectors()
+            WiseTelecomNodesDiamondSelectors._userSelectors()
         );
 
         _wireOne(
             _d,
             address(new SweepFacet()),
-            WiseTelecomNodesDiamondSelectors.sweepSelectors()
+            WiseTelecomNodesDiamondSelectors._sweepSelectors()
         );
 
         _wireOne(
             _d,
             address(new BurnWiseFacet()),
-            WiseTelecomNodesDiamondSelectors.burnWiseSelectors()
+            WiseTelecomNodesDiamondSelectors._burnWiseSelectors()
         );
 
         _wireOne(
             _d,
             address(new MoveFacet()),
-            WiseTelecomNodesDiamondSelectors.moveSelectors()
+            WiseTelecomNodesDiamondSelectors._moveSelectors()
         );
 
         _wireOne(
             _d,
             address(new Permit2UserFacet()),
-            WiseTelecomNodesDiamondSelectors.permit2Selectors()
+            WiseTelecomNodesDiamondSelectors._permit2Selectors()
         );
     }
 
@@ -398,12 +403,16 @@ contract WiseTelecomNodesMoveFacetTest is Test {
         );
 
         assertEq(
-            MoveFacet(address(diamondA)).peerVaultChangeQueuedAt(newPeer),
+            MoveFacet(address(diamondA)).peerVaultChangeQueuedAt(
+                newPeer
+            ),
             block.timestamp
         );
 
         assertFalse(
-            MoveFacet(address(diamondA)).peerVault(newPeer)
+            MoveFacet(address(diamondA)).peerVault(
+                newPeer
+            )
         );
     }
 
@@ -439,7 +448,9 @@ contract WiseTelecomNodesMoveFacetTest is Test {
             newPeer
         );
 
-        uint256 firstQueuedAt = MoveFacet(address(diamondA)).peerVaultChangeQueuedAt(newPeer);
+        uint256 firstQueuedAt = MoveFacet(address(diamondA)).peerVaultChangeQueuedAt(
+            newPeer
+        );
 
         vm.warp(
             block.timestamp + 1_000
@@ -449,7 +460,9 @@ contract WiseTelecomNodesMoveFacetTest is Test {
             newPeer
         );
 
-        uint256 secondQueuedAt = MoveFacet(address(diamondA)).peerVaultChangeQueuedAt(newPeer);
+        uint256 secondQueuedAt = MoveFacet(address(diamondA)).peerVaultChangeQueuedAt(
+            newPeer
+        );
 
         assertEq(
             secondQueuedAt,
@@ -551,7 +564,9 @@ contract WiseTelecomNodesMoveFacetTest is Test {
         );
 
         assertTrue(
-            MoveFacet(address(diamondA)).peerVault(newPeer)
+            MoveFacet(address(diamondA)).peerVault(
+                newPeer
+            )
         );
     }
 
@@ -573,7 +588,9 @@ contract WiseTelecomNodesMoveFacetTest is Test {
         );
 
         assertEq(
-            MoveFacet(address(diamondA)).peerVaultChangeQueuedAt(newPeer),
+            MoveFacet(address(diamondA)).peerVaultChangeQueuedAt(
+                newPeer
+            ),
             0
         );
     }
@@ -673,7 +690,9 @@ contract WiseTelecomNodesMoveFacetTest is Test {
         );
 
         assertEq(
-            MoveFacet(address(diamondA)).peerVaultChangeQueuedAt(newPeer),
+            MoveFacet(address(diamondA)).peerVaultChangeQueuedAt(
+                newPeer
+            ),
             0
         );
     }
@@ -770,7 +789,9 @@ contract WiseTelecomNodesMoveFacetTest is Test {
         );
 
         assertFalse(
-            MoveFacet(address(diamondA)).peerVault(address(diamondB))
+            MoveFacet(address(diamondA)).peerVault(
+                address(diamondB)
+            )
         );
     }
 
@@ -788,7 +809,9 @@ contract WiseTelecomNodesMoveFacetTest is Test {
         );
 
         assertEq(
-            MoveFacet(address(diamondA)).peerVaultChangeQueuedAt(newPeer),
+            MoveFacet(address(diamondA)).peerVaultChangeQueuedAt(
+                newPeer
+            ),
             0
         );
 
@@ -872,12 +895,16 @@ contract WiseTelecomNodesMoveFacetTest is Test {
         );
 
         assertEq(
-            diamondA.balanceOf(user1),
+            diamondA.balanceOf(
+                user1
+            ),
             0
         );
 
         assertEq(
-            diamondB.balanceOf(user1),
+            diamondB.balanceOf(
+                user1
+            ),
             amount
         );
 
@@ -938,26 +965,36 @@ contract WiseTelecomNodesMoveFacetTest is Test {
         );
 
         assertEq(
-            diamondA.balanceOf(user1),
+            diamondA.balanceOf(
+                user1
+            ),
             0
         );
 
         assertEq(
-            diamondB.balanceOf(user1),
+            diamondB.balanceOf(
+                user1
+            ),
             amount
         );
 
         assertEq(
-            diamondA.cashedInterest(user1),
+            diamondA.cashedInterest(
+                user1
+            ),
             expectedInterest
         );
 
         assertEq(
-            diamondA.lastSyncTimeStamp(user1),
+            diamondA.lastSyncTimeStamp(
+                user1
+            ),
             block.timestamp
         );
 
-        uint256 userUsdBefore = usdA.balanceOf(user1);
+        uint256 userUsdBefore = usdA.balanceOf(
+            user1
+        );
 
         vm.prank(
             user1
@@ -971,7 +1008,9 @@ contract WiseTelecomNodesMoveFacetTest is Test {
         );
 
         assertEq(
-            usdA.balanceOf(user1),
+            usdA.balanceOf(
+                user1
+            ),
             userUsdBefore + expectedInterest
         );
     }
@@ -1074,12 +1113,16 @@ contract WiseTelecomNodesMoveFacetTest is Test {
         );
 
         assertEq(
-            diamondA.balanceOf(user1),
+            diamondA.balanceOf(
+                user1
+            ),
             deposit - moveAmount
         );
 
         assertEq(
-            diamondB.balanceOf(user1),
+            diamondB.balanceOf(
+                user1
+            ),
             moveAmount
         );
     }
@@ -1144,7 +1187,9 @@ contract WiseTelecomNodesMoveFacetTest is Test {
             amount
         );
 
-        bytes32 compoundTopic = keccak256("CompoundInterest(address,uint256)");
+        bytes32 compoundTopic = keccak256(
+            "CompoundInterest(address,uint256)"
+        );
 
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
@@ -1155,22 +1200,30 @@ contract WiseTelecomNodesMoveFacetTest is Test {
         }
 
         assertEq(
-            diamondA.cashedInterest(user1),
+            diamondA.cashedInterest(
+                user1
+            ),
             0
         );
 
         assertEq(
-            diamondA.lastSyncTimeStamp(user1),
+            diamondA.lastSyncTimeStamp(
+                user1
+            ),
             block.timestamp
         );
 
         assertEq(
-            diamondA.balanceOf(user1),
+            diamondA.balanceOf(
+                user1
+            ),
             0
         );
 
         assertEq(
-            diamondB.balanceOf(user1),
+            diamondB.balanceOf(
+                user1
+            ),
             amount
         );
     }
@@ -1193,8 +1246,13 @@ contract WiseTelecomNodesMoveFacetTest is Test {
 
         uint256 expectedInterest = amount * INTEREST_RATE / PRECISION_RATE;
 
-        uint256 thirdPtyBefore = usdA.balanceOf(thirdPty);
-        uint256 vaultUsdBefore = usdA.balanceOf(address(diamondA));
+        uint256 thirdPtyBefore = usdA.balanceOf(
+            thirdPty
+        );
+
+        uint256 vaultUsdBefore = usdA.balanceOf(
+            address(diamondA)
+        );
 
         vm.recordLogs();
 
@@ -1207,7 +1265,9 @@ contract WiseTelecomNodesMoveFacetTest is Test {
             amount
         );
 
-        bytes32 compoundTopic = keccak256("CompoundInterest(address,uint256)");
+        bytes32 compoundTopic = keccak256(
+            "CompoundInterest(address,uint256)"
+        );
 
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
@@ -1218,22 +1278,30 @@ contract WiseTelecomNodesMoveFacetTest is Test {
         }
 
         assertEq(
-            usdA.balanceOf(thirdPty),
+            usdA.balanceOf(
+                thirdPty
+            ),
             thirdPtyBefore
         );
 
         assertEq(
-            usdA.balanceOf(address(diamondA)),
+            usdA.balanceOf(
+                address(diamondA)
+            ),
             vaultUsdBefore
         );
 
         assertEq(
-            diamondA.cashedInterest(user1),
+            diamondA.cashedInterest(
+                user1
+            ),
             expectedInterest
         );
 
         assertEq(
-            diamondB.balanceOf(user1),
+            diamondB.balanceOf(
+                user1
+            ),
             amount
         );
     }
@@ -1271,11 +1339,15 @@ contract WiseTelecomNodesMoveFacetTest is Test {
         );
 
         assertEq(
-            diamondA.cashedInterest(user1),
+            diamondA.cashedInterest(
+                user1
+            ),
             cashedExpected
         );
 
-        uint256 balanceAfterSecondDeposit = diamondA.balanceOf(user1);
+        uint256 balanceAfterSecondDeposit = diamondA.balanceOf(
+            user1
+        );
 
         vm.warp(
             block.timestamp + SECONDS_IN_YEAR
@@ -1295,21 +1367,29 @@ contract WiseTelecomNodesMoveFacetTest is Test {
         );
 
         assertEq(
-            diamondA.cashedInterest(user1),
+            diamondA.cashedInterest(
+                user1
+            ),
             cashedExpected + freshPending
         );
 
         assertEq(
-            diamondA.balanceOf(user1),
+            diamondA.balanceOf(
+                user1
+            ),
             balanceAfterSecondDeposit - moveAmount
         );
 
         assertEq(
-            diamondB.balanceOf(user1),
+            diamondB.balanceOf(
+                user1
+            ),
             moveAmount
         );
 
-        uint256 userUsdBefore = usdA.balanceOf(user1);
+        uint256 userUsdBefore = usdA.balanceOf(
+            user1
+        );
 
         vm.prank(
             user1
@@ -1323,7 +1403,9 @@ contract WiseTelecomNodesMoveFacetTest is Test {
         );
 
         assertEq(
-            usdA.balanceOf(user1),
+            usdA.balanceOf(
+                user1
+            ),
             userUsdBefore + cashedExpected + freshPending
         );
     }
@@ -1360,7 +1442,9 @@ contract WiseTelecomNodesMoveFacetTest is Test {
             deposit2
         );
 
-        uint256 balanceAfterSecondDeposit = diamondA.balanceOf(user1);
+        uint256 balanceAfterSecondDeposit = diamondA.balanceOf(
+            user1
+        );
 
         vm.warp(
             block.timestamp + SECONDS_IN_YEAR
@@ -1371,7 +1455,9 @@ contract WiseTelecomNodesMoveFacetTest is Test {
         uint256 fullMovable = balanceAfterSecondDeposit;
 
         assertEq(
-            MoveFacet(address(diamondA)).getMoveableBalance(user1),
+            MoveFacet(address(diamondA)).getMoveableBalance(
+                user1
+            ),
             fullMovable
         );
 
@@ -1385,17 +1471,23 @@ contract WiseTelecomNodesMoveFacetTest is Test {
         );
 
         assertEq(
-            diamondA.balanceOf(user1),
+            diamondA.balanceOf(
+                user1
+            ),
             0
         );
 
         assertEq(
-            diamondB.balanceOf(user1),
+            diamondB.balanceOf(
+                user1
+            ),
             fullMovable
         );
 
         assertEq(
-            diamondA.cashedInterest(user1),
+            diamondA.cashedInterest(
+                user1
+            ),
             cashedExpected + freshPending
         );
     }
@@ -1480,7 +1572,9 @@ contract WiseTelecomNodesMoveFacetTest is Test {
         );
 
         assertEq(
-            diamondA.cashedInterest(user1),
+            diamondA.cashedInterest(
+                user1
+            ),
             pending
         );
 
@@ -1495,7 +1589,9 @@ contract WiseTelecomNodesMoveFacetTest is Test {
         );
 
         assertEq(
-            diamondB.balanceOf(user1),
+            diamondB.balanceOf(
+                user1
+            ),
             amount
         );
     }
@@ -1704,7 +1800,10 @@ contract WiseTelecomNodesMoveFacetTest is Test {
         );
 
         uint256 dstCapBefore = diamondB.totalDepositCap();
-        uint256 balBefore = diamondB.balanceOf(user1);
+
+        uint256 balBefore = diamondB.balanceOf(
+            user1
+        );
 
         vm.prank(
             user1
@@ -1850,7 +1949,9 @@ contract WiseTelecomNodesMoveFacetTest is Test {
     function test_decimalScaling_scaleUp_6to18()
         public
     {
-        MockUSDFlex usd18 = new MockUSDFlex(18);
+        MockUSDFlex usd18 = new MockUSDFlex(
+            18
+        );
 
         WiseTelecomNodesDiamond diamond18 = _deployDiamond(
             address(usd18),
@@ -1891,7 +1992,9 @@ contract WiseTelecomNodesMoveFacetTest is Test {
         );
 
         assertEq(
-            diamond18.balanceOf(user1),
+            diamond18.balanceOf(
+                user1
+            ),
             srcAmount * 1e12
         );
     }
@@ -1899,7 +2002,9 @@ contract WiseTelecomNodesMoveFacetTest is Test {
     function test_decimalScaling_scaleDown_18to6_exactDivisible()
         public
     {
-        MockUSDFlex usd18 = new MockUSDFlex(18);
+        MockUSDFlex usd18 = new MockUSDFlex(
+            18
+        );
 
         WiseTelecomNodesDiamond diamond18 = _deployDiamond(
             address(usd18),
@@ -1940,7 +2045,9 @@ contract WiseTelecomNodesMoveFacetTest is Test {
         );
 
         assertEq(
-            diamondA.balanceOf(user1),
+            diamondA.balanceOf(
+                user1
+            ),
             srcAmount / 1e12
         );
     }
@@ -1948,7 +2055,9 @@ contract WiseTelecomNodesMoveFacetTest is Test {
     function test_decimalScaling_scaleDownToZero_reverts()
         public
     {
-        MockUSDFlex usd18 = new MockUSDFlex(18);
+        MockUSDFlex usd18 = new MockUSDFlex(
+            18
+        );
 
         WiseTelecomNodesDiamond diamond18 = _deployDiamond(
             address(usd18),
@@ -2019,12 +2128,16 @@ contract WiseTelecomNodesMoveFacetTest is Test {
         );
 
         assertEq(
-            diamondA.balanceOf(user1),
+            diamondA.balanceOf(
+                user1
+            ),
             amount
         );
 
         assertEq(
-            diamondB.balanceOf(user1),
+            diamondB.balanceOf(
+                user1
+            ),
             0
         );
     }
@@ -2034,7 +2147,9 @@ contract WiseTelecomNodesMoveFacetTest is Test {
     function test_moveDust_emittedOnScaleDownNonDivisible()
         public
     {
-        MockUSDFlex usd18 = new MockUSDFlex(18);
+        MockUSDFlex usd18 = new MockUSDFlex(
+            18
+        );
 
         WiseTelecomNodesDiamond diamond18 = _deployDiamond(
             address(usd18),
@@ -2107,7 +2222,9 @@ contract WiseTelecomNodesMoveFacetTest is Test {
             amount
         );
 
-        bytes32 moveDustTopic = keccak256("MoveDust(address,address,uint256)");
+        bytes32 moveDustTopic = keccak256(
+            "MoveDust(address,address,uint256)"
+        );
 
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
@@ -2121,7 +2238,9 @@ contract WiseTelecomNodesMoveFacetTest is Test {
     function test_moveDust_notEmittedOnScaleUp()
         public
     {
-        MockUSDFlex usd18 = new MockUSDFlex(18);
+        MockUSDFlex usd18 = new MockUSDFlex(
+            18
+        );
 
         WiseTelecomNodesDiamond diamond18 = _deployDiamond(
             address(usd18),
@@ -2158,7 +2277,9 @@ contract WiseTelecomNodesMoveFacetTest is Test {
             srcAmount
         );
 
-        bytes32 moveDustTopic = keccak256("MoveDust(address,address,uint256)");
+        bytes32 moveDustTopic = keccak256(
+            "MoveDust(address,address,uint256)"
+        );
 
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
@@ -2172,7 +2293,9 @@ contract WiseTelecomNodesMoveFacetTest is Test {
     function test_moveDust_notEmittedOnScaleDownExactDivisible()
         public
     {
-        MockUSDFlex usd18 = new MockUSDFlex(18);
+        MockUSDFlex usd18 = new MockUSDFlex(
+            18
+        );
 
         WiseTelecomNodesDiamond diamond18 = _deployDiamond(
             address(usd18),
@@ -2209,7 +2332,9 @@ contract WiseTelecomNodesMoveFacetTest is Test {
             srcAmount
         );
 
-        bytes32 moveDustTopic = keccak256("MoveDust(address,address,uint256)");
+        bytes32 moveDustTopic = keccak256(
+            "MoveDust(address,address,uint256)"
+        );
 
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
@@ -2227,7 +2352,9 @@ contract WiseTelecomNodesMoveFacetTest is Test {
         view
     {
         assertEq(
-            MoveFacet(address(diamondA)).getMoveableBalance(user1),
+            MoveFacet(address(diamondA)).getMoveableBalance(
+                user1
+            ),
             0
         );
     }
@@ -2256,13 +2383,19 @@ contract WiseTelecomNodesMoveFacetTest is Test {
         );
 
         assertEq(
-            MoveFacet(address(diamondA)).getMoveableBalance(user1),
+            MoveFacet(address(diamondA)).getMoveableBalance(
+                user1
+            ),
             amount
         );
 
         assertEq(
-            MoveFacet(address(diamondA)).getMoveableBalance(user1),
-            diamondA.balanceOf(user1)
+            MoveFacet(address(diamondA)).getMoveableBalance(
+                user1
+            ),
+            diamondA.balanceOf(
+                user1
+            )
         );
     }
 
@@ -2297,18 +2430,24 @@ contract WiseTelecomNodesMoveFacetTest is Test {
         );
 
         assertGt(
-            diamondA.cashedInterest(user1),
+            diamondA.cashedInterest(
+                user1
+            ),
             0
         );
 
-        uint256 balanceNow = diamondA.balanceOf(user1);
+        uint256 balanceNow = diamondA.balanceOf(
+            user1
+        );
 
         vm.warp(
             block.timestamp + SECONDS_IN_YEAR
         );
 
         assertEq(
-            MoveFacet(address(diamondA)).getMoveableBalance(user1),
+            MoveFacet(address(diamondA)).getMoveableBalance(
+                user1
+            ),
             balanceNow
         );
     }
@@ -2347,7 +2486,9 @@ contract WiseTelecomNodesMoveFacetTest is Test {
         );
 
         assertEq(
-            diamondB.lastSyncTimeStamp(user1),
+            diamondB.lastSyncTimeStamp(
+                user1
+            ),
             t
         );
     }
@@ -2382,7 +2523,9 @@ contract WiseTelecomNodesMoveFacetTest is Test {
         );
 
         assertEq(
-            diamondB.balanceOf(user1),
+            diamondB.balanceOf(
+                user1
+            ),
             srcAmount + priorDstAmount
         );
     }
@@ -2393,7 +2536,9 @@ contract WiseTelecomNodesMoveFacetTest is Test {
         internal
         returns (WiseTelecomNodesDiamond diamondC)
     {
-        MockUSDFlex usdC = new MockUSDFlex(6);
+        MockUSDFlex usdC = new MockUSDFlex(
+            6
+        );
 
         diamondC = _deployDiamond(
             address(usdC),
@@ -2445,17 +2590,23 @@ contract WiseTelecomNodesMoveFacetTest is Test {
         );
 
         assertEq(
-            diamondA.balanceOf(user1),
+            diamondA.balanceOf(
+                user1
+            ),
             slice
         );
 
         assertEq(
-            diamondB.balanceOf(user1),
+            diamondB.balanceOf(
+                user1
+            ),
             slice
         );
 
         assertEq(
-            diamondC.balanceOf(user1),
+            diamondC.balanceOf(
+                user1
+            ),
             slice
         );
 
@@ -2541,12 +2692,16 @@ contract WiseTelecomNodesMoveFacetTest is Test {
         );
 
         assertEq(
-            diamondC.balanceOf(user1),
+            diamondC.balanceOf(
+                user1
+            ),
             0
         );
 
         assertEq(
-            diamondA.balanceOf(user1),
+            diamondA.balanceOf(
+                user1
+            ),
             amount
         );
 
@@ -2584,7 +2739,9 @@ contract WiseTelecomNodesMoveFacetTest is Test {
         );
 
         assertEq(
-            diamondC.balanceOf(user1),
+            diamondC.balanceOf(
+                user1
+            ),
             amount
         );
 

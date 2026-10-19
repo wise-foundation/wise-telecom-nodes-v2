@@ -9,7 +9,10 @@ import {WiseTelecomNodesDiamondErrors} from "../../src/diamond/vault/WiseTelecom
 import {AdminFacet} from "../../src/diamond/vault/facets/AdminFacet.sol";
 import {SweepFacet} from "../../src/diamond/vault/facets/SweepFacet.sol";
 import {ReferralPayoutFacet} from "../../src/diamond/vault/facets/pending/ReferralPayoutFacet.sol";
-import {ReferralHub} from "../../src/hub/pending/ReferralHub.sol";
+import {IReferralHub} from "../../src/hub/pending/IReferralHub.sol";
+import {HubLeverGrants} from "../hub/utils/HubLeverGrants.sol";
+import {HubDiamondHarness} from "../hub/utils/HubDiamondHarness.sol";
+import {ReferralHubDeclarations} from "../../src/hub/pending/ReferralHubDeclarations.sol";
 import {CohortWeeks} from "../../src/diamond/shared/pending/CohortWeeks.sol";
 import {NotMaster} from "../../src/diamond/shared/OwnableMaster.sol";
 import {OnlyDelegateCall} from "../../src/diamond/shared/DiamondErrors.sol";
@@ -57,8 +60,12 @@ contract MockUSD is ERC20 {
  * standalone {ReferralHub}: score report → crumb pricing → liability
  * booked on the vault → claim pulls funding out of the vault's USD
  * pool and pays the referrer, leaving every accumulator consistent.
+ * With a vault wired a claim pulls its FULL amount through the vault
+ * (USD held by the hub itself is never spent and never lowers the
+ * booked liability), books any unbooked accrual before it funds, and
+ * `claimUpTo` covers from the vault alone.
  */
-contract WiseTelecomNodesPayoutHubTest is DiamondTestHarness {
+contract WiseTelecomNodesPayoutHubTest is DiamondTestHarness, HubDiamondHarness {
 
     event PendingReferralPayoutChanged(
         uint256 pendingReferralPayout
@@ -104,7 +111,7 @@ contract WiseTelecomNodesPayoutHubTest is DiamondTestHarness {
 
     ReferralPayoutFacet internal payoutFacet;
 
-    ReferralHub internal hub;
+    IReferralHub internal hub;
 
     function setUp()
         public
@@ -128,10 +135,10 @@ contract WiseTelecomNodesPayoutHubTest is DiamondTestHarness {
         _wireOne(
             diamond,
             address(payoutFacet),
-            WiseTelecomNodesDiamondSelectors.referralPayoutSelectors()
+            WiseTelecomNodesDiamondSelectors._referralPayoutSelectors()
         );
 
-        hub = new ReferralHub(
+        hub = _deployHub(
             address(usd)
         );
 
@@ -210,7 +217,7 @@ contract WiseTelecomNodesPayoutHubTest is DiamondTestHarness {
     function test_payoutHubPointer_lifecycleGettersAndCancel()
         public
     {
-        ReferralHub next = new ReferralHub(
+        IReferralHub next = _deployHub(
             address(usd)
         );
 
@@ -274,7 +281,7 @@ contract WiseTelecomNodesPayoutHubTest is DiamondTestHarness {
     function test_payoutHubPointer_timelockedExecuteAfterFinalize()
         public
     {
-        ReferralHub next = new ReferralHub(
+        IReferralHub next = _deployHub(
             address(usd)
         );
 
@@ -397,7 +404,7 @@ contract WiseTelecomNodesPayoutHubTest is DiamondTestHarness {
 
         _admin().executePayoutHubChange();
 
-        ReferralHub wrongToken = new ReferralHub(
+        IReferralHub wrongToken = _deployHub(
             address(0xBAD1)
         );
 
@@ -570,12 +577,16 @@ contract WiseTelecomNodesPayoutHubTest is DiamondTestHarness {
         );
 
         assertEq(
-            usd.balanceOf(address(hub)),
+            usd.balanceOf(
+                address(hub)
+            ),
             300 * 1e6
         );
 
         assertEq(
-            usd.balanceOf(address(diamond)),
+            usd.balanceOf(
+                address(diamond)
+            ),
             POOL_FUNDS - 300 * 1e6
         );
 
@@ -717,7 +728,9 @@ contract WiseTelecomNodesPayoutHubTest is DiamondTestHarness {
         );
 
         assertEq(
-            usd.balanceOf(address(hub)),
+            usd.balanceOf(
+                address(hub)
+            ),
             _fund
         );
     }
@@ -728,18 +741,22 @@ contract WiseTelecomNodesPayoutHubTest is DiamondTestHarness {
         internal
         returns (uint256 expectedPaid)
     {
-        hub.setAllowedReporter(
-            address(this),
-            true
-        );
-
-        hub.reportScores(
-            refA,
-            6_000 * 1e6,
-            0
+        HubLeverGrants._grant(
+            address(hub),
+            abi.encodeCall(
+                IReferralHub.setAllowedReporter,
+                (
+                    address(this),
+                    true
+                )
+            )
         );
 
         uint256 reportWeek = block.timestamp / CohortWeeks.WEEK;
+
+        vm.warp(
+            (reportWeek + 1) * CohortWeeks.WEEK + 1 hours
+        );
 
         vm.warp(
             (reportWeek + 3) * CohortWeeks.WEEK + 1 hours
@@ -749,13 +766,14 @@ contract WiseTelecomNodesPayoutHubTest is DiamondTestHarness {
         weeksArr[0] = reportWeek + 2;
 
         uint256[] memory words = new uint256[](1);
-        words[0] = CohortWeeks.packLanes(
+        words[0] = CohortWeeks._packLanes(
             100 * CohortWeeks.YEAR * 1e6,
             0,
             0
         );
 
         hub.deliverCrumbs(
+            refA,
             refA,
             weeksArr,
             words
@@ -767,6 +785,14 @@ contract WiseTelecomNodesPayoutHubTest is DiamondTestHarness {
     function test_rail_deliveryBooksLiabilityOnVault()
         public
     {
+        vm.prank(
+            refA
+        );
+
+        hub.setPayoutAddress(
+            refA
+        );
+
         hub.setPayoutVault(
             address(diamond)
         );
@@ -774,7 +800,10 @@ contract WiseTelecomNodesPayoutHubTest is DiamondTestHarness {
         uint256 expectedPaid = _accrueOneUsd();
 
         assertEq(
-            hub.claimable(block.chainid, refA),
+            hub.claimable(
+                block.chainid,
+                refA
+            ),
             expectedPaid
         );
 
@@ -797,6 +826,14 @@ contract WiseTelecomNodesPayoutHubTest is DiamondTestHarness {
     function test_rail_bookLiability_catchesUpAfterLateWiring()
         public
     {
+        vm.prank(
+            refA
+        );
+
+        hub.setPayoutAddress(
+            refA
+        );
+
         uint256 expectedPaid = _accrueOneUsd();
 
         assertEq(
@@ -879,22 +916,31 @@ contract WiseTelecomNodesPayoutHubTest is DiamondTestHarness {
         );
 
         assertEq(
-            usd.balanceOf(refA),
+            usd.balanceOf(
+                refA
+            ),
             expectedPaid
         );
 
         assertEq(
-            usd.balanceOf(address(hub)),
+            usd.balanceOf(
+                address(hub)
+            ),
             0
         );
 
         assertEq(
-            usd.balanceOf(address(diamond)),
+            usd.balanceOf(
+                address(diamond)
+            ),
             POOL_FUNDS - expectedPaid
         );
 
         assertEq(
-            hub.claimable(block.chainid, refA),
+            hub.claimable(
+                block.chainid,
+                refA
+            ),
             0
         );
 
@@ -931,12 +977,17 @@ contract WiseTelecomNodesPayoutHubTest is DiamondTestHarness {
         );
 
         assertEq(
-            usd.balanceOf(refA),
+            usd.balanceOf(
+                refA
+            ),
             half
         );
 
         assertEq(
-            hub.claimable(block.chainid, refA),
+            hub.claimable(
+                block.chainid,
+                refA
+            ),
             expectedPaid - half
         );
 
@@ -977,12 +1028,17 @@ contract WiseTelecomNodesPayoutHubTest is DiamondTestHarness {
         );
 
         assertEq(
-            usd.balanceOf(refA),
+            usd.balanceOf(
+                refA
+            ),
             shortPool
         );
 
         assertEq(
-            hub.claimable(block.chainid, refA),
+            hub.claimable(
+                block.chainid,
+                refA
+            ),
             expectedPaid - shortPool
         );
     }
@@ -1016,13 +1072,272 @@ contract WiseTelecomNodesPayoutHubTest is DiamondTestHarness {
         );
 
         assertEq(
-            usd.balanceOf(designated),
+            usd.balanceOf(
+                designated
+            ),
             expectedPaid
         );
 
         assertEq(
-            usd.balanceOf(refA),
+            usd.balanceOf(
+                refA
+            ),
             0
+        );
+    }
+
+    // ---- claim rail hardening: full pull through the vault, booking before funding ----
+
+    function test_rail_claim_pullsFullAmountIgnoringHubHeldUsd()
+        public
+    {
+        hub.setPayoutVault(
+            address(diamond)
+        );
+
+        uint256 expectedPaid = _accrueOneUsd();
+
+        usd.mint(
+            address(hub),
+            5 * expectedPaid
+        );
+
+        vm.prank(
+            refA
+        );
+
+        hub.claim(
+            block.chainid,
+            refA
+        );
+
+        assertEq(
+            usd.balanceOf(
+                refA
+            ),
+            expectedPaid
+        );
+
+        assertEq(
+            usd.balanceOf(
+                address(hub)
+            ),
+            5 * expectedPaid
+        );
+
+        assertEq(
+            usd.balanceOf(
+                address(diamond)
+            ),
+            POOL_FUNDS - expectedPaid
+        );
+
+        assertEq(
+            _payout().getPendingReferralPayout(),
+            0
+        );
+    }
+
+    function test_rail_claim_booksBeforeFundingAfterLateWiring()
+        public
+    {
+        uint256 expectedPaid = _accrueOneUsd();
+
+        hub.setPayoutVault(
+            address(diamond)
+        );
+
+        assertEq(
+            hub.totalBooked(),
+            0
+        );
+
+        vm.expectEmit(
+            false,
+            false,
+            false,
+            true,
+            address(hub)
+        );
+
+        emit PayoutLiabilityBooked(
+            expectedPaid
+        );
+
+        vm.prank(
+            refA
+        );
+
+        hub.claim(
+            block.chainid,
+            refA
+        );
+
+        assertEq(
+            usd.balanceOf(
+                refA
+            ),
+            expectedPaid
+        );
+
+        assertEq(
+            hub.totalBooked(),
+            expectedPaid
+        );
+
+        assertEq(
+            _payout().getPendingReferralPayout(),
+            0
+        );
+    }
+
+    function test_rail_claimUpTo_coversFromVaultNotHubBalance()
+        public
+    {
+        hub.setPayoutVault(
+            address(diamond)
+        );
+
+        uint256 expectedPaid = _accrueOneUsd();
+
+        usd.mint(
+            address(hub),
+            5 * expectedPaid
+        );
+
+        uint256 shortPool = expectedPaid / 4;
+
+        vm.prank(
+            address(diamond)
+        );
+
+        usd.transfer(
+            address(0xDEAD),
+            POOL_FUNDS - shortPool
+        );
+
+        vm.prank(
+            refA
+        );
+
+        hub.claimUpTo(
+            block.chainid,
+            refA,
+            expectedPaid
+        );
+
+        assertEq(
+            usd.balanceOf(
+                refA
+            ),
+            shortPool
+        );
+
+        assertEq(
+            usd.balanceOf(
+                address(hub)
+            ),
+            5 * expectedPaid
+        );
+
+        assertEq(
+            hub.claimable(
+                block.chainid,
+                refA
+            ),
+            expectedPaid - shortPool
+        );
+
+        assertEq(
+            _payout().getPendingReferralPayout(),
+            expectedPaid - shortPool
+        );
+    }
+
+    function test_rail_claimUpTo_booksBeforeCoverAfterLateWiring()
+        public
+    {
+        uint256 expectedPaid = _accrueOneUsd();
+
+        hub.setPayoutVault(
+            address(diamond)
+        );
+
+        vm.expectEmit(
+            false,
+            false,
+            false,
+            true,
+            address(hub)
+        );
+
+        emit PayoutLiabilityBooked(
+            expectedPaid
+        );
+
+        vm.prank(
+            refA
+        );
+
+        hub.claimUpTo(
+            block.chainid,
+            refA,
+            expectedPaid
+        );
+
+        assertEq(
+            usd.balanceOf(
+                refA
+            ),
+            expectedPaid
+        );
+
+        assertEq(
+            hub.totalBooked(),
+            expectedPaid
+        );
+
+        assertEq(
+            _payout().getPendingReferralPayout(),
+            0
+        );
+    }
+
+    function test_RevertWhen_rail_claimUpTo_vaultCoversZeroDespiteHubBalance()
+        public
+    {
+        hub.setPayoutVault(
+            address(diamond)
+        );
+
+        uint256 expectedPaid = _accrueOneUsd();
+
+        usd.mint(
+            address(hub),
+            expectedPaid
+        );
+
+        vm.prank(
+            address(diamond)
+        );
+
+        usd.transfer(
+            address(0xDEAD),
+            POOL_FUNDS
+        );
+
+        vm.prank(
+            refA
+        );
+
+        vm.expectRevert(
+            ReferralHubDeclarations.PotDry.selector
+        );
+
+        hub.claimUpTo(
+            block.chainid,
+            refA,
+            expectedPaid
         );
     }
 }

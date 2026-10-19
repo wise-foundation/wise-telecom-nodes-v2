@@ -203,7 +203,9 @@ contract WiseTelecomNodesGraceFreezeHookTest is DiamondTestHarness {
         public
     {
         bytes4 transferHookSelector = bytes4(
-            keccak256("applyTransferHook(address,address)")
+            keccak256(
+                "applyTransferHook(address,address)"
+            )
         );
 
         diamond.proposeSelector(
@@ -275,7 +277,9 @@ contract WiseTelecomNodesGraceFreezeHookTest is DiamondTestHarness {
         );
 
         assertEq(
-            dormant.balanceOf(user2),
+            dormant.balanceOf(
+                user2
+            ),
             1_000 * 1e6
         );
     }
@@ -314,7 +318,9 @@ contract WiseTelecomNodesGraceFreezeHookTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.balanceOf(user2),
+            diamond.balanceOf(
+                user2
+            ),
             1_000 * 1e6
         );
     }
@@ -426,7 +432,9 @@ contract WiseTelecomNodesGraceFreezeHookTest is DiamondTestHarness {
         );
 
         assertEq(
-            noHook.lastLargeDepositAt(user1),
+            noHook.lastLargeDepositAt(
+                user1
+            ),
             block.timestamp
         );
 
@@ -458,12 +466,16 @@ contract WiseTelecomNodesGraceFreezeHookTest is DiamondTestHarness {
         );
 
         assertEq(
-            noHook.balanceOf(user2),
+            noHook.balanceOf(
+                user2
+            ),
             THRESHOLD
         );
 
         assertEq(
-            noHook.lastLargeDepositAt(user2),
+            noHook.lastLargeDepositAt(
+                user2
+            ),
             0
         );
     }
@@ -488,7 +500,9 @@ contract WiseTelecomNodesGraceFreezeHookTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.balanceOf(user2),
+            diamond.balanceOf(
+                user2
+            ),
             THRESHOLD
         );
     }
@@ -529,7 +543,9 @@ contract WiseTelecomNodesGraceFreezeHookTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.balanceOf(user2),
+            diamond.balanceOf(
+                user2
+            ),
             2 * THRESHOLD
         );
     }
@@ -556,7 +572,9 @@ contract WiseTelecomNodesGraceFreezeHookTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.balanceOf(user1),
+            diamond.balanceOf(
+                user1
+            ),
             THRESHOLD + 1_000 * 1e6
         );
     }
@@ -584,7 +602,9 @@ contract WiseTelecomNodesGraceFreezeHookTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.balanceOf(user2),
+            diamond.balanceOf(
+                user2
+            ),
             1_000 * 1e6
         );
     }
@@ -610,7 +630,9 @@ contract WiseTelecomNodesGraceFreezeHookTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.balanceOf(user1),
+            diamond.balanceOf(
+                user1
+            ),
             THRESHOLD - 1_000 * 1e6
         );
     }

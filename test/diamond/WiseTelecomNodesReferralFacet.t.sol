@@ -163,13 +163,13 @@ contract WiseTelecomNodesReferralFacetTest is DiamondTestHarness {
         _wireOne(
             diamond,
             address(new ReferralFacet()),
-            WiseTelecomNodesDiamondSelectors.referralSelectors()
+            WiseTelecomNodesDiamondSelectors._referralSelectors()
         );
 
         _wireOne(
             diamond,
             address(new Permit2ReferralFacet()),
-            WiseTelecomNodesDiamondSelectors.permit2ReferralSelectors()
+            WiseTelecomNodesDiamondSelectors._permit2ReferralSelectors()
         );
 
         AdminFacet(address(diamond)).proposeTransferHookFacet(
@@ -289,7 +289,9 @@ contract WiseTelecomNodesReferralFacetTest is DiamondTestHarness {
         view
     {
         assertEq(
-            ReferralFacet(address(diamond)).getReferrerOf(user1),
+            ReferralFacet(address(diamond)).getReferrerOf(
+                user1
+            ),
             address(0)
         );
     }
@@ -501,7 +503,9 @@ contract WiseTelecomNodesReferralFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            ReferralFacet(address(diamond)).getReferrerOf(user1),
+            ReferralFacet(address(diamond)).getReferrerOf(
+                user1
+            ),
             refA
         );
     }
@@ -532,12 +536,16 @@ contract WiseTelecomNodesReferralFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            ReferralFacet(address(diamond)).getReferrerOf(user1),
+            ReferralFacet(address(diamond)).getReferrerOf(
+                user1
+            ),
             refA
         );
 
         assertEq(
-            diamond.balanceOf(user1),
+            diamond.balanceOf(
+                user1
+            ),
             1_500 * 1e6
         );
     }
@@ -568,7 +576,9 @@ contract WiseTelecomNodesReferralFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            ReferralFacet(address(diamond)).getReferrerOf(user1),
+            ReferralFacet(address(diamond)).getReferrerOf(
+                user1
+            ),
             refA
         );
     }
@@ -609,7 +619,9 @@ contract WiseTelecomNodesReferralFacetTest is DiamondTestHarness {
         }
 
         assertEq(
-            ReferralFacet(address(diamond)).getReferrerOf(user1),
+            ReferralFacet(address(diamond)).getReferrerOf(
+                user1
+            ),
             refA
         );
     }
@@ -632,12 +644,16 @@ contract WiseTelecomNodesReferralFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            ReferralFacet(address(diamond)).getReferrerOf(user1),
+            ReferralFacet(address(diamond)).getReferrerOf(
+                user1
+            ),
             refA
         );
 
         assertEq(
-            diamond.balanceOf(user1),
+            diamond.balanceOf(
+                user1
+            ),
             2_000 * 1e6 + 1
         );
     }
@@ -678,7 +694,9 @@ contract WiseTelecomNodesReferralFacetTest is DiamondTestHarness {
         }
 
         assertEq(
-            ReferralFacet(address(diamond)).getReferrerOf(user1),
+            ReferralFacet(address(diamond)).getReferrerOf(
+                user1
+            ),
             refA
         );
     }
@@ -716,7 +734,9 @@ contract WiseTelecomNodesReferralFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            ReferralFacet(address(diamond)).getReferrerOf(user1),
+            ReferralFacet(address(diamond)).getReferrerOf(
+                user1
+            ),
             refA
         );
     }
@@ -759,17 +779,23 @@ contract WiseTelecomNodesReferralFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.balanceOf(user1),
+            diamond.balanceOf(
+                user1
+            ),
             1_000 * 1e6
         );
 
         assertEq(
-            usd.balanceOf(thirdPty),
+            usd.balanceOf(
+                thirdPty
+            ),
             before3rd + 1_000 * 1e6
         );
 
         assertEq(
-            diamond.lastSyncTimeStamp(user1),
+            diamond.lastSyncTimeStamp(
+                user1
+            ),
             block.timestamp
         );
     }
@@ -813,7 +839,9 @@ contract WiseTelecomNodesReferralFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            usd.balanceOf(user1),
+            usd.balanceOf(
+                user1
+            ),
             beforeUsd - 1_000 * 1e6 + claimed
         );
     }
@@ -853,7 +881,9 @@ contract WiseTelecomNodesReferralFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.balanceOf(user1),
+            diamond.balanceOf(
+                user1
+            ),
             2_000 * 1e6 + compounded
         );
     }
@@ -919,7 +949,9 @@ contract WiseTelecomNodesReferralFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.lastLargeDepositAt(user1),
+            diamond.lastLargeDepositAt(
+                user1
+            ),
             block.timestamp
         );
     }
@@ -942,7 +974,9 @@ contract WiseTelecomNodesReferralFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.balanceOf(user1),
+            diamond.balanceOf(
+                user1
+            ),
             THRESHOLD + 1_000 * 1e6
         );
     }
@@ -1024,17 +1058,23 @@ contract WiseTelecomNodesReferralFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            ReferralFacet(address(diamond)).getReferrerOf(user1),
+            ReferralFacet(address(diamond)).getReferrerOf(
+                user1
+            ),
             refA
         );
 
         assertEq(
-            diamond.balanceOf(user1),
+            diamond.balanceOf(
+                user1
+            ),
             1_000 * 1e6
         );
 
         assertEq(
-            usd.balanceOf(thirdPty),
+            usd.balanceOf(
+                thirdPty
+            ),
             before3rd + 1_000 * 1e6
         );
     }
@@ -1080,7 +1120,9 @@ contract WiseTelecomNodesReferralFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            usd.balanceOf(user1),
+            usd.balanceOf(
+                user1
+            ),
             beforeUsd - 1_000 * 1e6 + claimed
         );
     }
@@ -1122,7 +1164,9 @@ contract WiseTelecomNodesReferralFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.balanceOf(user1),
+            diamond.balanceOf(
+                user1
+            ),
             2_000 * 1e6 + compounded
         );
     }
@@ -1145,7 +1189,9 @@ contract WiseTelecomNodesReferralFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            ReferralFacet(address(diamond)).getReferrerOf(user1),
+            ReferralFacet(address(diamond)).getReferrerOf(
+                user1
+            ),
             refA
         );
     }
@@ -1244,17 +1290,23 @@ contract WiseTelecomNodesReferralFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.balanceOf(user2),
+            diamond.balanceOf(
+                user2
+            ),
             1_000 * 1e6
         );
 
         assertEq(
-            ReferralFacet(address(diamond)).getReferrerOf(user2),
+            ReferralFacet(address(diamond)).getReferrerOf(
+                user2
+            ),
             address(0)
         );
 
         assertEq(
-            ReferralFacet(address(diamond)).getReferrerOf(user1),
+            ReferralFacet(address(diamond)).getReferrerOf(
+                user1
+            ),
             refA
         );
     }
@@ -1277,12 +1329,12 @@ contract WiseTelecomNodesReferralFacetTest is DiamondTestHarness {
         );
 
         live.proposeSelectors(
-            WiseTelecomNodesDiamondSelectors.referralSelectors(),
+            WiseTelecomNodesDiamondSelectors._referralSelectors(),
             referral
         );
 
         live.proposeSelectors(
-            WiseTelecomNodesDiamondSelectors.permit2ReferralSelectors(),
+            WiseTelecomNodesDiamondSelectors._permit2ReferralSelectors(),
             permit2Referral
         );
 
@@ -1291,7 +1343,7 @@ contract WiseTelecomNodesReferralFacetTest is DiamondTestHarness {
         );
 
         live.executeSelectorChanges(
-            WiseTelecomNodesDiamondSelectors.referralSelectors()
+            WiseTelecomNodesDiamondSelectors._referralSelectors()
         );
 
         vm.warp(
@@ -1299,11 +1351,11 @@ contract WiseTelecomNodesReferralFacetTest is DiamondTestHarness {
         );
 
         live.executeSelectorChanges(
-            WiseTelecomNodesDiamondSelectors.referralSelectors()
+            WiseTelecomNodesDiamondSelectors._referralSelectors()
         );
 
         live.executeSelectorChanges(
-            WiseTelecomNodesDiamondSelectors.permit2ReferralSelectors()
+            WiseTelecomNodesDiamondSelectors._permit2ReferralSelectors()
         );
 
         assertEq(
@@ -1343,7 +1395,9 @@ contract WiseTelecomNodesReferralFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            ReferralFacet(address(live)).getReferrerOf(user1),
+            ReferralFacet(address(live)).getReferrerOf(
+                user1
+            ),
             address(0)
         );
 
@@ -1366,12 +1420,16 @@ contract WiseTelecomNodesReferralFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            ReferralFacet(address(live)).getReferrerOf(user1),
+            ReferralFacet(address(live)).getReferrerOf(
+                user1
+            ),
             refA
         );
 
         assertEq(
-            liveRegistry.referrerOf(user1),
+            liveRegistry.referrerOf(
+                user1
+            ),
             refA
         );
 
@@ -1385,7 +1443,9 @@ contract WiseTelecomNodesReferralFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            ReferralFacet(address(live)).getReferrerOf(user2),
+            ReferralFacet(address(live)).getReferrerOf(
+                user2
+            ),
             address(0)
         );
     }
@@ -1534,7 +1594,9 @@ contract WiseTelecomNodesReferralFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            ReferralFacet(address(diamond)).getReferrerOf(user1),
+            ReferralFacet(address(diamond)).getReferrerOf(
+                user1
+            ),
             address(0)
         );
 
@@ -1612,7 +1674,9 @@ contract WiseTelecomNodesReferralFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            registry.referrerOf(user1),
+            registry.referrerOf(
+                user1
+            ),
             refA
         );
 

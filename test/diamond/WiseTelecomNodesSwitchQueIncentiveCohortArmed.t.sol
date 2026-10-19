@@ -244,13 +244,13 @@ contract WiseTelecomNodesSwitchQueIncentiveCohortArmedTest is DiamondTestHarness
         _wireOne(
             diamond,
             address(new ReferralFacet()),
-            WiseTelecomNodesDiamondSelectors.referralSelectors()
+            WiseTelecomNodesDiamondSelectors._referralSelectors()
         );
 
         _wireOne(
             diamond,
             address(new CohortRecorderFacet()),
-            WiseTelecomNodesDiamondSelectors.cohortRecorderSelectors()
+            WiseTelecomNodesDiamondSelectors._cohortRecorderSelectors()
         );
 
         AdminFacet(address(diamond)).proposeTransferHookFacet(
@@ -439,13 +439,29 @@ contract WiseTelecomNodesSwitchQueIncentiveCohortArmedTest is DiamondTestHarness
     {
         s.total = diamond.totalActiveOrders();
 
-        s.countA = diamond.activeOrderCountByIncentive(_a);
-        s.curA = diamond.currentOrderIdByIncentive(_a);
-        s.earlA = diamond.earliestValidQueMemberByIncentive(_a);
+        s.countA = diamond.activeOrderCountByIncentive(
+            _a
+        );
 
-        s.countB = diamond.activeOrderCountByIncentive(_b);
-        s.curB = diamond.currentOrderIdByIncentive(_b);
-        s.earlB = diamond.earliestValidQueMemberByIncentive(_b);
+        s.curA = diamond.currentOrderIdByIncentive(
+            _a
+        );
+
+        s.earlA = diamond.earliestValidQueMemberByIncentive(
+            _a
+        );
+
+        s.countB = diamond.activeOrderCountByIncentive(
+            _b
+        );
+
+        s.curB = diamond.currentOrderIdByIncentive(
+            _b
+        );
+
+        s.earlB = diamond.earliestValidQueMemberByIncentive(
+            _b
+        );
 
         for (uint256 i; i < 8; i++) {
             (
@@ -469,11 +485,26 @@ contract WiseTelecomNodesSwitchQueIncentiveCohortArmedTest is DiamondTestHarness
             );
         }
 
-        s.proxyUser = diamond.proxyBalance(_user);
-        s.cashedUser = diamond.cashedInterest(_user);
-        s.syncUser = diamond.lastSyncTimeStamp(_user);
-        s.sharesUser = diamond.balanceOf(_user);
-        s.sharesVault = diamond.balanceOf(address(diamond));
+        s.proxyUser = diamond.proxyBalance(
+            _user
+        );
+
+        s.cashedUser = diamond.cashedInterest(
+            _user
+        );
+
+        s.syncUser = diamond.lastSyncTimeStamp(
+            _user
+        );
+
+        s.sharesUser = diamond.balanceOf(
+            _user
+        );
+
+        s.sharesVault = diamond.balanceOf(
+            address(diamond)
+        );
+
         s.supply = diamond.totalSupply();
         s.benefactor = diamond.currentProxyBenefactor();
     }
@@ -486,8 +517,13 @@ contract WiseTelecomNodesSwitchQueIncentiveCohortArmedTest is DiamondTestHarness
         view
         returns (RecorderSnap memory s)
     {
-        s.trackedUser = _recorder().getTrackedContribution(_user);
-        s.scoreRef = _recorder().getCohortScore(_referrer);
+        s.trackedUser = _recorder().getTrackedContribution(
+            _user
+        );
+
+        s.scoreRef = _recorder().getCohortScore(
+            _referrer
+        );
 
         (
             s.book1,
@@ -790,7 +826,9 @@ contract WiseTelecomNodesSwitchQueIncentiveCohortArmedTest is DiamondTestHarness
             _c.deficitAmt
         );
 
-        staleTracked = _recorder().getTrackedContribution(user1);
+        staleTracked = _recorder().getTrackedContribution(
+            user1
+        );
 
         _assertArmedEnvelope();
 
@@ -882,7 +920,9 @@ contract WiseTelecomNodesSwitchQueIncentiveCohortArmedTest is DiamondTestHarness
             uint256 switchNewId
         )
     {
-        vm.prank(user1);
+        vm.prank(
+            user1
+        );
 
         (
             ,
@@ -894,12 +934,16 @@ contract WiseTelecomNodesSwitchQueIncentiveCohortArmedTest is DiamondTestHarness
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             _staleTracked,
             "switch alone must defer the clamp"
         );
 
-        vm.prank(poker);
+        vm.prank(
+            poker
+        );
 
         _recorder().syncReferee(
             user1
@@ -924,7 +968,9 @@ contract WiseTelecomNodesSwitchQueIncentiveCohortArmedTest is DiamondTestHarness
             uint256 switchNewId
         )
     {
-        vm.prank(user1);
+        vm.prank(
+            user1
+        );
 
         (
             ,
@@ -937,12 +983,16 @@ contract WiseTelecomNodesSwitchQueIncentiveCohortArmedTest is DiamondTestHarness
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             _staleTracked,
             "switchPartial alone must defer the clamp"
         );
 
-        vm.prank(poker);
+        vm.prank(
+            poker
+        );
 
         _recorder().syncReferee(
             user1
@@ -1169,7 +1219,9 @@ contract WiseTelecomNodesSwitchQueIncentiveCohortArmedTest is DiamondTestHarness
 
         vm.recordLogs();
 
-        vm.prank(user1);
+        vm.prank(
+            user1
+        );
 
         (
             ,
@@ -1329,7 +1381,9 @@ contract WiseTelecomNodesSwitchQueIncentiveCohortArmedTest is DiamondTestHarness
 
         vm.recordLogs();
 
-        vm.prank(user1);
+        vm.prank(
+            user1
+        );
 
         (
             ,
@@ -1400,9 +1454,13 @@ contract WiseTelecomNodesSwitchQueIncentiveCohortArmedTest is DiamondTestHarness
             INCENTIVE_A
         );
 
-        uint256 trackedBefore = _recorder().getTrackedContribution(user1);
+        uint256 trackedBefore = _recorder().getTrackedContribution(
+            user1
+        );
 
-        uint256 scoreBefore = _recorder().getCohortScore(refA);
+        uint256 scoreBefore = _recorder().getCohortScore(
+            refA
+        );
 
         address registryAddr = AdminFacet(address(diamond)).getReferralRegistry();
 
@@ -1413,7 +1471,9 @@ contract WiseTelecomNodesSwitchQueIncentiveCohortArmedTest is DiamondTestHarness
 
         vm.recordLogs();
 
-        vm.prank(user1);
+        vm.prank(
+            user1
+        );
 
         QueueJoinLeaveFacet(address(diamond)).switchQueIncentive(
             queId,
@@ -1426,22 +1486,30 @@ contract WiseTelecomNodesSwitchQueIncentiveCohortArmedTest is DiamondTestHarness
         );
 
         assertEq(
-            diamond.activeOrderCountByIncentive(INCENTIVE_A),
+            diamond.activeOrderCountByIncentive(
+                INCENTIVE_A
+            ),
             0
         );
 
         assertEq(
-            diamond.activeOrderCountByIncentive(INCENTIVE_B),
+            diamond.activeOrderCountByIncentive(
+                INCENTIVE_B
+            ),
             1
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             trackedBefore
         );
 
         assertEq(
-            _recorder().getCohortScore(refA),
+            _recorder().getCohortScore(
+                refA
+            ),
             scoreBefore
         );
     }

@@ -200,7 +200,7 @@ contract WiseTelecomNodesGracePeriodTest is DiamondTestHarness {
         _wireOne(
             diamond,
             address(new BridgeFacet()),
-            WiseTelecomNodesDiamondSelectors.bridgeSelectors()
+            WiseTelecomNodesDiamondSelectors._bridgeSelectors()
         );
 
         BridgeFacet(address(diamond)).setCcipRouter(
@@ -341,7 +341,9 @@ contract WiseTelecomNodesGracePeriodTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.lastLargeDepositAt(user1),
+            diamond.lastLargeDepositAt(
+                user1
+            ),
             0
         );
 
@@ -356,12 +358,16 @@ contract WiseTelecomNodesGracePeriodTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.depositWindowStart(user1),
+            diamond.depositWindowStart(
+                user1
+            ),
             0
         );
 
         assertEq(
-            diamond.depositWindowTotal(user1),
+            diamond.depositWindowTotal(
+                user1
+            ),
             0
         );
     }
@@ -536,7 +542,9 @@ contract WiseTelecomNodesGracePeriodTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.lastLargeDepositAt(user1),
+            diamond.lastLargeDepositAt(
+                user1
+            ),
             0
         );
     }
@@ -572,7 +580,9 @@ contract WiseTelecomNodesGracePeriodTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.lastLargeDepositAt(user1),
+            diamond.lastLargeDepositAt(
+                user1
+            ),
             block.timestamp
         );
     }
@@ -596,7 +606,9 @@ contract WiseTelecomNodesGracePeriodTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.lastLargeDepositAt(user1),
+            diamond.lastLargeDepositAt(
+                user1
+            ),
             0
         );
     }
@@ -614,7 +626,9 @@ contract WiseTelecomNodesGracePeriodTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.lastLargeDepositAt(user1),
+            diamond.lastLargeDepositAt(
+                user1
+            ),
             0
         );
     }
@@ -648,7 +662,9 @@ contract WiseTelecomNodesGracePeriodTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.lastLargeDepositAt(user1),
+            diamond.lastLargeDepositAt(
+                user1
+            ),
             block.timestamp
         );
     }
@@ -670,7 +686,9 @@ contract WiseTelecomNodesGracePeriodTest is DiamondTestHarness {
         UserFacet(address(diamond)).compoundInterest();
 
         assertEq(
-            diamond.lastLargeDepositAt(user1),
+            diamond.lastLargeDepositAt(
+                user1
+            ),
             block.timestamp
         );
     }
@@ -686,7 +704,9 @@ contract WiseTelecomNodesGracePeriodTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.lastLargeDepositAt(user1),
+            diamond.lastLargeDepositAt(
+                user1
+            ),
             0
         );
     }
@@ -709,12 +729,16 @@ contract WiseTelecomNodesGracePeriodTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.lastLargeDepositAt(user1),
+            diamond.lastLargeDepositAt(
+                user1
+            ),
             0
         );
 
         assertEq(
-            diamond.lastLargeDepositAt(user2),
+            diamond.lastLargeDepositAt(
+                user2
+            ),
             0
         );
     }
@@ -739,12 +763,16 @@ contract WiseTelecomNodesGracePeriodTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.balanceOf(user1),
+            diamond.balanceOf(
+                user1
+            ),
             2 * THRESHOLD
         );
 
         assertEq(
-            diamond.lastLargeDepositAt(user1),
+            diamond.lastLargeDepositAt(
+                user1
+            ),
             0
         );
     }
@@ -784,12 +812,16 @@ contract WiseTelecomNodesGracePeriodTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.balanceOf(user2),
+            diamond.balanceOf(
+                user2
+            ),
             2 * THRESHOLD
         );
 
         assertEq(
-            diamond.lastLargeDepositAt(user2),
+            diamond.lastLargeDepositAt(
+                user2
+            ),
             0
         );
     }
@@ -817,7 +849,9 @@ contract WiseTelecomNodesGracePeriodTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.lastLargeDepositAt(user1),
+            diamond.lastLargeDepositAt(
+                user1
+            ),
             firstStamp + 10 days
         );
     }
@@ -840,17 +874,23 @@ contract WiseTelecomNodesGracePeriodTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.cashedInterest(user1),
+            diamond.cashedInterest(
+                user1
+            ),
             interest
         );
 
         assertEq(
-            diamond.lastLargeDepositAt(user1),
+            diamond.lastLargeDepositAt(
+                user1
+            ),
             0
         );
 
         assertEq(
-            diamondB.lastLargeDepositAt(user1),
+            diamondB.lastLargeDepositAt(
+                user1
+            ),
             0
         );
     }
@@ -882,17 +922,23 @@ contract WiseTelecomNodesGracePeriodTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.balanceOf(user1),
+            diamond.balanceOf(
+                user1
+            ),
             0
         );
 
         assertEq(
-            diamond.lastLargeDepositAt(user1),
+            diamond.lastLargeDepositAt(
+                user1
+            ),
             0
         );
 
         assertEq(
-            diamondB.lastLargeDepositAt(user1),
+            diamondB.lastLargeDepositAt(
+                user1
+            ),
             0
         );
     }
@@ -1229,12 +1275,16 @@ contract WiseTelecomNodesGracePeriodTest is DiamondTestHarness {
         );
 
         assertEq(
-            usd.balanceOf(user1),
+            usd.balanceOf(
+                user1
+            ),
             expectedInterest
         );
 
         assertEq(
-            diamond.lastLargeDepositAt(user1),
+            diamond.lastLargeDepositAt(
+                user1
+            ),
             block.timestamp
         );
 
@@ -1296,7 +1346,9 @@ contract WiseTelecomNodesGracePeriodTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.balanceOf(user1),
+            diamond.balanceOf(
+                user1
+            ),
             THRESHOLD + 1_000 * 1e6
         );
     }
@@ -1318,7 +1370,9 @@ contract WiseTelecomNodesGracePeriodTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.balanceOf(user2),
+            diamond.balanceOf(
+                user2
+            ),
             1_000 * 1e6
         );
     }
@@ -1352,7 +1406,9 @@ contract WiseTelecomNodesGracePeriodTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.balanceOf(user1),
+            diamond.balanceOf(
+                user1
+            ),
             THRESHOLD
         );
     }
@@ -1366,7 +1422,9 @@ contract WiseTelecomNodesGracePeriodTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.lastLargeDepositAt(user1),
+            diamond.lastLargeDepositAt(
+                user1
+            ),
             0
         );
 
@@ -1387,7 +1445,9 @@ contract WiseTelecomNodesGracePeriodTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.balanceOf(user1),
+            diamond.balanceOf(
+                user1
+            ),
             2 * THRESHOLD - 1_000 * 1e6
         );
     }
@@ -1420,7 +1480,9 @@ contract WiseTelecomNodesGracePeriodTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.balanceOf(user1),
+            diamond.balanceOf(
+                user1
+            ),
             THRESHOLD - 1_000 * 1e6
         );
     }
@@ -1502,7 +1564,9 @@ contract WiseTelecomNodesGracePeriodTest is DiamondTestHarness {
         UserFacet(address(diamond)).claimInterest();
 
         assertGt(
-            usd.balanceOf(user1),
+            usd.balanceOf(
+                user1
+            ),
             0
         );
     }
@@ -1534,7 +1598,9 @@ contract WiseTelecomNodesGracePeriodTest is DiamondTestHarness {
         UserFacet(address(diamond)).claimInterest();
 
         assertGt(
-            usd.balanceOf(user1),
+            usd.balanceOf(
+                user1
+            ),
             0
         );
     }

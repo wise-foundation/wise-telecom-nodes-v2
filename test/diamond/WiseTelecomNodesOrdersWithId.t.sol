@@ -520,7 +520,10 @@ contract WiseTelecomNodesOrdersWithIdTest is DiamondTestHarness {
         );
 
         WiseTelecomNodesQueueStructs.QueMemberWithId[] memory mine =
-            QueueViewFacet(address(vault)).getAllOrdersfromAddressWithId(user1);
+
+            QueueViewFacet(address(vault)).getAllOrdersfromAddressWithId(
+                user1
+            );
 
         assertEq(
             mine.length,
@@ -714,13 +717,17 @@ contract WiseTelecomNodesOrdersWithIdTest is DiamondTestHarness {
         _join(
             user1,
             amtA,
-            _tier(_tierSeedA)
+            _tier(
+                _tierSeedA
+            )
         );
 
         _join(
             user2,
             amtB,
-            _tier(_tierSeedB)
+            _tier(
+                _tierSeedB
+            )
         );
 
         _assertAll();

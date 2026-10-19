@@ -136,12 +136,12 @@ contract WiseTelecomNodesReferralPayoutBufferTest is Test {
             )
         );
 
-        bytes4[] memory adminSels = WiseTelecomNodesDiamondSelectors.adminSelectors();
-        bytes4[] memory proxySels = WiseTelecomNodesDiamondSelectors.proxySelectors();
-        bytes4[] memory userSels = WiseTelecomNodesDiamondSelectors.userSelectors();
-        bytes4[] memory sweepSels = WiseTelecomNodesDiamondSelectors.sweepSelectors();
-        bytes4[] memory cashedSels = WiseTelecomNodesDiamondSelectors.cashedInterestSelectors();
-        bytes4[] memory payoutSels = WiseTelecomNodesDiamondSelectors.referralPayoutSelectors();
+        bytes4[] memory adminSels = WiseTelecomNodesDiamondSelectors._adminSelectors();
+        bytes4[] memory proxySels = WiseTelecomNodesDiamondSelectors._proxySelectors();
+        bytes4[] memory userSels = WiseTelecomNodesDiamondSelectors._userSelectors();
+        bytes4[] memory sweepSels = WiseTelecomNodesDiamondSelectors._sweepSelectors();
+        bytes4[] memory cashedSels = WiseTelecomNodesDiamondSelectors._cashedInterestSelectors();
+        bytes4[] memory payoutSels = WiseTelecomNodesDiamondSelectors._referralPayoutSelectors();
 
         d.proposeSelectors(
             adminSels,
@@ -454,7 +454,9 @@ contract WiseTelecomNodesReferralPayoutBufferTest is Test {
         );
 
         assertEq(
-            usd.balanceOf(address(diamond)),
+            usd.balanceOf(
+                address(diamond)
+            ),
             buffer + pending
         );
 

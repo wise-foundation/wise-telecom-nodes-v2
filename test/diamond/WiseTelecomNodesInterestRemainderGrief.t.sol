@@ -158,7 +158,9 @@ contract WiseTelecomNodesInterestRemainderGriefTest is DiamondTestHarness {
 
             if (i == 0) {
                 assertEq(
-                    diamond.getPendingInterest(victim),
+                    diamond.getPendingInterest(
+                        victim
+                    ),
                     0,
                     "grief precondition: a single block of interest must floor to zero"
                 );
@@ -195,7 +197,9 @@ contract WiseTelecomNodesInterestRemainderGriefTest is DiamondTestHarness {
         );
 
         assertLt(
-            diamond.interestRemainder(victim),
+            diamond.interestRemainder(
+                victim
+            ),
             PRECISION_FACTOR_E18,
             "carried remainder stays below one base unit of interest"
         );

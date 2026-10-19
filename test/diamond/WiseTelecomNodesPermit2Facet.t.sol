@@ -153,13 +153,17 @@ contract WiseTelecomNodesPermit2FacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.balanceOf(user),
+            diamond.balanceOf(
+                user
+            ),
             amount,
             "shares minted"
         );
 
         assertEq(
-            usd.balanceOf(thirdPty),
+            usd.balanceOf(
+                thirdPty
+            ),
             amount,
             "tokens routed through Permit2 to thirdPartyAddress"
         );
@@ -175,7 +179,10 @@ contract WiseTelecomNodesPermit2FacetTest is DiamondTestHarness {
         );
 
         uint256 amount = 500 * 1e6;
-        uint256 usdBefore = usd.balanceOf(user);
+
+        uint256 usdBefore = usd.balanceOf(
+            user
+        );
 
         vm.prank(
             user
@@ -195,7 +202,9 @@ contract WiseTelecomNodesPermit2FacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            usd.balanceOf(user),
+            usd.balanceOf(
+                user
+            ),
             usdBefore - amount + claimed,
             "user nets the interest payout"
         );
@@ -211,7 +220,10 @@ contract WiseTelecomNodesPermit2FacetTest is DiamondTestHarness {
         );
 
         uint256 amount = 500 * 1e6;
-        uint256 sharesBefore = diamond.balanceOf(user);
+
+        uint256 sharesBefore = diamond.balanceOf(
+            user
+        );
 
         vm.prank(
             user
@@ -230,7 +242,9 @@ contract WiseTelecomNodesPermit2FacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.balanceOf(user),
+            diamond.balanceOf(
+                user
+            ),
             sharesBefore + amount + compounded
         );
     }
@@ -271,13 +285,19 @@ contract WiseTelecomNodesPermit2FacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.balanceOf(user),
-            diamond.balanceOf(user2),
+            diamond.balanceOf(
+                user
+            ),
+            diamond.balanceOf(
+                user2
+            ),
             "share parity"
         );
 
         assertEq(
-            usd.balanceOf(thirdPty),
+            usd.balanceOf(
+                thirdPty
+            ),
             amount * 2,
             "both deposits landed at thirdPartyAddress"
         );
@@ -321,7 +341,9 @@ contract WiseTelecomNodesPermit2FacetTest is DiamondTestHarness {
         );
 
         vm.expectRevert(
-            bytes4(keccak256("Permit2NotDeployed()"))
+            bytes4(keccak256(
+                "Permit2NotDeployed()"
+            ))
         );
 
         new Permit2UserFacet();

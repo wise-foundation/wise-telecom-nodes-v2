@@ -137,7 +137,7 @@ contract WiseTelecomNodesRescueFacetTest is DiamondTestHarness {
         _wireOne(
             diamond,
             address(rescueFacetInstance),
-            WiseTelecomNodesDiamondSelectors.rescueSelectors()
+            WiseTelecomNodesDiamondSelectors._rescueSelectors()
         );
 
         diamond.finalizeSetup();
@@ -197,12 +197,16 @@ contract WiseTelecomNodesRescueFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            stray.balanceOf(recipient),
+            stray.balanceOf(
+                recipient
+            ),
             STRAY_AMOUNT
         );
 
         assertEq(
-            stray.balanceOf(address(diamond)),
+            stray.balanceOf(
+                address(diamond)
+            ),
             0
         );
 
@@ -224,12 +228,16 @@ contract WiseTelecomNodesRescueFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            stray.balanceOf(recipient),
+            stray.balanceOf(
+                recipient
+            ),
             half
         );
 
         assertEq(
-            stray.balanceOf(address(diamond)),
+            stray.balanceOf(
+                address(diamond)
+            ),
             STRAY_AMOUNT - half
         );
     }
@@ -244,12 +252,16 @@ contract WiseTelecomNodesRescueFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            noReturnToken.balanceOf(recipient),
+            noReturnToken.balanceOf(
+                recipient
+            ),
             STRAY_AMOUNT
         );
 
         assertEq(
-            noReturnToken.balanceOf(address(diamond)),
+            noReturnToken.balanceOf(
+                address(diamond)
+            ),
             0
         );
     }

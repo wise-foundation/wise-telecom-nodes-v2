@@ -141,7 +141,7 @@ contract WiseTelecomNodesDepositGateTest is DiamondTestHarness {
         _wireOne(
             diamond,
             address(new BridgeFacet()),
-            WiseTelecomNodesDiamondSelectors.bridgeSelectors()
+            WiseTelecomNodesDiamondSelectors._bridgeSelectors()
         );
 
         BridgeFacet(address(diamond)).setCcipRouter(
@@ -410,12 +410,16 @@ contract WiseTelecomNodesDepositGateTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.balanceOf(user1),
+            diamond.balanceOf(
+                user1
+            ),
             500 * 1e6
         );
 
         assertEq(
-            diamond.balanceOf(address(diamond)),
+            diamond.balanceOf(
+                address(diamond)
+            ),
             500 * 1e6
         );
     }
@@ -462,7 +466,9 @@ contract WiseTelecomNodesDepositGateTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.balanceOf(address(diamond)),
+            diamond.balanceOf(
+                address(diamond)
+            ),
             500 * 1e6
         );
     }
@@ -491,7 +497,9 @@ contract WiseTelecomNodesDepositGateTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.balanceOf(user1),
+            diamond.balanceOf(
+                user1
+            ),
             500 * 1e6
         );
     }
@@ -525,7 +533,9 @@ contract WiseTelecomNodesDepositGateTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.balanceOf(user1),
+            diamond.balanceOf(
+                user1
+            ),
             600 * 1e6
         );
     }
@@ -564,7 +574,9 @@ contract WiseTelecomNodesDepositGateTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.balanceOf(user1),
+            diamond.balanceOf(
+                user1
+            ),
             1_000 * 1e6
         );
     }
@@ -591,7 +603,9 @@ contract WiseTelecomNodesDepositGateTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.balanceOf(user2),
+            diamond.balanceOf(
+                user2
+            ),
             250 * 1e6
         );
     }
@@ -633,7 +647,9 @@ contract WiseTelecomNodesDepositGateTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.balanceOf(user1),
+            diamond.balanceOf(
+                user1
+            ),
             1_000 * 1e6
         );
     }

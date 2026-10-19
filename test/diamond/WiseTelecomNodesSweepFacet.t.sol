@@ -160,11 +160,11 @@ contract WiseTelecomNodesSweepFacetTest is Test {
             )
         );
 
-        bytes4[] memory adminSels = WiseTelecomNodesDiamondSelectors.adminSelectors();
-        bytes4[] memory proxySels = WiseTelecomNodesDiamondSelectors.proxySelectors();
-        bytes4[] memory userSels = WiseTelecomNodesDiamondSelectors.userSelectors();
-        bytes4[] memory sweepSels = WiseTelecomNodesDiamondSelectors.sweepSelectors();
-        bytes4[] memory cashedSels = WiseTelecomNodesDiamondSelectors.cashedInterestSelectors();
+        bytes4[] memory adminSels = WiseTelecomNodesDiamondSelectors._adminSelectors();
+        bytes4[] memory proxySels = WiseTelecomNodesDiamondSelectors._proxySelectors();
+        bytes4[] memory userSels = WiseTelecomNodesDiamondSelectors._userSelectors();
+        bytes4[] memory sweepSels = WiseTelecomNodesDiamondSelectors._sweepSelectors();
+        bytes4[] memory cashedSels = WiseTelecomNodesDiamondSelectors._cashedInterestSelectors();
 
         d.proposeSelectors(
             adminSels,
@@ -631,7 +631,9 @@ contract WiseTelecomNodesSweepFacetTest is Test {
         );
 
         assertEq(
-            usd.balanceOf(address(diamond)),
+            usd.balanceOf(
+                address(diamond)
+            ),
             0
         );
 
@@ -902,12 +904,16 @@ contract WiseTelecomNodesSweepFacetTest is Test {
         );
 
         assertEq(
-            usd.balanceOf(address(diamond)),
+            usd.balanceOf(
+                address(diamond)
+            ),
             funded - overhangAtBase
         );
 
         assertGt(
-            usd.balanceOf(address(diamond)),
+            usd.balanceOf(
+                address(diamond)
+            ),
             0
         );
     }
@@ -984,12 +990,16 @@ contract WiseTelecomNodesSweepFacetTest is Test {
         SweepFacet(address(diamond)).sweepOverhang();
 
         assertEq(
-            usd.balanceOf(worker),
+            usd.balanceOf(
+                worker
+            ),
             workerBefore + excess
         );
 
         assertEq(
-            usd.balanceOf(address(diamond)),
+            usd.balanceOf(
+                address(diamond)
+            ),
             buffer
         );
     }
@@ -1103,7 +1113,9 @@ contract WiseTelecomNodesSweepFacetTest is Test {
         SweepFacet(address(diamond)).sweepOverhang();
 
         assertEq(
-            usd.balanceOf(worker),
+            usd.balanceOf(
+                worker
+            ),
             workerBefore + excess
         );
     }
@@ -1240,12 +1252,16 @@ contract WiseTelecomNodesSweepFacetTest is Test {
         SweepFacet(address(diamond)).sweepOverhang();
 
         assertEq(
-            usd.balanceOf(worker),
+            usd.balanceOf(
+                worker
+            ),
             workerBefore + excess
         );
 
         assertEq(
-            usd.balanceOf(randomEOA),
+            usd.balanceOf(
+                randomEOA
+            ),
             callerBefore
         );
     }
@@ -1291,12 +1307,16 @@ contract WiseTelecomNodesSweepFacetTest is Test {
         uint256 swept = SweepFacet(address(diamond)).sweepOverhang();
 
         assertEq(
-            usd.balanceOf(attacker),
+            usd.balanceOf(
+                attacker
+            ),
             0
         );
 
         assertEq(
-            usd.balanceOf(worker),
+            usd.balanceOf(
+                worker
+            ),
             swept
         );
 
@@ -1380,7 +1400,9 @@ contract WiseTelecomNodesSweepFacetTest is Test {
         );
 
         assertEq(
-            usd.balanceOf(address(diamond)),
+            usd.balanceOf(
+                address(diamond)
+            ),
             buffer + cashed
         );
 
@@ -1396,7 +1418,9 @@ contract WiseTelecomNodesSweepFacetTest is Test {
         );
 
         assertEq(
-            usd.balanceOf(user1),
+            usd.balanceOf(
+                user1
+            ),
             cashed
         );
 
@@ -1578,7 +1602,9 @@ contract WiseTelecomNodesSweepFacetTest is Test {
         );
 
         assertEq(
-            usd.balanceOf(address(diamond)),
+            usd.balanceOf(
+                address(diamond)
+            ),
             raisedBuffer + cashed
         );
     }
@@ -1589,7 +1615,9 @@ contract WiseTelecomNodesSweepFacetTest is Test {
         public
     {
         assertEq(
-            diamond.isSweeper(randomEOA),
+            diamond.isSweeper(
+                randomEOA
+            ),
             false
         );
 
@@ -1611,7 +1639,9 @@ contract WiseTelecomNodesSweepFacetTest is Test {
         );
 
         assertEq(
-            diamond.isSweeper(randomEOA),
+            diamond.isSweeper(
+                randomEOA
+            ),
             true
         );
     }
@@ -1746,22 +1776,30 @@ contract WiseTelecomNodesSweepFacetTest is Test {
         view
     {
         assertEq(
-            diamond.isSweeper(worker),
+            diamond.isSweeper(
+                worker
+            ),
             true
         );
 
         assertEq(
-            diamond.isSweeper(thirdPty),
+            diamond.isSweeper(
+                thirdPty
+            ),
             true
         );
 
         assertEq(
-            diamond.isSweeper(address(this)),
+            diamond.isSweeper(
+                address(this)
+            ),
             true
         );
 
         assertEq(
-            diamond.isSweeper(randomEOA),
+            diamond.isSweeper(
+                randomEOA
+            ),
             false
         );
     }

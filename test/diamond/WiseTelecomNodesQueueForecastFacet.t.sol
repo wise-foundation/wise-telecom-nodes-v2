@@ -88,17 +88,46 @@ contract WiseTelecomNodesQueueForecastFacetTest is DiamondTestHarness {
         _wireOne(
             diamond,
             address(new QueueForecastFacet()),
-            WiseTelecomNodesDiamondSelectors.queueForecastSelectors()
+            WiseTelecomNodesDiamondSelectors._queueForecastSelectors()
         );
 
         diamond.finalizeSetup();
 
-        _seedOrder(seller1, 300 * 1e6, 500);
-        _seedOrder(seller2, 200 * 1e6, 500);
-        _seedOrder(seller1, 150 * 1e6, 100);
-        _seedOrder(seller3, 450 * 1e6, 100);
-        _seedOrder(seller2, 120 * 1e6, 0);
-        _seedOrder(seller3, 80 * 1e6, 0);
+        _seedOrder(
+            seller1,
+            300 * 1e6,
+            500
+        );
+
+        _seedOrder(
+            seller2,
+            200 * 1e6,
+            500
+        );
+
+        _seedOrder(
+            seller1,
+            150 * 1e6,
+            100
+        );
+
+        _seedOrder(
+            seller3,
+            450 * 1e6,
+            100
+        );
+
+        _seedOrder(
+            seller2,
+            120 * 1e6,
+            0
+        );
+
+        _seedOrder(
+            seller3,
+            80 * 1e6,
+            0
+        );
 
         totalQueued = 1_300 * 1e6;
     }
@@ -285,26 +314,42 @@ contract WiseTelecomNodesQueueForecastFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            abi.encode(fIncs),
-            abi.encode(rIncs),
+            abi.encode(
+                fIncs
+            ),
+            abi.encode(
+                rIncs
+            ),
             "incentives diverge"
         );
 
         assertEq(
-            abi.encode(fOrders),
-            abi.encode(rOrders),
+            abi.encode(
+                fOrders
+            ),
+            abi.encode(
+                rOrders
+            ),
             "orders diverge"
         );
 
         assertEq(
-            abi.encode(fAmounts),
-            abi.encode(rAmounts),
+            abi.encode(
+                fAmounts
+            ),
+            abi.encode(
+                rAmounts
+            ),
             "order amounts diverge"
         );
 
         assertEq(
-            abi.encode(fPartials),
-            abi.encode(rPartials),
+            abi.encode(
+                fPartials
+            ),
+            abi.encode(
+                rPartials
+            ),
             "partials diverge"
         );
 
@@ -338,18 +383,30 @@ contract WiseTelecomNodesQueueForecastFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            abi.encode(fIncs),
-            abi.encode(pIncs)
+            abi.encode(
+                fIncs
+            ),
+            abi.encode(
+                pIncs
+            )
         );
 
         assertEq(
-            abi.encode(fOrders),
-            abi.encode(pOrders)
+            abi.encode(
+                fOrders
+            ),
+            abi.encode(
+                pOrders
+            )
         );
 
         assertEq(
-            abi.encode(fPartials),
-            abi.encode(pPartials)
+            abi.encode(
+                fPartials
+            ),
+            abi.encode(
+                pPartials
+            )
         );
     }
 

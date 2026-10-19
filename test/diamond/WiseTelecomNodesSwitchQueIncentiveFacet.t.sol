@@ -293,12 +293,16 @@ contract WiseTelecomNodesSwitchQueIncentiveFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            vault.activeOrderCountByIncentive(0),
+            vault.activeOrderCountByIncentive(
+                0
+            ),
             0
         );
 
         assertEq(
-            vault.activeOrderCountByIncentive(100),
+            vault.activeOrderCountByIncentive(
+                100
+            ),
             1
         );
 
@@ -308,13 +312,17 @@ contract WiseTelecomNodesSwitchQueIncentiveFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            vault.currentOrderIdByIncentive(0),
+            vault.currentOrderIdByIncentive(
+                0
+            ),
             1,
             "source cursor advanced past hole"
         );
 
         assertEq(
-            vault.earliestValidQueMemberByIncentive(100),
+            vault.earliestValidQueMemberByIncentive(
+                100
+            ),
             1
         );
     }
@@ -348,18 +356,24 @@ contract WiseTelecomNodesSwitchQueIncentiveFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            vault.currentOrderIdByIncentive(0),
+            vault.currentOrderIdByIncentive(
+                0
+            ),
             1,
             "cursor advanced to next order"
         );
 
         assertEq(
-            vault.activeOrderCountByIncentive(0),
+            vault.activeOrderCountByIncentive(
+                0
+            ),
             2
         );
 
         assertEq(
-            vault.activeOrderCountByIncentive(100),
+            vault.activeOrderCountByIncentive(
+                100
+            ),
             1
         );
 
@@ -444,13 +458,17 @@ contract WiseTelecomNodesSwitchQueIncentiveFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            vault.currentOrderIdByIncentive(0),
+            vault.currentOrderIdByIncentive(
+                0
+            ),
             0,
             "head cursor unchanged for a middle move"
         );
 
         assertEq(
-            vault.activeOrderCountByIncentive(0),
+            vault.activeOrderCountByIncentive(
+                0
+            ),
             2
         );
     }
@@ -515,12 +533,16 @@ contract WiseTelecomNodesSwitchQueIncentiveFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            vault.activeOrderCountByIncentive(0),
+            vault.activeOrderCountByIncentive(
+                0
+            ),
             2
         );
 
         assertEq(
-            vault.activeOrderCountByIncentive(100),
+            vault.activeOrderCountByIncentive(
+                100
+            ),
             1
         );
     }
@@ -600,13 +622,17 @@ contract WiseTelecomNodesSwitchQueIncentiveFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            vault.currentOrderIdByIncentive(100),
+            vault.currentOrderIdByIncentive(
+                100
+            ),
             0,
             "dest cursor unaffected by append"
         );
 
         assertEq(
-            vault.activeOrderCountByIncentive(100),
+            vault.activeOrderCountByIncentive(
+                100
+            ),
             2
         );
     }
@@ -633,12 +659,16 @@ contract WiseTelecomNodesSwitchQueIncentiveFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            vault.activeOrderCountByIncentive(100),
+            vault.activeOrderCountByIncentive(
+                100
+            ),
             1
         );
 
         assertEq(
-            vault.currentOrderIdByIncentive(100),
+            vault.currentOrderIdByIncentive(
+                100
+            ),
             0
         );
     }
@@ -660,7 +690,9 @@ contract WiseTelecomNodesSwitchQueIncentiveFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            vault.activeOrderCountByIncentive(-100),
+            vault.activeOrderCountByIncentive(
+                - 100
+            ),
             1
         );
 
@@ -705,13 +737,17 @@ contract WiseTelecomNodesSwitchQueIncentiveFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            vault.activeOrderCountByIncentive(-100),
+            vault.activeOrderCountByIncentive(
+                - 100
+            ),
             0,
             "left the negative tier"
         );
 
         assertEq(
-            vault.activeOrderCountByIncentive(100),
+            vault.activeOrderCountByIncentive(
+                100
+            ),
             1,
             "landed in the positive tier"
         );
@@ -754,12 +790,16 @@ contract WiseTelecomNodesSwitchQueIncentiveFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            vault.activeOrderCountByIncentive(0),
+            vault.activeOrderCountByIncentive(
+                0
+            ),
             1
         );
 
         assertEq(
-            vault.activeOrderCountByIncentive(500),
+            vault.activeOrderCountByIncentive(
+                500
+            ),
             2
         );
     }
@@ -807,13 +847,17 @@ contract WiseTelecomNodesSwitchQueIncentiveFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            vault.balanceOf(user1),
+            vault.balanceOf(
+                user1
+            ),
             userShares,
             "user shares unchanged"
         );
 
         assertEq(
-            vault.balanceOf(address(vault)),
+            vault.balanceOf(
+                address(vault)
+            ),
             vaultShares,
             "escrowed shares unchanged"
         );
@@ -825,25 +869,33 @@ contract WiseTelecomNodesSwitchQueIncentiveFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            usd.balanceOf(user1),
+            usd.balanceOf(
+                user1
+            ),
             userUsd,
             "no USD to user"
         );
 
         assertEq(
-            usd.balanceOf(address(vault)),
+            usd.balanceOf(
+                address(vault)
+            ),
             vaultUsd,
             "no USD from vault"
         );
 
         assertEq(
-            usd.balanceOf(thirdPty),
+            usd.balanceOf(
+                thirdPty
+            ),
             tpUsd,
             "no USD to third party"
         );
 
         assertEq(
-            vault.proxyBalance(user1),
+            vault.proxyBalance(
+                user1
+            ),
             proxyBal,
             "proxy balance conserved"
         );
@@ -916,13 +968,17 @@ contract WiseTelecomNodesSwitchQueIncentiveFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            vault.activeOrderCountByIncentive(0),
+            vault.activeOrderCountByIncentive(
+                0
+            ),
             1,
             "source order not removed"
         );
 
         assertEq(
-            vault.activeOrderCountByIncentive(100),
+            vault.activeOrderCountByIncentive(
+                100
+            ),
             1
         );
 
@@ -986,7 +1042,9 @@ contract WiseTelecomNodesSwitchQueIncentiveFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            vault.activeOrderCountByIncentive(100),
+            vault.activeOrderCountByIncentive(
+                100
+            ),
             2,
             "two new dest orders"
         );
@@ -1130,7 +1188,9 @@ contract WiseTelecomNodesSwitchQueIncentiveFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            vault.activeOrderCountByIncentive(100),
+            vault.activeOrderCountByIncentive(
+                100
+            ),
             1
         );
     }
@@ -1423,13 +1483,17 @@ contract WiseTelecomNodesSwitchQueIncentiveFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            vault.activeOrderCountByIncentive(0),
+            vault.activeOrderCountByIncentive(
+                0
+            ),
             0,
             "sub-minimum residual is never trapped"
         );
 
         assertEq(
-            vault.balanceOf(user1),
+            vault.balanceOf(
+                user1
+            ),
             sharesBefore + 40 * 1e6,
             "residual shares returned to owner"
         );
@@ -1654,7 +1718,9 @@ contract WiseTelecomNodesSwitchQueIncentiveFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            vault.activeOrderCountByIncentive(0),
+            vault.activeOrderCountByIncentive(
+                0
+            ),
             0,
             "user can always exit while paused"
         );
@@ -1739,22 +1805,30 @@ contract WiseTelecomNodesSwitchQueIncentiveFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            vault.activeOrderCountByIncentive(0),
+            vault.activeOrderCountByIncentive(
+                0
+            ),
             0
         );
 
         assertEq(
-            vault.activeOrderCountByIncentive(200),
+            vault.activeOrderCountByIncentive(
+                200
+            ),
             0
         );
 
         assertEq(
-            vault.activeOrderCountByIncentive(100),
+            vault.activeOrderCountByIncentive(
+                100
+            ),
             1
         );
 
         assertEq(
-            vault.activeOrderCountByIncentive(500),
+            vault.activeOrderCountByIncentive(
+                500
+            ),
             1
         );
     }
