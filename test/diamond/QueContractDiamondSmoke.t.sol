@@ -118,37 +118,37 @@ contract QueContractDiamondSmokeTest is Test {
         );
 
         _proposeAndExecute(
-            WiseTelecomNodesDiamondSelectors.adminSelectors(),
+            WiseTelecomNodesDiamondSelectors._adminSelectors(),
             address(new AdminFacet())
         );
 
         _proposeAndExecute(
-            WiseTelecomNodesDiamondSelectors.proxySelectors(),
+            WiseTelecomNodesDiamondSelectors._proxySelectors(),
             address(new ProxyFacet())
         );
 
         _proposeAndExecute(
-            WiseTelecomNodesDiamondSelectors.userSelectors(),
+            WiseTelecomNodesDiamondSelectors._userSelectors(),
             address(new UserFacet())
         );
 
         _proposeAndExecute(
-            WiseTelecomNodesDiamondSelectors.queueAdminSelectors(),
+            WiseTelecomNodesDiamondSelectors._queueAdminSelectors(),
             address(new QueueAdminFacet())
         );
 
         _proposeAndExecute(
-            WiseTelecomNodesDiamondSelectors.queueJoinLeaveSelectors(),
+            WiseTelecomNodesDiamondSelectors._queueJoinLeaveSelectors(),
             address(new QueueJoinLeaveFacet())
         );
 
         _proposeAndExecute(
-            WiseTelecomNodesDiamondSelectors.queueFulfillSelectors(),
+            WiseTelecomNodesDiamondSelectors._queueFulfillSelectors(),
             address(new QueueFulfillFacet())
         );
 
         _proposeAndExecute(
-            WiseTelecomNodesDiamondSelectors.queueViewSelectors(),
+            WiseTelecomNodesDiamondSelectors._queueViewSelectors(),
             address(new QueueViewFacet())
         );
 
@@ -232,7 +232,9 @@ contract QueContractDiamondSmokeTest is Test {
         );
 
         assertEq(
-            diamond.proxyBalance(user1),
+            diamond.proxyBalance(
+                user1
+            ),
             1_000 * 1e6
         );
 
@@ -284,12 +286,16 @@ contract QueContractDiamondSmokeTest is Test {
         );
 
         assertEq(
-            IERC20(address(diamond)).balanceOf(fulf),
+            IERC20(address(diamond)).balanceOf(
+                fulf
+            ),
             fulfTokensBefore + 500 * 1e6
         );
 
         assertEq(
-            diamond.proxyBalance(user1),
+            diamond.proxyBalance(
+                user1
+            ),
             0
         );
     }
@@ -314,7 +320,9 @@ contract QueContractDiamondSmokeTest is Test {
         );
 
         assertEq(
-            IERC20(address(diamond)).balanceOf(user1),
+            IERC20(address(diamond)).balanceOf(
+                user1
+            ),
             user1BalBefore - 500 * 1e6
         );
 
@@ -328,12 +336,16 @@ contract QueContractDiamondSmokeTest is Test {
         );
 
         assertEq(
-            IERC20(address(diamond)).balanceOf(user1),
+            IERC20(address(diamond)).balanceOf(
+                user1
+            ),
             user1BalBefore
         );
 
         assertEq(
-            diamond.proxyBalance(user1),
+            diamond.proxyBalance(
+                user1
+            ),
             0
         );
     }
