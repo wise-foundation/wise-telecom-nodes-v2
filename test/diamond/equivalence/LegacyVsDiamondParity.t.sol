@@ -199,37 +199,37 @@ contract LegacyVsDiamondParityTest is Test {
         );
 
         _proposeAndExecute(
-            WiseTelecomNodesDiamondSelectors.adminSelectors(),
+            WiseTelecomNodesDiamondSelectors._adminSelectors(),
             address(vAdmin)
         );
 
         _proposeAndExecute(
-            WiseTelecomNodesDiamondSelectors.proxySelectors(),
+            WiseTelecomNodesDiamondSelectors._proxySelectors(),
             address(vProxy)
         );
 
         _proposeAndExecute(
-            WiseTelecomNodesDiamondSelectors.userSelectors(),
+            WiseTelecomNodesDiamondSelectors._userSelectors(),
             address(vUser)
         );
 
         _proposeAndExecute(
-            WiseTelecomNodesDiamondSelectors.queueAdminSelectors(),
+            WiseTelecomNodesDiamondSelectors._queueAdminSelectors(),
             address(qAdmin)
         );
 
         _proposeAndExecute(
-            WiseTelecomNodesDiamondSelectors.queueJoinLeaveSelectors(),
+            WiseTelecomNodesDiamondSelectors._queueJoinLeaveSelectors(),
             address(qJL)
         );
 
         _proposeAndExecute(
-            WiseTelecomNodesDiamondSelectors.queueFulfillSelectors(),
+            WiseTelecomNodesDiamondSelectors._queueFulfillSelectors(),
             address(qFf)
         );
 
         _proposeAndExecute(
-            WiseTelecomNodesDiamondSelectors.queueViewSelectors(),
+            WiseTelecomNodesDiamondSelectors._queueViewSelectors(),
             address(qView)
         );
 
@@ -298,26 +298,42 @@ contract LegacyVsDiamondParityTest is Test {
         view
     {
         assertEq(
-            lVault.balanceOf(_user),
-            IERC20(address(dVault)).balanceOf(_user),
+            lVault.balanceOf(
+                _user
+            ),
+            IERC20(address(dVault)).balanceOf(
+                _user
+            ),
             "balanceOf mismatch"
         );
 
         assertEq(
-            lVault.cashedInterest(_user),
-            dVault.cashedInterest(_user),
+            lVault.cashedInterest(
+                _user
+            ),
+            dVault.cashedInterest(
+                _user
+            ),
             "cashedInterest mismatch"
         );
 
         assertEq(
-            lVault.proxyBalance(_user),
-            dVault.proxyBalance(_user),
+            lVault.proxyBalance(
+                _user
+            ),
+            dVault.proxyBalance(
+                _user
+            ),
             "proxyBalance mismatch"
         );
 
         assertEq(
-            lVault.lastSyncTimeStamp(_user),
-            dVault.lastSyncTimeStamp(_user),
+            lVault.lastSyncTimeStamp(
+                _user
+            ),
+            dVault.lastSyncTimeStamp(
+                _user
+            ),
             "lastSyncTimeStamp mismatch"
         );
     }
@@ -333,8 +349,12 @@ contract LegacyVsDiamondParityTest is Test {
         );
 
         assertEq(
-            usd.balanceOf(thirdPty),
-            usd.balanceOf(thirdPty),
+            usd.balanceOf(
+                thirdPty
+            ),
+            usd.balanceOf(
+                thirdPty
+            ),
             "third-party balance mismatch (this should never trip)"
         );
     }
