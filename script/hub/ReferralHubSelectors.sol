@@ -17,7 +17,7 @@ import {ReferralHubPayoutFacet} from "../../src/hub/pending/ReferralHubPayoutFac
 /// getters the declarations expose (USD_TOKEN, the score and claimable
 /// counters, the source tables) and the ownership plus selector machinery
 /// are proxy native and deliberately absent here. Count: intake 10,
-/// mailbox 6, payout 6, rates 5, checkpoints 3, total 30.
+/// mailbox 6, payout 7, rates 5, checkpoints 3, total 31.
 library ReferralHubSelectors {
 
     function _intakeSelectors()
@@ -73,7 +73,7 @@ library ReferralHubSelectors {
         pure
         returns (bytes4[] memory selectors)
     {
-        selectors = new bytes4[](6);
+        selectors = new bytes4[](7);
 
         selectors[0] = ReferralHubPayoutFacet.claim.selector;
 
@@ -86,6 +86,8 @@ library ReferralHubSelectors {
         selectors[4] = ReferralHubPayoutFacet.setPayoutAddress.selector;
 
         selectors[5] = ReferralHubPayoutFacet.payoutAddressOf.selector;
+
+        selectors[6] = ReferralHubPayoutFacet.claimAll.selector;
     }
 
     function _ratesSelectors()
