@@ -14,6 +14,7 @@ import {BridgeFacet} from "../../../src/diamond/vault/facets/BridgeFacet.sol";
 import {ReferralFacet} from "../../../src/diamond/vault/facets/pending/ReferralFacet.sol";
 import {CohortHookFacet} from "../../../src/diamond/vault/facets/pending/CohortHookFacet.sol";
 import {CohortBridgeHookFacet} from "../../../src/diamond/vault/facets/pending/CohortBridgeHookFacet.sol";
+import {CohortMoveHookFacet} from "../../../src/diamond/vault/facets/pending/CohortMoveHookFacet.sol";
 import {CohortRecorderFacet} from "../../../src/diamond/vault/facets/pending/CohortRecorderFacet.sol";
 import {CohortWeeks} from "../../../src/diamond/shared/pending/CohortWeeks.sol";
 import {ReferralRegistry} from "../../../src/registry/pending/ReferralRegistry.sol";
@@ -225,10 +226,17 @@ contract MockDeferredCCIPRouter {
  * projection is consistent), snapshots the earliest week at which any
  * of the referrer's book mass could reach the mature lane, delivers,
  * and requires the landing never to move that earliest week later,
- * plus the sharp landing bounds: carried mature mass is mature now,
- * carried year-2 mass matures no later than the next boundary, and
- * carried year-1 mass no later than fifty-three weeks out (the
- * oldest-live-slot landing rule). Failures increment
+ * plus the sharp landing bounds, which read the capture week the
+ * delivered payload carries and count the weekly boundaries crossed
+ * in flight (zero when the capture week is not before the arrival
+ * week): carried mature mass is mature now, and so is carried year-2
+ * mass once at least one boundary crossed, and so is every carried
+ * lane once more than fifty-two boundaries crossed; otherwise carried
+ * year-2 mass, and carried year-1 mass once at least one boundary
+ * crossed, matures no later than the next boundary; carried year-1
+ * mass delivered in its capture week matures no later than
+ * fifty-three weeks out (the oldest-live-slot landing rule after the
+ * in-flight ageing). Failures increment
  * `ghostDemotionViolations` instead of reverting because the
  * invariant runner tolerates handler-call reverts.
  */
@@ -664,42 +672,62 @@ contract BridgeCarryHandler is Test {
             ,
             bytes memory referralData
         ) = abi.decode(
-            router.dataOf(_index),
+            router.dataOf(
+                _index
+            ),
             (address, uint256, bytes)
         );
 
         uint256 carriedDelta;
 
+        uint256 carriedY1;
+
         uint256 carriedY2;
 
         uint256 carriedM;
 
+        uint256 captureWeek;
+
         uint256 laneSum;
 
-        if (referralData.length == CohortWeeks.BRIDGE_CARRY_BYTES) {
+        uint256 carriedMaturity = type(uint256).max;
 
-            (
-                ,
-                uint256 word1,
-                uint256 word2,
-                uint256 word3
-            ) = CohortWeeks.unpackBridgeCarry(
+        if (referralData.length >= CohortWeeks.BRIDGE_CARRY_HEADER_BYTES) {
+
+            uint256[] memory words = CohortWeeks._unpackBridgeCarry(
                 referralData
             );
 
-            carriedDelta = CohortWeeks.carryTrackedDelta(
-                word1
+            captureWeek = CohortWeeks._bridgeCarryCaptureWeek(
+                words[0]
             );
 
-            carriedY2 = CohortWeeks.carryPairHi(
-                word2
+            carriedDelta = CohortWeeks._carryTrackedDelta(
+                words[1]
             );
 
-            carriedM = CohortWeeks.carryPairLo(
-                word3
+            (
+                carriedY1,
+                carriedY2
+            ) = CohortWeeks._carryPairSums(
+                words,
+                CohortWeeks.BRIDGE_CARRY_HEADER_WORDS,
+                CohortWeeks._bridgeCarryPairCount(
+                    words[0]
+                )
             );
 
-            laneSum = CohortWeeks.carryPairLo(word2)
+            carriedM = CohortWeeks._carryPairLo(
+                words[2]
+            );
+
+            carriedMaturity = _carriedMaturityWeek(
+                words,
+                captureWeek,
+                carriedM
+            );
+
+            laneSum = carriedY1
                 + carriedY2
                 + carriedM;
         }
@@ -726,8 +754,7 @@ contract BridgeCarryHandler is Test {
             _checkDemotion(
                 rec,
                 maturityBefore,
-                carriedY2,
-                carriedM
+                carriedMaturity
             );
         }
 
@@ -744,41 +771,71 @@ contract BridgeCarryHandler is Test {
     function _checkDemotion(
         CohortRecorderFacet _rec,
         uint256 _maturityBefore,
-        uint256 _carriedY2,
-        uint256 _carriedM
+        uint256 _carriedMaturity
     )
         internal
     {
-        uint256 maturityAfter = _earliestMaturityWeek(
-            _rec
-        );
+        uint256 expected = _carriedMaturity < _maturityBefore
+            ? _carriedMaturity
+            : _maturityBefore;
 
+        if (_earliestMaturityWeek(_rec) != expected) {
+            ++ghostDemotionViolations;
+        }
+    }
+
+    function _carriedMaturityWeek(
+        uint256[] memory _words,
+        uint256 _captureWeek,
+        uint256 _mature
+    )
+        internal
+        view
+        returns (uint256 best)
+    {
         uint256 nowWeek = block.timestamp / 1 weeks;
 
-        if (maturityAfter > _maturityBefore) {
-            ++ghostDemotionViolations;
-        }
+        best = _mature > 0
+            ? nowWeek
+            : type(uint256).max;
 
-        if (_carriedM > 0) {
+        uint256 pairCount = CohortWeeks._bridgeCarryPairCount(
+            _words[0]
+        );
 
-            if (maturityAfter != nowWeek) {
-                ++ghostDemotionViolations;
+        for (uint256 i; i < pairCount; ++i) {
+
+            uint256 pair = CohortWeeks._carryPairOf(
+                _words,
+                CohortWeeks.BRIDGE_CARRY_HEADER_WORDS,
+                i
+            );
+
+            if (CohortWeeks._carryPairAmount(pair) == 0) {
+                continue;
             }
 
-            return;
-        }
+            (
+                uint256 slot,
+                uint256 lane
+            ) = CohortWeeks._landedCarryPair(
+                pair,
+                _captureWeek,
+                nowWeek
+            );
 
-        if (_carriedY2 > 0) {
+            uint256 week = nowWeek;
 
-            if (maturityAfter > nowWeek + 1) {
-                ++ghostDemotionViolations;
+            if (lane != CohortWeeks.CARRY_LANE_MATURE) {
+                week = _nextRotationWeek(
+                    slot,
+                    nowWeek
+                ) + (lane == CohortWeeks.CARRY_RING_YEAR1 ? 52 : 0);
             }
 
-            return;
-        }
-
-        if (maturityAfter > nowWeek + 53) {
-            ++ghostDemotionViolations;
+            if (week < best) {
+                best = week;
+            }
         }
     }
 
@@ -1054,9 +1111,12 @@ contract BridgeCarryHandler is Test {
  * lands with its full tracked delta); BC5 re-checks the ring-to-lane
  * identity on both vaults, which a landing that touched a ring
  * without its book (or vice versa) would break; BC6 asserts the
- * per-delivery maturity-demotion checks stayed clean: relocation may
- * only ever accelerate the year-1 to year-2 to mature walk, never
- * refresh a cohort's age.
+ * per-delivery maturity checks stayed clean: a relocation never
+ * changes a cohort's age, so after a delivery the book's earliest
+ * maturity week is exactly the earlier of the book's own and the
+ * carried pairs' maturity weeks, each pair aged only by the week
+ * boundaries crossed between the capture week the payload carries and
+ * the arrival.
  */
 contract BridgeCarryConservationInvariantTest is TwoVaultCohortHarness {
 
@@ -1190,25 +1250,31 @@ contract BridgeCarryConservationInvariantTest is TwoVaultCohortHarness {
         _wireOne(
             d,
             address(new BridgeFacet()),
-            WiseTelecomNodesDiamondSelectors.bridgeSelectors()
+            WiseTelecomNodesDiamondSelectors._bridgeSelectors()
         );
 
         _wireOne(
             d,
             address(new ReferralFacet()),
-            WiseTelecomNodesDiamondSelectors.referralSelectors()
+            WiseTelecomNodesDiamondSelectors._referralSelectors()
         );
 
         _wireOne(
             d,
             address(new CohortRecorderFacet()),
-            WiseTelecomNodesDiamondSelectors.cohortRecorderSelectors()
+            WiseTelecomNodesDiamondSelectors._cohortRecorderSelectors()
         );
 
         _wireOne(
             d,
             address(new CohortBridgeHookFacet()),
-            WiseTelecomNodesDiamondSelectors.cohortBridgeHookSelectors()
+            WiseTelecomNodesDiamondSelectors._cohortBridgeHookSelectors()
+        );
+
+        _wireOne(
+            d,
+            address(new CohortMoveHookFacet()),
+            WiseTelecomNodesDiamondSelectors._cohortMoveHookSelectors()
         );
 
         AdminFacet(address(d)).proposeTransferHookFacet(
@@ -1313,26 +1379,50 @@ contract BridgeCarryConservationInvariantTest is TwoVaultCohortHarness {
         view
     {
         assertGe(
-            _recorderOf(vaultA).getTrackedContribution(A1),
-            vaultA.balanceOf(A1),
+            _recorderOf(
+                vaultA
+            ).getTrackedContribution(
+                A1
+            ),
+            vaultA.balanceOf(
+                A1
+            ),
             "BC4-A1-A: balance outran tracked contribution"
         );
 
         assertGe(
-            _recorderOf(vaultA).getTrackedContribution(A2),
-            vaultA.balanceOf(A2),
+            _recorderOf(
+                vaultA
+            ).getTrackedContribution(
+                A2
+            ),
+            vaultA.balanceOf(
+                A2
+            ),
             "BC4-A2-A: balance outran tracked contribution"
         );
 
         assertGe(
-            _recorderOf(vaultB).getTrackedContribution(A1),
-            vaultB.balanceOf(A1),
+            _recorderOf(
+                vaultB
+            ).getTrackedContribution(
+                A1
+            ),
+            vaultB.balanceOf(
+                A1
+            ),
             "BC4-A1-B: balance outran tracked contribution"
         );
 
         assertGe(
-            _recorderOf(vaultB).getTrackedContribution(A2),
-            vaultB.balanceOf(A2),
+            _recorderOf(
+                vaultB
+            ).getTrackedContribution(
+                A2
+            ),
+            vaultB.balanceOf(
+                A2
+            ),
             "BC4-A2-B: balance outran tracked contribution"
         );
     }

@@ -153,7 +153,9 @@ contract BridgeInvariantHandler is Test {
     )
         external
     {
-        uint256 bal = vaultA.balanceOf(user);
+        uint256 bal = vaultA.balanceOf(
+            user
+        );
 
         if (bal == 0) {
             return;
@@ -177,7 +179,9 @@ contract BridgeInvariantHandler is Test {
     )
         external
     {
-        uint256 bal = vaultB.balanceOf(user);
+        uint256 bal = vaultB.balanceOf(
+            user
+        );
 
         if (bal == 0) {
             return;
@@ -308,7 +312,7 @@ contract BridgeConservationInvariantTest is DiamondTestHarness {
         _wireOne(
             d,
             address(new BridgeFacet()),
-            WiseTelecomNodesDiamondSelectors.bridgeSelectors()
+            WiseTelecomNodesDiamondSelectors._bridgeSelectors()
         );
     }
 

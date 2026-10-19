@@ -491,13 +491,13 @@ contract CohortRecorderInvariantTest is DiamondTestHarness {
         _wireOne(
             diamond,
             address(new ReferralFacet()),
-            WiseTelecomNodesDiamondSelectors.referralSelectors()
+            WiseTelecomNodesDiamondSelectors._referralSelectors()
         );
 
         _wireOne(
             diamond,
             address(new CohortRecorderFacet()),
-            WiseTelecomNodesDiamondSelectors.cohortRecorderSelectors()
+            WiseTelecomNodesDiamondSelectors._cohortRecorderSelectors()
         );
 
         AdminFacet(address(diamond)).proposeTransferHookFacet(
@@ -620,7 +620,9 @@ contract CohortRecorderInvariantTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getCohortScore(REF),
+            _recorder().getCohortScore(
+                REF
+            ),
             year1 + year2 + mature,
             "REC1: score != book total"
         );
@@ -671,8 +673,12 @@ contract CohortRecorderInvariantTest is DiamondTestHarness {
         }
 
         assertGe(
-            diamond.balanceOf(_actor),
-            _recorder().getTrackedContribution(_actor),
+            diamond.balanceOf(
+                _actor
+            ),
+            _recorder().getTrackedContribution(
+                _actor
+            ),
             "REC5: an unparked actor holds below tracked"
         );
     }
@@ -684,19 +690,29 @@ contract CohortRecorderInvariantTest is DiamondTestHarness {
         view
     {
         assertLe(
-            _recorder().getAttributedContribution(A1),
-            _recorder().getTrackedContribution(A1),
+            _recorder().getAttributedContribution(
+                A1
+            ),
+            _recorder().getTrackedContribution(
+                A1
+            ),
             "REC4-A1: attributed above tracked"
         );
 
         assertLe(
-            _recorder().getAttributedContribution(A2),
-            _recorder().getTrackedContribution(A2),
+            _recorder().getAttributedContribution(
+                A2
+            ),
+            _recorder().getTrackedContribution(
+                A2
+            ),
             "REC4-A2: attributed above tracked"
         );
 
         assertEq(
-            _recorder().getAttributedContribution(U),
+            _recorder().getAttributedContribution(
+                U
+            ),
             0,
             "REC4-U: unreferred actor attributed"
         );
@@ -754,8 +770,13 @@ contract CohortRecorderInvariantTest is DiamondTestHarness {
 
         for (uint256 w = start; w < next; ++w) {
             assertEq(
-                _recorder().getCohortWeekCrumb(REF, w),
-                handler.ghostCrumb(w),
+                _recorder().getCohortWeekCrumb(
+                    REF,
+                    w
+                ),
+                handler.ghostCrumb(
+                    w
+                ),
                 "REC3: finalized week crumb mutated"
             );
         }
@@ -768,13 +789,17 @@ contract CohortRecorderInvariantTest is DiamondTestHarness {
         view
     {
         assertEq(
-            ReferralFacet(address(diamond)).getReferrerOf(A1),
+            ReferralFacet(address(diamond)).getReferrerOf(
+                A1
+            ),
             REF,
             "REG1: A1 referrer changed"
         );
 
         assertEq(
-            ReferralFacet(address(diamond)).getReferrerOf(A2),
+            ReferralFacet(address(diamond)).getReferrerOf(
+                A2
+            ),
             REF,
             "REG1: A2 referrer changed"
         );

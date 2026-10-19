@@ -42,10 +42,17 @@ contract QueueCursorHandler is QueueInvariantHandler {
     )
         external
     {
-        address actor = _actor(_actorSeed);
-        int256 incentive = _tier(_tierSeed);
+        address actor = _actor(
+            _actorSeed
+        );
 
-        uint256 earliest = diamond.earliestValidQueMemberByIncentive(incentive);
+        int256 incentive = _tier(
+            _tierSeed
+        );
+
+        uint256 earliest = diamond.earliestValidQueMemberByIncentive(
+            incentive
+        );
 
         if (earliest == 0) {
             return;
@@ -68,10 +75,17 @@ contract QueueCursorHandler is QueueInvariantHandler {
     )
         external
     {
-        address actor = _actor(_actorSeed);
-        int256 incentive = _tier(_tierSeed);
+        address actor = _actor(
+            _actorSeed
+        );
 
-        uint256 earliest = diamond.earliestValidQueMemberByIncentive(incentive);
+        int256 incentive = _tier(
+            _tierSeed
+        );
+
+        uint256 earliest = diamond.earliestValidQueMemberByIncentive(
+            incentive
+        );
 
         if (earliest == 0) {
             return;
@@ -100,15 +114,25 @@ contract QueueCursorHandler is QueueInvariantHandler {
     )
         external
     {
-        address actor = _actor(_actorSeed);
-        int256 incentiveA = _tier(_tierSeedA);
-        int256 incentiveB = _tier(_tierSeedB);
+        address actor = _actor(
+            _actorSeed
+        );
+
+        int256 incentiveA = _tier(
+            _tierSeedA
+        );
+
+        int256 incentiveB = _tier(
+            _tierSeedB
+        );
 
         if (incentiveA == incentiveB) {
             return;
         }
 
-        uint256 earliest = diamond.earliestValidQueMemberByIncentive(incentiveA);
+        uint256 earliest = diamond.earliestValidQueMemberByIncentive(
+            incentiveA
+        );
 
         if (earliest == 0) {
             return;
@@ -130,10 +154,17 @@ contract QueueCursorHandler is QueueInvariantHandler {
     )
         external
     {
-        address actor = _actor(_actorSeed);
-        int256 incentive = _tier(_tierSeed);
+        address actor = _actor(
+            _actorSeed
+        );
 
-        uint256 id = diamond.currentOrderIdByIncentive(incentive);
+        int256 incentive = _tier(
+            _tierSeed
+        );
+
+        uint256 id = diamond.currentOrderIdByIncentive(
+            incentive
+        );
 
         uint256 amount = bound(
             _amountSeed,
@@ -258,8 +289,13 @@ contract QueueCursorInvariantTest is DiamondTestHarness {
         for (uint256 i = 0; i < tiers.length; i++) {
             int256 incentive = tiers[i];
 
-            uint256 earliest = diamond.earliestValidQueMemberByIncentive(incentive);
-            uint256 cursor = diamond.currentOrderIdByIncentive(incentive);
+            uint256 earliest = diamond.earliestValidQueMemberByIncentive(
+                incentive
+            );
+
+            uint256 cursor = diamond.currentOrderIdByIncentive(
+                incentive
+            );
 
             bool found;
             uint256 lowest;
