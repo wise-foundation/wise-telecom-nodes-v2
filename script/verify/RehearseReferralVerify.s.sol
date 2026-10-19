@@ -21,7 +21,6 @@ import {CohortBridgeHookFacet} from "../../src/diamond/vault/facets/pending/Coho
 import {CohortMoveHookFacet} from "../../src/diamond/vault/facets/pending/CohortMoveHookFacet.sol";
 import {CohortFlushFacet} from "../../src/diamond/vault/facets/pending/CohortFlushFacet.sol";
 import {CohortFlushPolicyFacet} from "../../src/diamond/vault/facets/pending/CohortFlushPolicyFacet.sol";
-import {ReferralPayoutFacet} from "../../src/diamond/vault/facets/pending/ReferralPayoutFacet.sol";
 import {ReferralRegistry} from "../../src/registry/pending/ReferralRegistry.sol";
 import {ReferralHub} from "../../src/hub/pending/ReferralHub.sol";
 import {ReferralHubReader} from "../../src/hub/pending/ReferralHubReader.sol";
@@ -86,8 +85,6 @@ contract RehearseReferralVerify is VaultConfig {
         new CohortMoveHookFacet();
         new CohortFlushFacet();
         new CohortFlushPolicyFacet();
-        new ReferralPayoutFacet();
-
         new ReferralRegistry(
             vm.addr(
                 privKey
