@@ -462,7 +462,8 @@ abstract contract WiseTelecomNodesDiamondEvents {
         uint256 trackedDelta,
         uint256 year1,
         uint256 year2,
-        uint256 mature
+        uint256 mature,
+        address bookReferrer
     );
 
     event CohortBridgeCarryApplied(
@@ -498,6 +499,30 @@ abstract contract WiseTelecomNodesDiamondEvents {
     event CohortBridgeHookFailed(
         address indexed user,
         uint64 indexed srcChainSelector
+    );
+
+    event CohortSelfCrumbSettled(
+        address indexed user,
+        uint256 settledAt,
+        uint256 currentWeekSeconds,
+        uint256 previousWeekSeconds
+    );
+
+    event CohortDisarmSpanSet(
+        uint256 disarmedAt,
+        uint256 rearmedAt
+    );
+
+    event CohortQuarantineReadFailed(
+        address indexed user,
+        uint64 indexed srcChainSelector
+    );
+
+    event CohortSelfLogged(
+        address indexed user,
+        uint256 fromWeek,
+        uint256 completedSeconds,
+        uint256 stake
     );
 
     // ---- Queue surface ----

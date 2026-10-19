@@ -132,6 +132,8 @@ abstract contract WiseTelecomNodesDiamondErrors {
 
     error ReferralDataReserved();
 
+    error ReferralRegistryChangeWhileArmed();
+
     // ---- Cohort recorder ----
 
     error CohortHookNotInstalled();
@@ -213,4 +215,17 @@ abstract contract WiseTelecomNodesDiamondErrors {
     error FlushRefundFailed();
 
     error InvalidFlushGasLimit();
+
+    error CohortBridgeInOutOfGas(
+        address user,
+        uint64 srcChainSelector
+    );
+
+    error FlushOutageGraceActive();
+
+    error FlushCursorVirgin();
+
+    error FlushCadenceActive();
+
+    error FlushBookNotAdvanced();
 }
