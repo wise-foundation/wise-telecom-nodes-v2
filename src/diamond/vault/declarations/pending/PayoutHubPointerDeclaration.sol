@@ -3,10 +3,11 @@
 pragma solidity =0.8.36;
 
 /**
- * @dev Tail shard at slots 80 to 82: the payout hub pointer and its
- * timelocked change. The pointer is the only authorization of the hub
- * gated writers, never an allowance; a zero pointer, the virgin default,
- * reverts NotPayoutHub.
+ * @dev Tail shard at slots 80 to 82, retired: the payout hub pointer of a
+ * vault side payout rail that was removed before it shipped (the hub is
+ * its own pot and never draws on a vault). The words stay declared and
+ * unused so the shards behind them keep their slots; they are never
+ * written.
  */
 abstract contract PayoutHubPointerDeclaration {
 
