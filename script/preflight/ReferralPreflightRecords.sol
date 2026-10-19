@@ -22,13 +22,13 @@ import {WiseTelecomNodesDiamondSelectors} from "../diamond/WiseTelecomNodesDiamo
 /// `config/vault.wsnusdc.mainnet.json` with `"system": 1`); a product without a record on a
 /// network is skipped there, so the Sovren checks start once that record exists. The batch
 /// table covers every selector group of the diamond. Each round batch names its round's
-/// phase (registry 2, flush 3, payout 4) and the build artifact of its facet: the thirteen
+/// phase (registry 2, flush 3) and the build artifact of its facet: the thirteen
 /// batches of the registry round in `propose()` order (the admin batch once, since the flush
-/// and payout rounds re-propose the same build), the two flush batches and the two payout
-/// batches. The bridge batch leaves out the legacy referral bridge pair, which the vault
+/// round re-proposes the same build) and the two flush batches. Phase 4 is the hub funding
+/// and the hub master handoff, phase 5 the seed latch and the registry master handoff. The bridge batch leaves out the legacy referral bridge pair, which the vault
 /// layer judges alone because its retirement queues only those two selectors. The nine
 /// groups no rollout step proposes (proxy, cashed interest, queue forecast, interest admin,
-/// rescue, burn wise, multicall, queue admin, queue view) carry no round. `_matchesBuild`
+/// rescue, burn wise, multicall, queue admin, queue view, sweep) carry no round. `_matchesBuild`
 /// compares deployed code with the artifact byte for byte, except where the artifact holds
 /// a zero placeholder for an immutable and the deployed byte belongs to the deployed
 /// address itself (the facets keep their own address as `_self`), so a match proves the
@@ -62,7 +62,7 @@ abstract contract ReferralPreflightRecords is VaultConfig {
 
     uint256 internal constant FLUSH_ROUND_PHASE = 3;
 
-    uint256 internal constant PAYOUT_ROUND_PHASE = 4;
+    uint256 internal constant HUB_HANDOFF_PHASE = 4;
 
     uint256 internal constant HUB_HANDOFF_PHASE = 4;
 
@@ -410,7 +410,7 @@ abstract contract ReferralPreflightRecords is VaultConfig {
         returns (Batch[] memory batches)
     {
         batches = new Batch[](
-            26
+            24
         );
 
         batches[0] = _batch(
@@ -521,76 +521,62 @@ abstract contract ReferralPreflightRecords is VaultConfig {
         );
 
         batches[15] = _batch(
-            "sweep",
-            WiseTelecomNodesDiamondSelectors._sweepSelectors(),
-            "out/SweepFacet.sol/SweepFacet.json",
-            PAYOUT_ROUND_PHASE
-        );
-
-        batches[16] = _batch(
-            "referral payout",
-            WiseTelecomNodesDiamondSelectors._referralPayoutSelectors(),
-            "out/ReferralPayoutFacet.sol/ReferralPayoutFacet.json",
-            PAYOUT_ROUND_PHASE
-        );
-
-        batches[17] = _batch(
             "proxy",
             WiseTelecomNodesDiamondSelectors._proxySelectors(),
             "",
             NOT_A_ROLLOUT_BATCH
         );
 
-        batches[18] = _batch(
+        batches[16] = _batch(
             "cashed interest",
             WiseTelecomNodesDiamondSelectors._cashedInterestSelectors(),
             "",
             NOT_A_ROLLOUT_BATCH
         );
 
-        batches[19] = _batch(
+        batches[17] = _batch(
             "queue forecast",
             WiseTelecomNodesDiamondSelectors._queueForecastSelectors(),
             "",
             NOT_A_ROLLOUT_BATCH
         );
 
-        batches[20] = _batch(
+        batches[18] = _batch(
             "interest admin",
             WiseTelecomNodesDiamondSelectors._interestAdminSelectors(),
             "",
             NOT_A_ROLLOUT_BATCH
         );
 
-        batches[21] = _batch(
+        batches[19] = _batch(
             "rescue",
             WiseTelecomNodesDiamondSelectors._rescueSelectors(),
             "",
             NOT_A_ROLLOUT_BATCH
         );
 
-        batches[22] = _batch(
+        batches[20] = _batch(
             "burn wise",
             WiseTelecomNodesDiamondSelectors._burnWiseSelectors(),
             "",
             NOT_A_ROLLOUT_BATCH
         );
 
-        batches[23] = _batch(
+        batches[21] = _batch(
             "multicall",
             WiseTelecomNodesDiamondSelectors._multicallSelectors(),
             "",
             NOT_A_ROLLOUT_BATCH
         );
 
-        batches[24] = _batch(
+        batches[22] = _batch(
             "queue admin",
             WiseTelecomNodesDiamondSelectors._queueAdminSelectors(),
             "",
             NOT_A_ROLLOUT_BATCH
         );
 
-        batches[25] = _batch(
+        batches[23] = _batch(
             "queue view",
             WiseTelecomNodesDiamondSelectors._queueViewSelectors(),
             "",
@@ -1080,18 +1066,6 @@ abstract contract ReferralPreflightRecords is VaultConfig {
         }
 
         return 0;
-    }
-
-    function _isPayoutVault(
-        string memory _product,
-        string memory _network
-    )
-        internal
-        pure
-        returns (bool)
-    {
-        return _sameString(_product, "usdc")
-            && _sameString(_network, HUB_NETWORK);
     }
 
     function _registryOf(

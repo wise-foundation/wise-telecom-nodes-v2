@@ -43,14 +43,12 @@ import {WiseTelecomNodesDiamondSelectors} from "../diamond/WiseTelecomNodesDiamo
 /// disabled keeps its address but reads as no peer; a live or queued peer carries the
 /// `peerDecimals` of the product's mesh manifest (the usdc manifest for a product without one).
 /// A round batch is compared with the build as soon as its round's marker selector routes
-/// (the recorder for the registry round, the flush entry for the flush round, the payout read
-/// for the payout round), so a vault cannot be armed or wired while one of its batches kept an
-/// old facet; the transfer hook follows the registry round the same way. Every enabled bridge
+/// (the recorder for the registry round, the flush entry for the flush round), so a vault
+/// cannot be armed or wired while one of its batches kept an old facet; the transfer hook follows the registry round the same way. Every enabled bridge
 /// lane is read from the far side too (through the far chain's keyed RPC): the far vault must
 /// have its lane back toward this vault enabled and naming it, since the receiving side
-/// refuses a source whose own lane it disabled. The payout hub pointer requires every registry
-/// latched (law 7). Arming, flush access and the payout round of another vault system are
-/// checked from its own repository.
+/// refuses a source whose own lane it disabled. Arming and flush access of another vault
+/// system are checked from its own repository.
 /// An armed vault also requires every vault of its chain to route the registry round (law 2)
 /// and every live bridge peer to route the shipped BridgeFacet and both hook slices on its own
 /// chain (law 1, read over that chain's RPC). The legacy pair may be proposed to BridgeFacet
@@ -146,13 +144,6 @@ abstract contract ReferralPreflightVault is ReferralPreflightRecords {
         _checkFlushPointer(
             d,
             scope,
-            _network
-        );
-
-        _checkPayoutPointer(
-            d,
-            scope,
-            _product,
             _network
         );
 
@@ -895,78 +886,6 @@ abstract contract ReferralPreflightVault is ReferralPreflightRecords {
         );
     }
 
-    function _checkPayoutPointer(
-        WiseTelecomNodesDiamond _d,
-        string memory _scope,
-        string memory _product,
-        string memory _network
-    )
-        internal
-    {
-        bool homeSystem = _expectedSystem(_product) == 0;
-
-        if (homeSystem && _routed(_d, WiseTelecomNodesDiamondSelectors._referralPayoutSelectors()[0]) == false) {
-            _due(
-                PAYOUT_ROUND_PHASE,
-                _scope,
-                "payout round executed"
-            );
-        }
-
-        if (_routed(_d, AdminFacet.getPayoutHub.selector) == false) {
-            return;
-        }
-
-        address pointer = AdminFacet(address(_d)).getPayoutHub();
-
-        uint256 queuedAt = AdminFacet(address(_d)).getPayoutHubChangeQueuedAt();
-
-        if (_isPayoutVault(_product, _network) == false) {
-            _verdict(
-                pointer == address(0) && queuedAt == 0,
-                _scope,
-                "payout hub pointer zero and unqueued off the payout vault"
-            );
-
-            return;
-        }
-
-        address expected = _hubOrZero();
-
-        _checkPointer(
-            _scope,
-            "payout hub pointer",
-            pointer == address(0),
-            pointer == expected,
-            PAYOUT_ROUND_PHASE
-        );
-
-        if (pointer != address(0)) {
-            _verdict(
-                pointer == address(0) || _everyRegistryLatched(),
-                _scope,
-                "payout hub pointer live only after every registry latched its seeds (law 7)"
-            );
-        }
-
-        if (queuedAt == 0) {
-            return;
-        }
-
-        address proposed = AdminFacet(address(_d)).getProposedPayoutHub();
-
-        _verdict(
-            expected != address(0) && proposed == expected,
-            _scope,
-            string.concat(
-                "queued payout hub change names the config hub, reads ",
-                vm.toString(
-                    proposed
-                )
-            )
-        );
-    }
-
     function _checkAllowLane(
         WiseTelecomNodesDiamond _d,
         string memory _scope,
@@ -1302,10 +1221,6 @@ abstract contract ReferralPreflightVault is ReferralPreflightRecords {
 
         if (_roundPhase == FLUSH_ROUND_PHASE) {
             marker = WiseTelecomNodesDiamondSelectors._cohortFlushSelectors()[0];
-        }
-
-        if (_roundPhase == PAYOUT_ROUND_PHASE) {
-            marker = WiseTelecomNodesDiamondSelectors._referralPayoutSelectors()[0];
         }
 
         return _routed(
