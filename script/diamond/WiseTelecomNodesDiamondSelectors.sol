@@ -18,7 +18,6 @@ import {CohortBridgeHookFacet} from "../../src/diamond/vault/facets/pending/Coho
 import {CohortMoveHookFacet} from "../../src/diamond/vault/facets/pending/CohortMoveHookFacet.sol";
 import {CohortFlushFacet} from "../../src/diamond/vault/facets/pending/CohortFlushFacet.sol";
 import {CohortFlushPolicyFacet} from "../../src/diamond/vault/facets/pending/CohortFlushPolicyFacet.sol";
-import {ReferralPayoutFacet} from "../../src/diamond/vault/facets/pending/ReferralPayoutFacet.sol";
 import {MulticallFacet} from "../../src/diamond/vault/facets/MulticallFacet.sol";
 import {QueueAdminFacet} from "../../src/diamond/vault/facets/QueueAdminFacet.sol";
 import {QueueJoinLeaveFacet} from "../../src/diamond/vault/facets/QueueJoinLeaveFacet.sol";
@@ -63,27 +62,26 @@ interface IAutoCompoundGetters {
  * Deploy scripts and tests both import this library so the wiring
  * cannot drift.
  *
- * Counts: admin=46, proxy=3, user=8, sweep=2, cashedInterest=1,
+ * Counts: admin=40, proxy=3, user=8, sweep=2, cashedInterest=1,
  * burnWise=3, move=7, bridge=14, permit2=3, referral=4,
  * permit2Referral=3, cohortRecorder=15, cohortBridgeHook=3,
  * cohortMoveHook=2, cohortFlush=4, cohortFlushPolicy=9, multicall=1, queueAdmin=2,
  * queueJoinLeave=5, queueFulfill=4, queueView=10, queueForecast=1,
  * interestAdmin=1, rescue=1, autoCompound=7 (4 functions + the 3
- * shard getters, which the frozen live dispatchers cannot serve),
- * referralPayout=3 (cohortRecorder grew 11→12 with the master-only
+ * shard getters, which the frozen live dispatchers cannot serve)
+ * (cohortRecorder grew 11→12 with the master-only
  * retroactive seed, to 13 with the batched crumb reader, to 14
  * with the attributed-contribution getter and to 15 with the
  * self-crumb getter, shipping wholesale inside the registry round's
- * recorder group); total 162,
+ * recorder group); total 153,
  * of which
  * 90 are wired at genesis (the genesis-era admin group had 27;
  * `setCohortSyncEnabled` ships with the cohort upgrade's AdminFacet
  * redeploy, the referral-registry pointer six
  * (propose/execute/cancel plus the three routed getters backing the
  * slot-77 shard's `internal` fields) ship with the registry
- * round's AdminFacet redeploy, the payout-hub pointer six ship
- * the same way with the payout round's AdminFacet redeploy, and the
- * flush-hub pointer six with the flush round's). The
+ * round's AdminFacet redeploy, and the flush-hub pointer six with
+ * the flush round's). The
  * referral groups (referral=4,
  * permit2Referral=3) and the cohortRecorder group are post-launch:
  * installed exclusively by the registry upgrade script (which
@@ -94,12 +92,7 @@ interface IAutoCompoundGetters {
  * live on all nine diamonds since early August 2026, as is the
  * rescue group (proposals executed fleet-wide, verified onchain
  * 2026-08-29).
- * The referralPayout group is post-launch and NOT yet installed
- * anywhere: it ships with {UpgradeReferralPayout} as the
- * routed view plus the two hub-gated writers
- * (`raisePendingReferralPayout`, `fundReferralPayout`) behind the
- * timelocked payout-hub pointer. The cohortFlush group is likewise
- * post-launch and not yet installed: the flush transport's two
+ * The cohortFlush group is post-launch and not yet installed: the flush transport's two
  * payable entrypoints, the fee quote and the envelope preview,
  * shipped by {UpgradeCohortFlush}
  * together with the grown AdminFacet and the settle-aware
@@ -155,7 +148,7 @@ library WiseTelecomNodesDiamondSelectors {
         pure
         returns (bytes4[] memory sels)
     {
-        sels = new bytes4[](46);
+        sels = new bytes4[](40);
         sels[0] = AdminFacet.disAllowSupplyChangeByOwner.selector;
         sels[1] = AdminFacet.mintSupply.selector;
         sels[2] = AdminFacet.burnSupply.selector;
@@ -190,18 +183,12 @@ library WiseTelecomNodesDiamondSelectors {
         sels[31] = AdminFacet.getReferralRegistry.selector;
         sels[32] = AdminFacet.getProposedReferralRegistry.selector;
         sels[33] = AdminFacet.getReferralRegistryChangeQueuedAt.selector;
-        sels[34] = AdminFacet.proposePayoutHub.selector;
-        sels[35] = AdminFacet.executePayoutHubChange.selector;
-        sels[36] = AdminFacet.cancelPayoutHubChange.selector;
-        sels[37] = AdminFacet.getPayoutHub.selector;
-        sels[38] = AdminFacet.getProposedPayoutHub.selector;
-        sels[39] = AdminFacet.getPayoutHubChangeQueuedAt.selector;
-        sels[40] = AdminFacet.proposeFlushHub.selector;
-        sels[41] = AdminFacet.executeFlushHubChange.selector;
-        sels[42] = AdminFacet.cancelFlushHubChange.selector;
-        sels[43] = AdminFacet.getFlushHub.selector;
-        sels[44] = AdminFacet.getProposedFlushHub.selector;
-        sels[45] = AdminFacet.getFlushHubChangeQueuedAt.selector;
+        sels[34] = AdminFacet.proposeFlushHub.selector;
+        sels[35] = AdminFacet.executeFlushHubChange.selector;
+        sels[36] = AdminFacet.cancelFlushHubChange.selector;
+        sels[37] = AdminFacet.getFlushHub.selector;
+        sels[38] = AdminFacet.getProposedFlushHub.selector;
+        sels[39] = AdminFacet.getFlushHubChangeQueuedAt.selector;
     }
 
     function _cohortRecorderSelectors()
@@ -321,17 +308,6 @@ library WiseTelecomNodesDiamondSelectors {
     {
         sels = new bytes4[](1);
         sels[0] = CashedInterestFacet.getTotalCashedInterest.selector;
-    }
-
-    function _referralPayoutSelectors()
-        internal
-        pure
-        returns (bytes4[] memory sels)
-    {
-        sels = new bytes4[](3);
-        sels[0] = ReferralPayoutFacet.getPendingReferralPayout.selector;
-        sels[1] = ReferralPayoutFacet.raisePendingReferralPayout.selector;
-        sels[2] = ReferralPayoutFacet.fundReferralPayout.selector;
     }
 
     function _queueForecastSelectors()
