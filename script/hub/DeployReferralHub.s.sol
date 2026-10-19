@@ -15,19 +15,15 @@ import {ReferralHubMailboxFacet} from "../../src/hub/pending/ReferralHubMailboxF
 import {ReferralHubPayoutFacet} from "../../src/hub/pending/ReferralHubPayoutFacet.sol";
 import {ReferralHubSelectors} from "./ReferralHubSelectors.sol";
 import {ReferralHubReader} from "../../src/hub/pending/ReferralHubReader.sol";
-import {IReferralPayoutVault} from "../../src/hub/pending/IReferralPayoutVault.sol";
 
-import {WiseTelecomNodesDiamondSelectors} from "../diamond/WiseTelecomNodesDiamondSelectors.sol";
 
 /// @notice Deploys the mainnet {ReferralHub}: ONE standalone instance on the hub chain,
-/// never per vault. Separate from the per-vault payout upgrade round for the same reason
-/// the registry deploy is: the round runs once per VAULT_PRODUCT while the hub exists
-/// exactly once, and the round's `proposeHub()` reads the address this script records in
-/// `config/hub.<network>.json`. The hub's USD token is a constructor immutable and MUST be
-/// the payout vault's own underlying; the vault-side pointer execute shape-probes exactly
-/// that, so a hub deployed against the wrong token can never be wired.
+/// never per vault. The registry scripts read the address this script records in
+/// `config/hub.<network>.json`. The hub's USD token is a constructor immutable, the usdc
+/// product's underlying: the hub is its own payout pot, funded by plain USD transfers, and
+/// never draws on a vault.
 ///
-/// Phases (chain via --rpc-url; the payout vault is always the usdc product):
+/// Phases (chain via --rpc-url):
 ///   `deploy()` : refuses to run if the chain's hub config already points at deployed code.
 ///                Broadcasts the five hub facets (checkpoints, rates, intake, mailbox,
 ///                payout), then `new ReferralHub(usd)` (the diamond proxy, master =
@@ -45,20 +41,6 @@ import {WiseTelecomNodesDiamondSelectors} from "../diamond/WiseTelecomNodesDiamo
 ///                is recorded; to replace a live one (it holds no state), remove
 ///                `config/hub-reader.<network>.json` first, then run it again. Like
 ///                `deploy()`, it writes the file only under `--broadcast`.
-///   `wire()`   : hub-side master op, AFTER the vault-side pointer round executed:
-///                `setPayoutVault(usdc diamond)` so deliveries book liability and claims
-///                can pull funding. Idempotent. Refuses unless the vault routes all three
-///                payout selectors (`raisePendingReferralPayout`, `fundReferralPayout`,
-///                `getPendingReferralPayout`; `selectorToFacet` nonzero for each), because
-///                a hub wired to a vault that refuses the raise reverts every delivery,
-///                every `applyFlush` and every claim. Also refuses to rotate away from a
-///                wired vault while booked liability is outstanding (`totalBooked` above
-///                `totalClaimed`) and that vault still reports a pending payout: the hub
-///                never migrates booked liability, so the new vault could not fund those
-///                claims. From the unwired state it attaches only when nothing is
-///                outstanding or this vault already reserves the whole outstanding
-///                amount, so a first wire passes and a re-attach goes back only to the
-///                vault that holds the booked liability.
 ///   `wireFlush()` : hub-side master op for the flush transport, AFTER the per-vault
 ///                cohort-flush rounds executed: sets the CCIP router (re-pointed whenever
 ///                the config differs from the hub), allowlists every hub-chain vault as a
@@ -305,93 +287,6 @@ contract DeployReferralHub is VaultConfig {
         );
     }
 
-    function wire()
-        external
-    {
-        uint256 privKey = vm.envUint(
-            "PRIVATE_KEY"
-        );
-
-        string memory network = _networkName();
-
-        IReferralHub hub = IReferralHub(
-            _loadHub(
-                network
-            )
-        );
-
-        require(
-            address(hub).code.length > 0,
-            "DeployReferralHub: recorded hub has no code"
-        );
-
-        address diamond = _loadVaultDiamond(
-            "usdc",
-            network
-        );
-
-        address currentVault = hub.payoutVault();
-
-        if (currentVault == diamond) {
-            console2.log(
-                "payout vault already wired",
-                diamond
-            );
-
-            return;
-        }
-
-        if (currentVault != address(0)) {
-            require(
-                hub.totalBooked() == hub.totalClaimed()
-                    || IReferralPayoutVault(currentVault).getPendingReferralPayout() == 0,
-                "DeployReferralHub: the wired payout vault still reserves booked liability, which a rotation would strand (claim it out first)"
-            );
-        }
-
-        WiseTelecomNodesDiamond d = WiseTelecomNodesDiamond(
-            payable(diamond)
-        );
-
-        bytes4[] memory payoutSelectors = WiseTelecomNodesDiamondSelectors._referralPayoutSelectors();
-
-        for (uint256 i; i < payoutSelectors.length; ++i) {
-
-            require(
-                d.selectorToFacet(payoutSelectors[i]) != address(0),
-                "DeployReferralHub: payout selectors not routed on the vault (run UpgradeReferralPayout.execute() first)"
-            );
-        }
-
-        if (currentVault == address(0)) {
-            require(
-                hub.totalBooked() == hub.totalClaimed()
-                    || IReferralPayoutVault(diamond).getPendingReferralPayout() >= hub.totalBooked() - hub.totalClaimed(),
-                "DeployReferralHub: booked liability is outstanding and the config vault does not reserve it, so wiring it would strand those claims (re-attach the vault that holds it)"
-            );
-        }
-
-        vm.startBroadcast(
-            privKey
-        );
-
-        hub.setPayoutVault(
-            diamond
-        );
-
-        vm.stopBroadcast();
-
-        console2.log(
-            "payout vault wired on hub",
-            address(hub)
-        );
-
-        console2.log(
-            "  vault",
-            diamond
-        );
-    }
-
     function proposeFlushWiring()
         external
     {
@@ -515,11 +410,6 @@ contract DeployReferralHub is VaultConfig {
         console2.log(
             "  usd        ",
             address(hub.USD_TOKEN())
-        );
-
-        console2.log(
-            "  payoutVault",
-            hub.payoutVault()
         );
 
         console2.log(
