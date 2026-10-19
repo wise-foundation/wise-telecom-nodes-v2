@@ -16,9 +16,13 @@ import {CohortWeeks} from "../../../src/diamond/shared/pending/CohortWeeks.sol";
  * the shared registry themselves, matching the per-chain production
  * topology) and embeds no creation code. Same standalone-deployment
  * rules as the sibling: no diamond, no DELEGATECALL, storage layout
- * identical to the diamond's via {FacetBase}'s constructor, every
+ * identical to the diamond's via {CohortPinnedBase}, every
  * `exposed*` forwarding verbatim into the inherited engine internal
- * and every `harnessSet*` writer touching exactly one declared field.
+ * and every `harnessSet*` writer touching exactly one declared field
+ * except `harnessSetTracked`, the one writer that mirrors the tracked
+ * amount into the attributed amount, so a seeded referee starts fully
+ * attributed exactly as a referred credit leaves it; a test that needs
+ * another attributed amount calls `harnessSetAttributed` afterwards.
  */
 contract CohortCarryHarness is CohortRecorderBase {
 
@@ -132,7 +136,7 @@ contract CohortCarryHarness is CohortRecorderBase {
     )
         external
     {
-        cohortBook[_referrer] = CohortWeeks.packLanes(
+        cohortBook[_referrer] = CohortWeeks._packLanes(
             _y1,
             _y2,
             _m
@@ -147,31 +151,14 @@ contract CohortCarryHarness is CohortRecorderBase {
         referralRegistry = _registry;
     }
 
-    function harnessMintBalance(
-        address _user,
-        uint256 _amount
+    function harnessSetLastSettle(
+        address _referrer,
+        uint256 _timestamp
     )
         external
     {
-        _mint(
-            _user,
-            _amount
-        );
+        cohortLastSettle[_referrer] = _timestamp;
     }
-
-    function harnessBurnBalance(
-        address _user,
-        uint256 _amount
-    )
-        external
-    {
-        _burn(
-            _user,
-            _amount
-        );
-    }
-
-    // ---- view helpers ----
 
     function harnessSetTracked(
         address _user,
@@ -192,6 +179,28 @@ contract CohortCarryHarness is CohortRecorderBase {
     {
         attributedContribution[_user] = _amount;
     }
+
+    function harnessMintBalance(
+        address _user,
+        uint256 _amount
+    )
+        external
+    {
+        _balances[_user] = _balances[_user]
+            + _amount;
+    }
+
+    function harnessBurnBalance(
+        address _user,
+        uint256 _amount
+    )
+        external
+    {
+        _balances[_user] = _balances[_user]
+            - _amount;
+    }
+
+    // ---- view helpers ----
 
     function viewRingYear1(
         address _referrer,

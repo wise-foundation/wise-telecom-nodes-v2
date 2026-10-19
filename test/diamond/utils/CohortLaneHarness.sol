@@ -10,17 +10,27 @@ import {ReferralRegistry} from "../../../src/registry/pending/ReferralRegistry.s
  * @dev Narrow-writer harness over {CohortRecorderBase}, following the
  * kontrol {InterestProofHarness} pattern (see
  * test/diamond/kontrol/InterestProofHarness.sol): deployed STANDALONE,
- * no diamond and no DELEGATECALL. Because {FacetBase}'s constructor
- * wires the full {WiseTelecomNodesDeclarations} chain with placeholder
- * init params, this harness's own storage layout IS the diamond
- * layout, so the packed cohort book (slot 70), ring arrays
+ * no diamond and no DELEGATECALL. Because {CohortPinnedBase} pins
+ * every slot the engine touches at its diamond position (the slim
+ * mirror checked by script/check_storage_layout.sh), this harness's
+ * own storage IS the diamond layout for those slots, so the packed cohort book (slot 70), ring arrays
  * (slots 72-73), crumb words (slot 74) and gap log (slot 75) live at
  * the exact slots a facet would see under DELEGATECALL from the live
  * diamond. Every `exposed*` function forwards verbatim into the
  * inherited engine internal under test; nothing here alters engine
  * logic. Every `harnessSet*` writer touches exactly one declared
- * storage field so a fuzz or unit driver can seed near-saturation
- * magnitudes the public deposit-cap API (1e9 * 1e6) can never reach.
+ * storage field, with two named exceptions: `harnessSetTracked` is the
+ * one writer that mirrors the tracked amount into the attributed
+ * amount, so a seeded referee starts fully attributed exactly as a
+ * referred credit leaves it, and `harnessSetReferrer` writes no field
+ * of this harness at all (it forwards an assignment into the wired
+ * registry). The narrow writers let a fuzz or unit driver seed
+ * near-saturation magnitudes the public deposit-cap API (1e9 * 1e6)
+ * can never reach.
+ * The per-account self crumb (slot 92) is reached the same way: the
+ * settle-to exposers drive the book, referee and self settles to an
+ * explicit target instant, `harnessSetSelfCrumb` seeds a raw word
+ * and `viewSelfCrumb` reads it back undecoded.
  */
 contract CohortLaneHarness is CohortRecorderBase {
 
@@ -107,6 +117,18 @@ contract CohortLaneHarness is CohortRecorderBase {
         );
     }
 
+    function exposedSettleBookTo(
+        address _referrer,
+        uint256 _to
+    )
+        external
+    {
+        _settleBookCohortTo(
+            _referrer,
+            _to
+        );
+    }
+
     function exposedSyncReferee(
         address _user
     )
@@ -114,6 +136,44 @@ contract CohortLaneHarness is CohortRecorderBase {
     {
         _syncRefereeCohort(
             _user
+        );
+    }
+
+    function exposedSyncRefereeAt(
+        address _user,
+        uint256 _to
+    )
+        external
+    {
+        _syncRefereeCohortAt(
+            _user,
+            _to
+        );
+    }
+
+    function exposedSettleSelf(
+        address _user,
+        uint256 _to
+    )
+        external
+    {
+        _settleSelfCohort(
+            _user,
+            _to
+        );
+    }
+
+    function exposedMigrateReferrer(
+        address _user,
+        address _oldReferrer,
+        address _newReferrer
+    )
+        external
+    {
+        _migrateReferrerCohort(
+            _user,
+            _oldReferrer,
+            _newReferrer
         );
     }
 
@@ -147,7 +207,7 @@ contract CohortLaneHarness is CohortRecorderBase {
     )
         external
     {
-        cohortBook[_referrer] = CohortWeeks.packLanes(
+        cohortBook[_referrer] = CohortWeeks._packLanes(
             _y1,
             _y2,
             _m
@@ -193,6 +253,15 @@ contract CohortLaneHarness is CohortRecorderBase {
         attributedContribution[_user] = _amount;
     }
 
+    function harnessSetSelfCrumb(
+        address _user,
+        uint256 _word
+    )
+        external
+    {
+        cohortSelfCrumb[_user] = _word;
+    }
+
     function harnessSetRegistry(
         address _registry
     )
@@ -230,10 +299,8 @@ contract CohortLaneHarness is CohortRecorderBase {
     )
         external
     {
-        _mint(
-            _user,
-            _amount
-        );
+        _balances[_user] = _balances[_user]
+            + _amount;
     }
 
     // ---- view helpers ----
@@ -309,5 +376,15 @@ contract CohortLaneHarness is CohortRecorderBase {
         returns (uint256)
     {
         return attributedContribution[_user];
+    }
+
+    function viewSelfCrumb(
+        address _user
+    )
+        external
+        view
+        returns (uint256)
+    {
+        return cohortSelfCrumb[_user];
     }
 }

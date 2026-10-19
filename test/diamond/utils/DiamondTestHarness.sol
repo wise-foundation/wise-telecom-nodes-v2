@@ -122,55 +122,55 @@ abstract contract DiamondTestHarness is Test {
         _wireOne(
             d,
             address(new AdminFacet()),
-            WiseTelecomNodesDiamondSelectors.adminSelectors()
+            WiseTelecomNodesDiamondSelectors._adminSelectors()
         );
 
         _wireOne(
             d,
             address(new ProxyFacet()),
-            WiseTelecomNodesDiamondSelectors.proxySelectors()
+            WiseTelecomNodesDiamondSelectors._proxySelectors()
         );
 
         _wireOne(
             d,
             address(new UserFacet()),
-            WiseTelecomNodesDiamondSelectors.userSelectors()
+            WiseTelecomNodesDiamondSelectors._userSelectors()
         );
 
         _wireOne(
             d,
             address(new SweepFacet()),
-            WiseTelecomNodesDiamondSelectors.sweepSelectors()
+            WiseTelecomNodesDiamondSelectors._sweepSelectors()
         );
 
         _wireOne(
             d,
             address(new CashedInterestFacet()),
-            WiseTelecomNodesDiamondSelectors.cashedInterestSelectors()
+            WiseTelecomNodesDiamondSelectors._cashedInterestSelectors()
         );
 
         _wireOne(
             d,
             address(new BurnWiseFacet()),
-            WiseTelecomNodesDiamondSelectors.burnWiseSelectors()
+            WiseTelecomNodesDiamondSelectors._burnWiseSelectors()
         );
 
         _wireOne(
             d,
             address(new MoveFacet()),
-            WiseTelecomNodesDiamondSelectors.moveSelectors()
+            WiseTelecomNodesDiamondSelectors._moveSelectors()
         );
 
         _wireOne(
             d,
             address(new Permit2UserFacet()),
-            WiseTelecomNodesDiamondSelectors.permit2Selectors()
+            WiseTelecomNodesDiamondSelectors._permit2Selectors()
         );
 
         _wireOne(
             d,
             address(new MulticallFacet()),
-            WiseTelecomNodesDiamondSelectors.multicallSelectors()
+            WiseTelecomNodesDiamondSelectors._multicallSelectors()
         );
     }
 
@@ -182,25 +182,25 @@ abstract contract DiamondTestHarness is Test {
         _wireOne(
             d,
             address(new QueueAdminFacet()),
-            WiseTelecomNodesDiamondSelectors.queueAdminSelectors()
+            WiseTelecomNodesDiamondSelectors._queueAdminSelectors()
         );
 
         _wireOne(
             d,
             address(new QueueJoinLeaveFacet()),
-            WiseTelecomNodesDiamondSelectors.queueJoinLeaveSelectors()
+            WiseTelecomNodesDiamondSelectors._queueJoinLeaveSelectors()
         );
 
         _wireOne(
             d,
             address(new QueueFulfillFacet()),
-            WiseTelecomNodesDiamondSelectors.queueFulfillSelectors()
+            WiseTelecomNodesDiamondSelectors._queueFulfillSelectors()
         );
 
         _wireOne(
             d,
             address(new QueueViewFacet()),
-            WiseTelecomNodesDiamondSelectors.queueViewSelectors()
+            WiseTelecomNodesDiamondSelectors._queueViewSelectors()
         );
     }
 
