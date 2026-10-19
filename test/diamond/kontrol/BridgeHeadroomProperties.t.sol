@@ -210,7 +210,10 @@ contract BridgeHeadroomPropertiesTest is Test {
 
         uint256 capBefore = vault.totalDepositCap();
         uint256 supplyBefore = vault.totalSupply();
-        uint256 balanceBefore = vault.balanceOf(USER);
+
+        uint256 balanceBefore = vault.balanceOf(
+            USER
+        );
 
         try vault.exposedExecuteBridgeReceive(_legacyMessage(MSG_ID, PEER, _amount)) {
             assert(

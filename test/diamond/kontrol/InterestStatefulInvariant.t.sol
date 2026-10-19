@@ -586,7 +586,9 @@ contract InterestInvariantTest is DiamondTestHarness {
         view
     {
         assertEq(
-            diamond.cashedInterest(address(diamond)),
+            diamond.cashedInterest(
+                address(diamond)
+            ),
             0,
             "contract accrued cashed interest"
         );
@@ -599,7 +601,9 @@ contract InterestInvariantTest is DiamondTestHarness {
         view
     {
         assertEq(
-            diamond.getPendingInterest(address(diamond)),
+            diamond.getPendingInterest(
+                address(diamond)
+            ),
             0,
             "contract has pending interest"
         );

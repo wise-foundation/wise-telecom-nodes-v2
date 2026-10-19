@@ -160,7 +160,11 @@ contract BridgeReceivePropertiesTest is Test {
         );
 
         uint256 supplyBefore = vault.totalSupply();
-        uint256 balanceBefore = vault.balanceOf(USER);
+
+        uint256 balanceBefore = vault.balanceOf(
+            USER
+        );
+
         uint256 capBefore = vault.totalDepositCap();
 
         try vault.exposedExecuteBridgeReceive(_legacyMessage(MSG_ID, PEER, _amount)) {

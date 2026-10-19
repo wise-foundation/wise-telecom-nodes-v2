@@ -100,8 +100,13 @@ contract CursorPropertiesTest is Test {
         internal
         view
     {
-        uint256 earliest = vault.earliestValidQueMemberByIncentive(_incentive);
-        uint256 cursor = vault.currentOrderIdByIncentive(_incentive);
+        uint256 earliest = vault.earliestValidQueMemberByIncentive(
+            _incentive
+        );
+
+        uint256 cursor = vault.currentOrderIdByIncentive(
+            _incentive
+        );
 
         bool found;
         uint256 lowest;
@@ -300,7 +305,9 @@ contract CursorPropertiesTest is Test {
         );
 
         assert(
-            vault.currentOrderIdByIncentive(TIER)
+            vault.currentOrderIdByIncentive(
+                TIER
+            )
                 == vault.earliestValidQueMemberByIncentive(TIER)
         );
 

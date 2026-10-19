@@ -98,9 +98,9 @@ contract CohortPropertiesTest is Test {
             referrer
         );
 
-        return CohortWeeks.laneY1(word)
-            + CohortWeeks.laneY2(word)
-            + CohortWeeks.laneM(word);
+        return CohortWeeks._laneY1(word)
+            + CohortWeeks._laneY2(word)
+            + CohortWeeks._laneM(word);
     }
 
     function testFuzz_REFB1_syncNeverIncreasesTrackedOrBookTotal(
@@ -151,7 +151,9 @@ contract CohortPropertiesTest is Test {
         );
 
         assertLe(
-            harness.viewTracked(user),
+            harness.viewTracked(
+                user
+            ),
             _tracked
         );
 
@@ -161,7 +163,9 @@ contract CohortPropertiesTest is Test {
         );
 
         assertEq(
-            harness.viewTracked(user),
+            harness.viewTracked(
+                user
+            ),
             _balance < _tracked
                 ? _balance
                 : _tracked
@@ -216,7 +220,9 @@ contract CohortPropertiesTest is Test {
         );
 
         assertEq(
-            harness.viewTracked(user),
+            harness.viewTracked(
+                user
+            ),
             _cover
         );
 
@@ -283,7 +289,7 @@ contract CohortPropertiesTest is Test {
         );
 
         assertEq(
-            CohortWeeks.laneY1(
+            CohortWeeks._laneY1(
                 harness.viewBookWord(
                     referrer
                 )
@@ -510,7 +516,7 @@ contract CohortPropertiesTest is Test {
             referrer,
             week,
             CohortWeeks.CRUMB_WRITTEN_BIT
-                | CohortWeeks.packLanes(
+                | CohortWeeks._packLanes(
                     _preYear1,
                     _preYear2,
                     _preMature
@@ -531,17 +537,23 @@ contract CohortPropertiesTest is Test {
         );
 
         assertGe(
-            CohortWeeks.laneY1(word),
+            CohortWeeks._laneY1(
+                word
+            ),
             _preYear1
         );
 
         assertGe(
-            CohortWeeks.laneY2(word),
+            CohortWeeks._laneY2(
+                word
+            ),
             _preYear2
         );
 
         assertGe(
-            CohortWeeks.laneM(word),
+            CohortWeeks._laneM(
+                word
+            ),
             _preMature
         );
 
