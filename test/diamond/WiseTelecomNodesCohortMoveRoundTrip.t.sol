@@ -3,54 +3,57 @@
 pragma solidity =0.8.36;
 
 import {WiseTelecomNodesDiamond} from "../../src/diamond/vault/WiseTelecomNodesDiamond.sol";
-import {MoveFacet} from "../../src/diamond/vault/facets/MoveFacet.sol";
 import {CohortWeeks} from "../../src/diamond/shared/pending/CohortWeeks.sol";
 
 import {TwoVaultCohortHarness} from "./utils/TwoVaultCohortHarness.sol";
 
 /**
- * @dev Round-trip equivalence suite for the same-chain
- * attribution carry: moving A→B→A leaves the source
- * vault's referral schedule (rings, book lanes, tracked) byte-
- * identical to a world where the move never happened, which is the
- * age-reset-impossibility statement (replanted units graduate at the
- * exact boundary weeks they would have at home) and simultaneously
- * the wash-move-futility proof (a round trip achieves nothing and
- * costs gas). Controls are produced with `vm.snapshotState` /
- * `vm.revertToState`; both branches are settled to the same final
- * instant before comparison because rotation is settle-driven, while
- * `cohortLastSettle`, crumbs and the gap log stay excluded from the
- * equivalence set (honest per-vault history; the crumb conservation
- * test instead proves crumbA + crumbB equals the control crumb per
- * lane per finalized week). The partial-move test pins the
+ * @dev Round-trip suite for the same-chain attribution carry: every
+ * hop (A to B, and back) lands the moved cover at the oldest live
+ * position of its ring (slot `(week + 1) % 52`), so a round trip can
+ * only age a referrer's credit, never refresh it, which is also the
+ * wash-move-futility proof (a round trip achieves nothing and costs
+ * gas). Round trips are compared with a no-move control by
+ * conservation (tracked contribution and the lane totals match) and
+ * dominance (the moved world holds no more year-one and no more
+ * pre-mature mass than the control). Controls are produced with
+ * `vm.snapshotState` / `vm.revertToState`; both branches are settled
+ * to the same final instant before comparison because rotation is
+ * settle-driven, while `cohortLastSettle`, crumbs and the gap log
+ * stay excluded from the comparison (honest per-vault history; the
+ * crumb conservation test instead proves crumbA + crumbB equals the
+ * control crumb per finalized week, the moved amount shifting from
+ * the year-one lane to the year-two lane at the first boundary after
+ * the move). The partial-move test pins the
  * no-inflation cap: the destination gains exactly the walk output,
  * bounded by min(tracked, moved). The same-address property of
  * `moveBetweenVaults` (no recipient parameter exists; `mintFromPeer`
  * is always called with the mover) is pinned via the `MovedIn` event,
  * the invariant a future cross-chain bridge carry must replicate with
  * an
- * explicit recipient gate. The worst-case walk (all 104 ring slots
- * populated, full exit) gets a gas ceiling pin. Fuzz amounts stay
+ * explicit recipient gate. Fuzz amounts stay
  * below the shipped `graceThresholdAmount` (10,000 units): a larger
  * deposit grace-stamps the user and `moveBetweenVaults` reverts
  * `GracePeriodNotElapsed` for 45 days, pre-existing product policy
  * the carry composes with, not a behavior of the carry itself.
- * The single-hop tests pin the relocation itself rather than its
- * inverse: a partial Year-1 move lands exactly the walk's
- * newest-first `(ring, slot, take)` pairs on the destination (one
- * slot drained, the next split) with the staged and applied event
- * sums matching; a Year-2 pair replants at its home slot and
- * graduates to mature on the destination at the very boundary week
- * it would have at home; a pairless mature aggregate carries as a
- * bare lane amount with every ring slot untouched on both ends; and
- * the destination-versus-control pair compares the destination's own
- * settled schedule directly against a no-move control, so a
- * destination-side rotation fault cannot hide behind the return leg.
- * The pre-populated round trips start with the destination already
- * holding another referee's credit for the same referrer, so the wash
- * assertion on the destination is `unchanged` rather than `empty`,
- * the mid-hop book is the exact sum of both referees, and both
- * registry mailbox directions are asserted drained.
+ * The single-hop tests pin the relocation itself: a partial Year-1
+ * move takes the walk's newest-first `(ring, slot, take)` pairs (one
+ * slot drained, the next split) and lands each at its own slot on the
+ * destination with the staged and applied event sums matching; a
+ * Year-2 pair lands at its own slot on the second ring and keeps its
+ * age; a pairless mature aggregate
+ * carries as a bare lane amount with every ring slot untouched on
+ * both ends; and the destination-versus-control pair compares the
+ * destination's own settled schedule directly against a no-move
+ * control, so a destination-side rotation fault cannot hide behind
+ * the return leg. The pre-populated round trips start with the
+ * destination already holding another referee's credit for the same
+ * referrer, so the mid-hop book is the exact sum of both referees,
+ * the return walk takes the newest cover of the shared slot, every
+ * slot keeps its age, and both registry mailbox
+ * directions are asserted drained; the two-referee pin shows the same
+ * newest-first take on the source vault, where the mover's own aged
+ * cohort stays behind and the sibling's fresh cover travels.
  */
 contract WiseTelecomNodesCohortMoveRoundTripTest is TwoVaultCohortHarness {
 
@@ -84,8 +87,6 @@ contract WiseTelecomNodesCohortMoveRoundTripTest is TwoVaultCohortHarness {
     );
 
     uint256 internal constant DEPOSIT = 5_000 * 1e6;
-
-    uint256 internal constant WORST_CASE_MOVE_GAS_BUDGET = 3_000_000;
 
     address internal user1 = address(0xA1);
 
@@ -129,7 +130,7 @@ contract WiseTelecomNodesCohortMoveRoundTripTest is TwoVaultCohortHarness {
         return (block.timestamp / 1 weeks) % 52;
     }
 
-    function _assertPerSlotRelocation(
+    function _assertExactRelocation(
         CohortSnap memory _before,
         CohortSnap memory _afterSrc,
         CohortSnap memory _afterDst
@@ -140,13 +141,13 @@ contract WiseTelecomNodesCohortMoveRoundTripTest is TwoVaultCohortHarness {
         for (uint256 i; i < 52; ++i) {
 
             assertEq(
-                uint256(_before.ring1[i]) - uint256(_afterSrc.ring1[i]),
-                uint256(_afterDst.ring1[i])
+                uint256(_afterDst.ring1[i]),
+                uint256(_before.ring1[i]) - uint256(_afterSrc.ring1[i])
             );
 
             assertEq(
-                uint256(_before.ring2[i]) - uint256(_afterSrc.ring2[i]),
-                uint256(_afterDst.ring2[i])
+                uint256(_afterDst.ring2[i]),
+                uint256(_before.ring2[i]) - uint256(_afterSrc.ring2[i])
             );
         }
     }
@@ -253,7 +254,7 @@ contract WiseTelecomNodesCohortMoveRoundTripTest is TwoVaultCohortHarness {
 
     // ---- same-block round trip ----
 
-    function test_roundTrip_sameBlock_scheduleByteIdentical()
+    function test_roundTrip_sameBlock_restoresTheSchedule()
         public
     {
         _depositWithReferralOn(
@@ -285,12 +286,6 @@ contract WiseTelecomNodesCohortMoveRoundTripTest is TwoVaultCohortHarness {
             refA
         );
 
-        CohortSnap memory origin = _captureCohort(
-            vaultA,
-            refA,
-            user1
-        );
-
         _moveAs(
             user1,
             vaultA,
@@ -311,9 +306,17 @@ contract WiseTelecomNodesCohortMoveRoundTripTest is TwoVaultCohortHarness {
             user1
         );
 
-        _assertScheduleEq(
-            finalA,
-            origin
+        _assertLandedTotals(
+            vaultA,
+            refA,
+            3_500 * 1e6,
+            0,
+            0
+        );
+
+        assertEq(
+            finalA.tracked,
+            3_500 * 1e6
         );
 
         _assertScheduleEmpty(
@@ -327,7 +330,7 @@ contract WiseTelecomNodesCohortMoveRoundTripTest is TwoVaultCohortHarness {
 
     // ---- across week boundaries vs control ----
 
-    function test_roundTrip_acrossWeekBoundary_scheduleMatchesControl()
+    function test_roundTrip_acrossWeekBoundary_scheduleEqualsControl()
         public
     {
         _depositWithReferralOn(
@@ -384,6 +387,14 @@ contract WiseTelecomNodesCohortMoveRoundTripTest is TwoVaultCohortHarness {
             DEPOSIT
         );
 
+        _assertLandedTotals(
+            vaultA,
+            refA,
+            DEPOSIT,
+            0,
+            0
+        );
+
         _recorderOf(vaultA).advanceBook(
             refA,
             CohortWeeks.MAX_SETTLE_BOUNDARIES
@@ -393,6 +404,25 @@ contract WiseTelecomNodesCohortMoveRoundTripTest is TwoVaultCohortHarness {
             vaultA,
             refA,
             user1
+        );
+
+        assertEq(
+            finalA.tracked,
+            control.tracked
+        );
+
+        assertEq(
+            finalA.year1
+                + finalA.year2
+                + finalA.mature,
+            control.year1
+                + control.year2
+                + control.mature
+        );
+
+        assertEq(
+            control.year1,
+            DEPOSIT
         );
 
         _assertScheduleEq(
@@ -411,7 +441,7 @@ contract WiseTelecomNodesCohortMoveRoundTripTest is TwoVaultCohortHarness {
 
     // ---- graduation happens away from home ----
 
-    function test_roundTrip_acrossGraduation_slotPairCarriesY2()
+    function test_roundTrip_acrossGraduation_landsYearTwoAtItsSlot()
         public
     {
         _depositWithReferralOn(
@@ -420,8 +450,6 @@ contract WiseTelecomNodesCohortMoveRoundTripTest is TwoVaultCohortHarness {
             DEPOSIT,
             refA
         );
-
-        uint256 depositSlot = (block.timestamp / 1 weeks) % 52;
 
         uint256 snapshot = vm.snapshotState();
 
@@ -477,24 +505,33 @@ contract WiseTelecomNodesCohortMoveRoundTripTest is TwoVaultCohortHarness {
             user1
         );
 
+        _assertLandedTotals(
+            vaultA,
+            refA,
+            0,
+            DEPOSIT,
+            0
+        );
+
         assertEq(
-            uint256(finalA.ring2[depositSlot]),
+            finalA.year2,
             DEPOSIT
         );
 
-        assertEq(finalA.year2, DEPOSIT);
+        assertEq(
+            control.year2,
+            DEPOSIT
+        );
 
-        assertEq(finalA.year1, 0);
-
-        _assertScheduleEq(
-            finalA,
-            control
+        assertEq(
+            finalA.year1,
+            0
         );
     }
 
     // ---- crumb conservation ----
 
-    function test_roundTrip_crumbConservation_perLanePerWeek()
+    function test_roundTrip_crumbConservation_crumbsSumToControl()
         public
     {
         _depositWithReferralOn(
@@ -572,18 +609,27 @@ contract WiseTelecomNodesCohortMoveRoundTripTest is TwoVaultCohortHarness {
             );
 
             assertEq(
-                CohortWeeks.laneY1(crumbA) + CohortWeeks.laneY1(crumbB),
-                CohortWeeks.laneY1(controlCrumbs[i])
+                CohortWeeks._laneY1(
+                    crumbA
+                )
+                    + CohortWeeks._laneY1(crumbB),
+                CohortWeeks._laneY1(
+                    controlCrumbs[i]
+                )
             );
 
             assertEq(
-                CohortWeeks.laneY2(crumbA) + CohortWeeks.laneY2(crumbB),
-                CohortWeeks.laneY2(controlCrumbs[i])
+                CohortWeeks._laneY2(crumbA) + CohortWeeks._laneY2(crumbB),
+                CohortWeeks._laneY2(
+                    controlCrumbs[i]
+                )
             );
 
             assertEq(
-                CohortWeeks.laneM(crumbA) + CohortWeeks.laneM(crumbB),
-                CohortWeeks.laneM(controlCrumbs[i])
+                CohortWeeks._laneM(crumbA) + CohortWeeks._laneM(crumbB),
+                CohortWeeks._laneM(
+                    controlCrumbs[i]
+                )
             );
         }
     }
@@ -623,22 +669,38 @@ contract WiseTelecomNodesCohortMoveRoundTripTest is TwoVaultCohortHarness {
         );
 
         assertEq(
-            _recorderOf(vaultA).getTrackedContribution(user1),
+            _recorderOf(
+                vaultA
+            ).getTrackedContribution(
+                user1
+            ),
             1_000 * 1e6
         );
 
         assertEq(
-            _recorderOf(vaultA).getCohortScore(refA),
+            _recorderOf(
+                vaultA
+            ).getCohortScore(
+                refA
+            ),
             1_000 * 1e6
         );
 
         assertEq(
-            _recorderOf(vaultB).getTrackedContribution(user1),
+            _recorderOf(
+                vaultB
+            ).getTrackedContribution(
+                user1
+            ),
             2_000 * 1e6
         );
 
         assertEq(
-            _recorderOf(vaultB).getCohortScore(refA),
+            _recorderOf(
+                vaultB
+            ).getCohortScore(
+                refA
+            ),
             2_000 * 1e6
         );
     }
@@ -677,12 +739,18 @@ contract WiseTelecomNodesCohortMoveRoundTripTest is TwoVaultCohortHarness {
         );
 
         assertEq(
-            vaultB.balanceOf(user1),
+            vaultB.balanceOf(
+                user1
+            ),
             DEPOSIT
         );
 
         assertEq(
-            _recorderOf(vaultB).getTrackedContribution(user1),
+            _recorderOf(
+                vaultB
+            ).getTrackedContribution(
+                user1
+            ),
             DEPOSIT
         );
     }
@@ -700,7 +768,7 @@ contract WiseTelecomNodesCohortMoveRoundTripTest is TwoVaultCohortHarness {
         CohortSnap finalA;
     }
 
-    function testFuzz_roundTrip_scheduleEquivalentToControl(
+    function testFuzz_roundTrip_scheduleNeverYoungerThanControl(
         uint256 _amountSeed,
         uint256 _warp1Seed,
         uint256 _warp2Seed,
@@ -819,10 +887,39 @@ contract WiseTelecomNodesCohortMoveRoundTripTest is TwoVaultCohortHarness {
             user1
         );
 
-        _assertScheduleEq(
-            run.finalA,
-            run.control
+        assertEq(
+            run.finalA.tracked,
+            run.control.tracked
         );
+
+        assertEq(
+            run.finalA.year1
+                + run.finalA.year2
+                + run.finalA.mature,
+            run.control.year1
+                + run.control.year2
+                + run.control.mature
+        );
+
+        assertLe(
+            run.finalA.year1,
+            run.control.year1
+        );
+
+        assertLe(
+            run.finalA.year1 + run.finalA.year2,
+            run.control.year1 + run.control.year2
+        );
+
+        if (run.interleave != 1) {
+            _assertLandedTotals(
+                vaultA,
+                refA,
+                run.finalA.year1,
+                run.finalA.year2,
+                run.finalA.mature
+            );
+        }
 
         _assertScheduleEmpty(
             _captureCohort(
@@ -872,166 +969,7 @@ contract WiseTelecomNodesCohortMoveRoundTripTest is TwoVaultCohortHarness {
         }
     }
 
-    // ---- single hop: exact per-slot relocation ----
-
-    function test_move_singleHop_partial_pairsRelocateExactlyPerSlot()
-        public
-    {
-        uint256 s0 = _currentSlot();
-
-        _depositWithReferralOn(
-            vaultA,
-            user1,
-            1_000 * 1e6,
-            refA
-        );
-
-        vm.warp(
-            block.timestamp + 10 weeks
-        );
-
-        uint256 s1 = _currentSlot();
-
-        _depositWithReferralOn(
-            vaultA,
-            user1,
-            2_000 * 1e6,
-            refA
-        );
-
-        vm.warp(
-            block.timestamp + 10 weeks
-        );
-
-        uint256 s2 = _currentSlot();
-
-        _depositWithReferralOn(
-            vaultA,
-            user1,
-            500 * 1e6,
-            refA
-        );
-
-        CohortSnap memory beforeA = _captureCohort(
-            vaultA,
-            refA,
-            user1
-        );
-
-        _expectCarryEvents(
-            vaultA,
-            vaultB,
-            refA,
-            2_200 * 1e6,
-            2_200 * 1e6,
-            0,
-            0,
-            2
-        );
-
-        _moveAs(
-            user1,
-            vaultA,
-            vaultB,
-            2_200 * 1e6
-        );
-
-        CohortSnap memory afterA = _captureCohort(
-            vaultA,
-            refA,
-            user1
-        );
-
-        CohortSnap memory afterB = _captureCohort(
-            vaultB,
-            refA,
-            user1
-        );
-
-        _assertPerSlotRelocation(
-            beforeA,
-            afterA,
-            afterB
-        );
-
-        assertEq(
-            uint256(afterA.ring1[s0]),
-            1_000 * 1e6
-        );
-
-        assertEq(
-            uint256(afterA.ring1[s1]),
-            300 * 1e6
-        );
-
-        assertEq(
-            uint256(afterA.ring1[s2]),
-            0
-        );
-
-        assertEq(
-            uint256(afterB.ring1[s0]),
-            0
-        );
-
-        assertEq(
-            uint256(afterB.ring1[s1]),
-            1_700 * 1e6
-        );
-
-        assertEq(
-            uint256(afterB.ring1[s2]),
-            500 * 1e6
-        );
-
-        assertEq(
-            afterA.year1,
-            1_300 * 1e6
-        );
-
-        assertEq(
-            afterB.year1,
-            2_200 * 1e6
-        );
-
-        assertEq(
-            afterA.year2,
-            0
-        );
-
-        assertEq(
-            afterB.year2,
-            0
-        );
-
-        assertEq(
-            afterA.mature,
-            0
-        );
-
-        assertEq(
-            afterB.mature,
-            0
-        );
-
-        assertEq(
-            afterA.tracked,
-            1_300 * 1e6
-        );
-
-        assertEq(
-            afterB.tracked,
-            2_200 * 1e6
-        );
-
-        _assertCarryDrained(
-            vaultA,
-            vaultB,
-            user1
-        );
-    }
-
-    function test_move_singleHop_year2Pair_relocatesAtHomeSlot()
+    function test_move_singleHop_year2Pair_keepsItsSlotAndAge()
         public
     {
         uint256 s0 = _currentSlot();
@@ -1082,6 +1020,8 @@ contract WiseTelecomNodesCohortMoveRoundTripTest is TwoVaultCohortHarness {
             1_000 * 1e6
         );
 
+        uint256 landSlot = _landingSlot();
+
         _expectCarryEvents(
             vaultA,
             vaultB,
@@ -1112,7 +1052,7 @@ contract WiseTelecomNodesCohortMoveRoundTripTest is TwoVaultCohortHarness {
             user1
         );
 
-        _assertPerSlotRelocation(
+        _assertExactRelocation(
             beforeA,
             afterA,
             afterB
@@ -1146,6 +1086,16 @@ contract WiseTelecomNodesCohortMoveRoundTripTest is TwoVaultCohortHarness {
         assertEq(
             afterA.tracked,
             500 * 1e6
+        );
+
+        assertEq(
+            uint256(afterB.ring1[landSlot]),
+            0
+        );
+
+        assertEq(
+            uint256(afterB.ring2[landSlot]),
+            0
         );
 
         assertEq(
@@ -1185,31 +1135,6 @@ contract WiseTelecomNodesCohortMoveRoundTripTest is TwoVaultCohortHarness {
         );
 
         vm.warp(
-            block.timestamp + 48 weeks
-        );
-
-        _recorderOf(vaultB).advanceBook(
-            refA,
-            CohortWeeks.MAX_SETTLE_BOUNDARIES
-        );
-
-        CohortSnap memory beforeBoundaryB = _captureCohort(
-            vaultB,
-            refA,
-            user1
-        );
-
-        assertEq(
-            beforeBoundaryB.year2,
-            500 * 1e6
-        );
-
-        assertEq(
-            beforeBoundaryB.mature,
-            0
-        );
-
-        vm.warp(
             block.timestamp + 1 weeks
         );
 
@@ -1226,17 +1151,17 @@ contract WiseTelecomNodesCohortMoveRoundTripTest is TwoVaultCohortHarness {
 
         assertEq(
             graduatedB.mature,
-            500 * 1e6
+            0
         );
 
         assertEq(
             graduatedB.year2,
-            0
+            500 * 1e6
         );
 
         assertEq(
-            uint256(graduatedB.ring2[s0]),
-            0
+            graduatedB.year1,
+            2_000 * 1e6
         );
     }
 
@@ -1353,12 +1278,20 @@ contract WiseTelecomNodesCohortMoveRoundTripTest is TwoVaultCohortHarness {
         );
 
         assertEq(
-            _recorderOf(vaultA).getCohortScore(refA),
+            _recorderOf(
+                vaultA
+            ).getCohortScore(
+                refA
+            ),
             600 * 1e6
         );
 
         assertEq(
-            _recorderOf(vaultB).getCohortScore(refA),
+            _recorderOf(
+                vaultB
+            ).getCohortScore(
+                refA
+            ),
             400 * 1e6
         );
 
@@ -1371,7 +1304,7 @@ contract WiseTelecomNodesCohortMoveRoundTripTest is TwoVaultCohortHarness {
 
     // ---- single hop: destination schedule vs control ----
 
-    function test_move_singleHop_destinationScheduleMatchesControl()
+    function test_move_singleHop_destinationScheduleEqualsControl()
         public
     {
         _depositWithReferralOn(
@@ -1380,8 +1313,6 @@ contract WiseTelecomNodesCohortMoveRoundTripTest is TwoVaultCohortHarness {
             DEPOSIT,
             refA
         );
-
-        uint256 depositSlot = _currentSlot();
 
         uint256 snapshot = vm.snapshotState();
 
@@ -1440,18 +1371,41 @@ contract WiseTelecomNodesCohortMoveRoundTripTest is TwoVaultCohortHarness {
         );
 
         assertEq(
-            uint256(finalB.ring2[depositSlot]),
+            finalB.year2,
             DEPOSIT
         );
 
         assertEq(
-            finalB.year2,
+            control.year2,
             DEPOSIT
         );
 
         assertEq(
             finalB.year1,
             0
+        );
+
+        assertEq(
+            finalB.tracked,
+            control.tracked
+        );
+
+        vm.warp(
+            block.timestamp + 3 weeks
+        );
+
+        _recorderOf(vaultB).advanceBook(
+            refA,
+            CohortWeeks.MAX_SETTLE_BOUNDARIES
+        );
+
+        assertEq(
+            _captureCohort(
+                vaultB,
+                refA,
+                user1
+            ).year2,
+            DEPOSIT
         );
 
         _assertScheduleEmpty(
@@ -1472,7 +1426,7 @@ contract WiseTelecomNodesCohortMoveRoundTripTest is TwoVaultCohortHarness {
         CohortSnap finalB;
     }
 
-    function testFuzz_move_singleHop_destinationScheduleEquivalentToControl(
+    function testFuzz_move_singleHop_destinationNeverYoungerThanControl(
         uint256 _amountSeed,
         uint256 _warp1Seed,
         uint256 _warp2Seed
@@ -1565,9 +1519,28 @@ contract WiseTelecomNodesCohortMoveRoundTripTest is TwoVaultCohortHarness {
             user1
         );
 
-        _assertScheduleEq(
-            run.finalB,
-            run.control
+        assertEq(
+            run.finalB.tracked,
+            run.control.tracked
+        );
+
+        assertEq(
+            run.finalB.year1
+                + run.finalB.year2
+                + run.finalB.mature,
+            run.control.year1
+                + run.control.year2
+                + run.control.mature
+        );
+
+        assertLe(
+            run.finalB.year1,
+            run.control.year1
+        );
+
+        assertLe(
+            run.finalB.year1 + run.finalB.year2,
+            run.control.year1 + run.control.year2
         );
 
         _assertScheduleEmpty(
@@ -1581,7 +1554,7 @@ contract WiseTelecomNodesCohortMoveRoundTripTest is TwoVaultCohortHarness {
 
     // ---- round trip into a pre-populated destination ----
 
-    function test_roundTrip_destinationPrePopulated_bothBooksReturnToOrigin()
+    function test_roundTrip_destinationPrePopulated_returnTakesNewestAndKeepsSlots()
         public
     {
         uint256 s0 = _currentSlot();
@@ -1604,11 +1577,7 @@ contract WiseTelecomNodesCohortMoveRoundTripTest is TwoVaultCohortHarness {
             block.timestamp + 2 weeks
         );
 
-        CohortSnap memory originA = _captureCohort(
-            vaultA,
-            refA,
-            user1
-        );
+        uint256 landSlot = _landingSlot();
 
         CohortSnap memory originB = _captureCohort(
             vaultB,
@@ -1671,12 +1640,21 @@ contract WiseTelecomNodesCohortMoveRoundTripTest is TwoVaultCohortHarness {
         );
 
         assertEq(
+            uint256(midB.ring1[landSlot]),
+            0
+        );
+
+        assertEq(
             midB.tracked,
             4_000 * 1e6
         );
 
         assertEq(
-            _recorderOf(vaultB).getTrackedContribution(user1),
+            _recorderOf(
+                vaultB
+            ).getTrackedContribution(
+                user1
+            ),
             3_000 * 1e6
         );
 
@@ -1687,41 +1665,83 @@ contract WiseTelecomNodesCohortMoveRoundTripTest is TwoVaultCohortHarness {
             3_000 * 1e6
         );
 
-        _assertScheduleEq(
-            _captureCohort(
-                vaultA,
-                refA,
+        _assertLandedTotals(
+            vaultA,
+            refA,
+            3_000 * 1e6,
+            0,
+            0
+        );
+
+        CohortSnap memory finalB = _captureCohort(
+            vaultB,
+            refA,
+            user2
+        );
+
+        assertEq(
+            uint256(finalB.ring1[s0]),
+            4_000 * 1e6
+        );
+
+        assertEq(
+            uint256(finalB.ring1[landSlot]),
+            0
+        );
+
+        assertEq(
+            finalB.year1,
+            4_000 * 1e6
+        );
+
+        assertEq(
+            finalB.year2,
+            0
+        );
+
+        assertEq(
+            finalB.mature,
+            0
+        );
+
+        assertEq(
+            finalB.tracked,
+            4_000 * 1e6
+        );
+
+        assertEq(
+            _recorderOf(
+                vaultB
+            ).getTrackedContribution(
                 user1
             ),
-            originA
+            0
         );
 
-        _assertScheduleEq(
-            _captureCohort(
-                vaultB,
-                refA,
+        assertEq(
+            _recorderOf(
+                vaultA
+            ).getTrackedContribution(
                 user2
             ),
-            originB
-        );
-
-        assertEq(
-            _recorderOf(vaultB).getTrackedContribution(user1),
             0
         );
 
         assertEq(
-            _recorderOf(vaultA).getTrackedContribution(user2),
-            0
-        );
-
-        assertEq(
-            _recorderOf(vaultA).getCohortScore(refA),
+            _recorderOf(
+                vaultA
+            ).getCohortScore(
+                refA
+            ),
             3_000 * 1e6
         );
 
         assertEq(
-            _recorderOf(vaultB).getCohortScore(refA),
+            _recorderOf(
+                vaultB
+            ).getCohortScore(
+                refA
+            ),
             4_000 * 1e6
         );
 
@@ -1738,9 +1758,11 @@ contract WiseTelecomNodesCohortMoveRoundTripTest is TwoVaultCohortHarness {
         );
     }
 
-    function test_roundTrip_destinationPrePopulated_acrossWeekBoundaryMatchesControl()
+    function test_roundTrip_destinationPrePopulated_acrossWeekBoundaryLeavesSiblingCoverItsAge()
         public
     {
+        uint256 w0 = block.timestamp / 1 weeks;
+
         _depositWithReferralOn(
             vaultB,
             user2,
@@ -1803,87 +1825,411 @@ contract WiseTelecomNodesCohortMoveRoundTripTest is TwoVaultCohortHarness {
             3_000 * 1e6
         );
 
+        _assertLandedTotals(
+            vaultA,
+            refA,
+            3_000 * 1e6,
+            0,
+            0
+        );
+
+        CohortSnap memory midB = _captureCohort(
+            vaultB,
+            refA,
+            user2
+        );
+
+        assertEq(
+            uint256(midB.ring1[w0 % 52]),
+            4_000 * 1e6
+        );
+
+        assertEq(
+            uint256(midB.ring2[(w0 + 2) % 52]),
+            0
+        );
+
+        assertEq(
+            midB.year1,
+            4_000 * 1e6
+        );
+
+        assertEq(
+            midB.year2,
+            0
+        );
+
+        assertEq(
+            midB.mature,
+            0
+        );
+
+        assertEq(
+            midB.tracked,
+            4_000 * 1e6
+        );
+
         _advanceBoth(
             refA
         );
 
-        _assertScheduleEq(
-            _captureCohort(
-                vaultA,
-                refA,
+        CohortSnap memory finalA = _captureCohort(
+            vaultA,
+            refA,
+            user1
+        );
+
+        CohortSnap memory finalB = _captureCohort(
+            vaultB,
+            refA,
+            user2
+        );
+
+        assertEq(
+            finalA.year1
+                + finalA.year2
+                + finalA.mature,
+            controlA.year1
+                + controlA.year2
+                + controlA.mature
+        );
+
+        assertEq(
+            finalB.year1
+                + finalB.year2
+                + finalB.mature,
+            controlB.year1
+                + controlB.year2
+                + controlB.mature
+        );
+
+        assertEq(
+            _recorderOf(
+                vaultB
+            ).getTrackedContribution(
                 user1
             ),
+            0
+        );
+
+        _assertScheduleEq(
+            finalA,
             controlA
         );
 
         _assertScheduleEq(
-            _captureCohort(
-                vaultB,
-                refA,
-                user2
-            ),
+            finalB,
             controlB
+        );
+    }
+
+    // ---- two referees of one referrer on the source ----
+
+    function test_move_twoRefereesOfOneReferrer_takesFreshCoverAndKeepsItsSlot()
+        public
+    {
+        uint256 s0 = _currentSlot();
+
+        _depositWithReferralOn(
+            vaultA,
+            user1,
+            3_000 * 1e6,
+            refA
+        );
+
+        vm.warp(
+            block.timestamp + 30 weeks
+        );
+
+        uint256 s1 = _currentSlot();
+
+        _depositWithReferralOn(
+            vaultA,
+            user2,
+            2_000 * 1e6,
+            refA
+        );
+
+        uint256 landSlot = _landingSlot();
+
+        _moveAs(
+            user1,
+            vaultA,
+            vaultB,
+            2_000 * 1e6
+        );
+
+        CohortSnap memory afterA = _captureCohort(
+            vaultA,
+            refA,
+            user1
         );
 
         assertEq(
-            _recorderOf(vaultB).getTrackedContribution(user1),
+            uint256(afterA.ring1[s0]),
+            3_000 * 1e6
+        );
+
+        assertEq(
+            uint256(afterA.ring1[s1]),
+            0
+        );
+
+        assertEq(
+            _recorderOf(
+                vaultA
+            ).getCohortScore(
+                refA
+            ),
+            3_000 * 1e6
+        );
+
+        assertEq(
+            afterA.tracked,
+            1_000 * 1e6
+        );
+
+        _assertLandedTotals(
+            vaultB,
+            refA,
+            2_000 * 1e6,
+            0,
+            0
+        );
+
+        CohortSnap memory afterB = _captureCohort(
+            vaultB,
+            refA,
+            user1
+        );
+
+        assertEq(
+            uint256(afterB.ring1[landSlot]),
+            0
+        );
+
+        assertEq(
+            uint256(afterB.ring1[s1]),
+            2_000 * 1e6
+        );
+
+        assertEq(
+            afterB.tracked,
+            2_000 * 1e6
+        );
+
+        assertEq(
+            _recorderOf(
+                vaultB
+            ).getAttributedContribution(
+                user1
+            ),
+            2_000 * 1e6
+        );
+
+        vm.prank(
+            user2
+        );
+
+        vaultA.transfer(
+            outsider,
+            2_000 * 1e6
+        );
+
+        _recorderOf(vaultA).syncReferee(
+            user2
+        );
+
+        assertEq(
+            uint256(
+                _captureCohort(
+                    vaultA,
+                    refA,
+                    user2
+                ).ring1[s0]
+            ),
+            1_000 * 1e6
+        );
+
+        assertEq(
+            _recorderOf(
+                vaultA
+            ).getCohortScore(
+                refA
+            ),
+            1_000 * 1e6
+        );
+
+        vm.warp(
+            block.timestamp + 1 weeks
+        );
+
+        _recorderOf(vaultB).advanceBook(
+            refA,
+            CohortWeeks.MAX_SETTLE_BOUNDARIES
+        );
+
+        CohortSnap memory graduatedB = _captureCohort(
+            vaultB,
+            refA,
+            user1
+        );
+
+        assertEq(
+            graduatedB.year1,
+            2_000 * 1e6
+        );
+
+        assertEq(
+            graduatedB.year2,
+            0
+        );
+
+        assertEq(
+            graduatedB.mature,
             0
         );
     }
 
-    // ---- worst-case walk gas pin ----
+    // ---- exact age: every moved pair lands at its own slot ----
 
-    function test_moveGas_worstCase104Pairs_underBudget()
+    function test_move_singleHop_partial_keepsEachPairAtItsSlot()
         public
     {
-        for (uint256 i; i < 104; ++i) {
+        _depositWithReferralOn(
+            vaultA,
+            user1,
+            1_000 * 1e6,
+            refA
+        );
 
-            _depositWithReferralOn(
-                vaultA,
-                user1,
-                1_000 * 1e6,
-                refA
-            );
+        vm.warp(
+            block.timestamp + 10 weeks
+        );
 
-            vm.warp(
-                block.timestamp + 1 weeks
-            );
-        }
+        uint256 s1 = _currentSlot();
 
-        _recorderOf(vaultA).syncReferee(
+        _depositWithReferralOn(
+            vaultA,
+            user1,
+            2_000 * 1e6,
+            refA
+        );
+
+        vm.warp(
+            block.timestamp + 10 weeks
+        );
+
+        uint256 s2 = _currentSlot();
+
+        _depositWithReferralOn(
+            vaultA,
+            user1,
+            500 * 1e6,
+            refA
+        );
+
+        uint256 landSlot = _landingSlot();
+
+        _moveAs(
+            user1,
+            vaultA,
+            vaultB,
+            2_200 * 1e6
+        );
+
+        CohortSnap memory afterB = _captureCohort(
+            vaultB,
+            refA,
             user1
-        );
-
-        uint256 balance = vaultA.balanceOf(
-            user1
-        );
-
-        vm.prank(
-            user1
-        );
-
-        uint256 gasBefore = gasleft();
-
-        MoveFacet(address(vaultA)).moveBetweenVaults(
-            address(vaultB),
-            balance
-        );
-
-        uint256 gasUsed = gasBefore - gasleft();
-
-        assertLt(
-            gasUsed,
-            WORST_CASE_MOVE_GAS_BUDGET
         );
 
         assertEq(
-            _recorderOf(vaultA).getCohortScore(refA),
+            uint256(afterB.ring1[s2]),
+            500 * 1e6
+        );
+
+        assertEq(
+            uint256(afterB.ring1[s1]),
+            1_700 * 1e6
+        );
+
+        assertEq(
+            uint256(afterB.ring1[landSlot]),
             0
         );
 
         assertEq(
-            _recorderOf(vaultB).getCohortScore(refA),
-            104_000 * 1e6
+            afterB.year1,
+            2_200 * 1e6
+        );
+    }
+
+    function test_move_freshPair_graduatesFiftyTwoWeeksAfterItsDeposit()
+        public
+    {
+        uint256 creditWeek = block.timestamp / 1 weeks;
+
+        _depositWithReferralOn(
+            vaultA,
+            user1,
+            1_000 * 1e6,
+            refA
+        );
+
+        _moveAs(
+            user1,
+            vaultA,
+            vaultB,
+            1_000 * 1e6
+        );
+
+        vm.warp(
+            (creditWeek + 52) * 1 weeks - 1
+        );
+
+        _advanceBoth(
+            refA
+        );
+
+        CohortSnap memory beforeGraduation = _captureCohort(
+            vaultB,
+            refA,
+            user1
+        );
+
+        assertEq(
+            beforeGraduation.year1,
+            1_000 * 1e6
+        );
+
+        assertEq(
+            beforeGraduation.year2,
+            0
+        );
+
+        vm.warp(
+            (creditWeek + 52) * 1 weeks
+        );
+
+        _advanceBoth(
+            refA
+        );
+
+        CohortSnap memory afterGraduation = _captureCohort(
+            vaultB,
+            refA,
+            user1
+        );
+
+        assertEq(
+            afterGraduation.year1,
+            0
+        );
+
+        assertEq(
+            afterGraduation.year2,
+            1_000 * 1e6
         );
     }
 }

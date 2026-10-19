@@ -104,13 +104,13 @@ contract WiseTelecomNodesCohortCrumbsTest is DiamondTestHarness {
         _wireOne(
             diamond,
             address(new ReferralFacet()),
-            WiseTelecomNodesDiamondSelectors.referralSelectors()
+            WiseTelecomNodesDiamondSelectors._referralSelectors()
         );
 
         _wireOne(
             diamond,
             address(new CohortRecorderFacet()),
-            WiseTelecomNodesDiamondSelectors.cohortRecorderSelectors()
+            WiseTelecomNodesDiamondSelectors._cohortRecorderSelectors()
         );
 
         AdminFacet(address(diamond)).proposeTransferHookFacet(

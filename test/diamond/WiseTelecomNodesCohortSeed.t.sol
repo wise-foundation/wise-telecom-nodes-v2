@@ -10,6 +10,7 @@ import {UserFacet} from "../../src/diamond/vault/facets/UserFacet.sol";
 import {ReferralFacet} from "../../src/diamond/vault/facets/pending/ReferralFacet.sol";
 import {CohortHookFacet} from "../../src/diamond/vault/facets/pending/CohortHookFacet.sol";
 import {CohortBridgeHookFacet} from "../../src/diamond/vault/facets/pending/CohortBridgeHookFacet.sol";
+import {CohortMoveHookFacet} from "../../src/diamond/vault/facets/pending/CohortMoveHookFacet.sol";
 import {CohortRecorderFacet} from "../../src/diamond/vault/facets/pending/CohortRecorderFacet.sol";
 
 import {ReferralRegistry} from "../../src/registry/pending/ReferralRegistry.sol";
@@ -53,10 +54,11 @@ contract MockUSD is ERC20 {
 
 /**
  * @dev Registry stand-in that passes the slot-77 pointer's execute
- * shape probe (`referrerOf` answering 32 bytes) and the seed's latch
- * read, but deliberately lacks `effectiveReferrerOf`: the recorder's
- * guarded lookup staticcall fails against it, degrading the clamp
- * exactly like an unreachable registry would.
+ * shape probe (`referrerOf` answering 32 bytes) and the seed latch
+ * read (`seedsLatched`), but deliberately lacks
+ * `effectiveReferrerOf`: the recorder's guarded lookup staticcall
+ * fails against it, degrading the clamp exactly like an unreachable
+ * registry would.
  */
 contract MockLookupBrokenRegistry {
 
@@ -70,7 +72,7 @@ contract MockLookupBrokenRegistry {
         return address(0);
     }
 
-    function correctionsLatched()
+    function seedsLatched()
         external
         pure
         returns (bool)
@@ -99,15 +101,22 @@ contract MockLookupBrokenRegistry {
  * corrected referrer), the I1 three-way equality (sum of referee
  * tracked contributions == bookY1 + bookY2 + bookM == score) after
  * seeding, and every guard arm: master gate, disarmed recorder, the
- * armed-but-hookless state (zeroed slot-45 pointer reverts
+ * armed-but-hookless state (a zeroed slot-45 pointer, written directly
+ * because the AdminFacet refuses a zero hook while armed, reverts
  * {CohortHookNotInstalled} instead of emitting a phantom seed), the
- * registry's one-way correction latch, a broken registry pointer
+ * registry's one-way seed latch (only `seedsLatched` retires the
+ * seed: the correction latch leaves it open, and the correction
+ * lane stays usable after the seed latch fires, so a correction
+ * executed and poked afterwards still moves the referred credit
+ * while every later seed keeps reverting), a broken registry pointer
  * reverting loudly, nothing-to-seed on a fully tracked user and on a
  * zero amount, the standing-deficit case (master `burnSupply` leaves
  * tracked above held; the clamp eats the whole headroom and the
  * seed reverts instead of crediting on top of an unclamped deficit)
- * and its degraded-clamp sibling (a lookup-broken registry leaves
- * the deficit standing and the seed still lands in {NothingToSeed}).
+ * and its degraded-clamp sibling (a lookup-broken registry, installed
+ * through a disarm, the execute and a re-arm because the AdminFacet
+ * refuses a registry change while armed, leaves the deficit standing
+ * and the seed still lands in {NothingToSeed}).
  * Pre-arm balances are staged with plain deposits while
  * `cohortSyncEnabled` is still false, exactly the live-world shape
  * the seed exists for.
@@ -132,6 +141,8 @@ contract WiseTelecomNodesCohortSeedTest is DiamondTestHarness {
     uint256 internal constant BASE_SLOT = 3_000 % 52;
 
     uint256 internal constant ONE = 1e6;
+
+    uint256 internal constant TRANSFER_HOOK_SLOT = 45;
 
     address internal user1 = address(0xA1);
     address internal user2 = address(0xA2);
@@ -163,19 +174,25 @@ contract WiseTelecomNodesCohortSeedTest is DiamondTestHarness {
         _wireOne(
             diamond,
             address(new ReferralFacet()),
-            WiseTelecomNodesDiamondSelectors.referralSelectors()
+            WiseTelecomNodesDiamondSelectors._referralSelectors()
         );
 
         _wireOne(
             diamond,
             address(new CohortRecorderFacet()),
-            WiseTelecomNodesDiamondSelectors.cohortRecorderSelectors()
+            WiseTelecomNodesDiamondSelectors._cohortRecorderSelectors()
         );
 
         _wireOne(
             diamond,
             address(new CohortBridgeHookFacet()),
-            WiseTelecomNodesDiamondSelectors.cohortBridgeHookSelectors()
+            WiseTelecomNodesDiamondSelectors._cohortBridgeHookSelectors()
+        );
+
+        _wireOne(
+            diamond,
+            address(new CohortMoveHookFacet()),
+            WiseTelecomNodesDiamondSelectors._cohortMoveHookSelectors()
         );
 
         AdminFacet(address(diamond)).proposeTransferHookFacet(
@@ -329,7 +346,9 @@ contract WiseTelecomNodesCohortSeedTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             50 * ONE
         );
 
@@ -366,12 +385,16 @@ contract WiseTelecomNodesCohortSeedTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             1_050 * ONE
         );
 
         assertEq(
-            _recorder().getAttributedContribution(user1),
+            _recorder().getAttributedContribution(
+                user1
+            ),
             1_050 * ONE
         );
 
@@ -397,12 +420,17 @@ contract WiseTelecomNodesCohortSeedTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getCohortScore(refA),
+            _recorder().getCohortScore(
+                refA
+            ),
             1_050 * ONE
         );
 
         assertEq(
-            _ringSlot(refA, BASE_SLOT),
+            _ringSlot(
+                refA,
+                BASE_SLOT
+            ),
             1_050 * ONE
         );
     }
@@ -440,8 +468,12 @@ contract WiseTelecomNodesCohortSeedTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
-            _recorder().getTrackedContribution(user2)
+            _recorder().getTrackedContribution(
+                user1
+            ),
+            _recorder().getTrackedContribution(
+                user2
+            )
         );
 
         (
@@ -472,13 +504,23 @@ contract WiseTelecomNodesCohortSeedTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getCohortScore(refA),
-            _recorder().getCohortScore(refB)
+            _recorder().getCohortScore(
+                refA
+            ),
+            _recorder().getCohortScore(
+                refB
+            )
         );
 
         assertEq(
-            _ringSlot(refA, BASE_SLOT),
-            _ringSlot(refB, BASE_SLOT)
+            _ringSlot(
+                refA,
+                BASE_SLOT
+            ),
+            _ringSlot(
+                refB,
+                BASE_SLOT
+            )
         );
     }
 
@@ -561,22 +603,38 @@ contract WiseTelecomNodesCohortSeedTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getCohortScore(refA),
-            _recorder().getCohortScore(refB)
+            _recorder().getCohortScore(
+                refA
+            ),
+            _recorder().getCohortScore(
+                refB
+            )
         );
 
         assertEq(
-            _recorder().getCohortWeekCrumb(refA, BASE_WEEK),
-            _recorder().getCohortWeekCrumb(refB, BASE_WEEK)
+            _recorder().getCohortWeekCrumb(
+                refA,
+                BASE_WEEK
+            ),
+            _recorder().getCohortWeekCrumb(
+                refB,
+                BASE_WEEK
+            )
         );
 
         assertGt(
-            _recorder().getCohortWeekCrumb(refA, BASE_WEEK),
+            _recorder().getCohortWeekCrumb(
+                refA,
+                BASE_WEEK
+            ),
             0
         );
 
         assertEq(
-            _recorder().getCohortWeekCrumb(refA, BASE_WEEK - 1),
+            _recorder().getCohortWeekCrumb(
+                refA,
+                BASE_WEEK - 1
+            ),
             0
         );
     }
@@ -603,7 +661,9 @@ contract WiseTelecomNodesCohortSeedTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             450 * ONE
         );
 
@@ -626,12 +686,16 @@ contract WiseTelecomNodesCohortSeedTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             1_050 * ONE
         );
 
         assertEq(
-            _recorder().getAttributedContribution(user1),
+            _recorder().getAttributedContribution(
+                user1
+            ),
             1_050 * ONE
         );
 
@@ -675,17 +739,24 @@ contract WiseTelecomNodesCohortSeedTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             1_000 * ONE
         );
 
         assertEq(
-            _recorder().getCohortScore(refA),
+            _recorder().getCohortScore(
+                refA
+            ),
             0
         );
 
         assertEq(
-            _ringSlot(refA, BASE_SLOT),
+            _ringSlot(
+                refA,
+                BASE_SLOT
+            ),
             0
         );
     }
@@ -736,17 +807,23 @@ contract WiseTelecomNodesCohortSeedTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             450 * ONE
         );
 
         assertEq(
-            _recorder().getCohortScore(refB),
+            _recorder().getCohortScore(
+                refB
+            ),
             450 * ONE
         );
 
         assertEq(
-            _recorder().getCohortScore(refA),
+            _recorder().getCohortScore(
+                refA
+            ),
             600 * ONE
         );
     }
@@ -781,7 +858,10 @@ contract WiseTelecomNodesCohortSeedTest is DiamondTestHarness {
         );
 
         assertEq(
-            registry.pendingFlip(address(diamond), user1),
+            registry.pendingFlip(
+                address(diamond),
+                user1
+            ),
             refA
         );
 
@@ -791,12 +871,16 @@ contract WiseTelecomNodesCohortSeedTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getCohortScore(refA),
+            _recorder().getCohortScore(
+                refA
+            ),
             1_050 * ONE
         );
 
         assertEq(
-            _recorder().getCohortScore(refB),
+            _recorder().getCohortScore(
+                refB
+            ),
             0
         );
 
@@ -805,18 +889,33 @@ contract WiseTelecomNodesCohortSeedTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getCohortScore(refA),
+            _recorder().getCohortScore(
+                refA
+            ),
             0
         );
 
         assertEq(
-            _recorder().getCohortScore(refB),
+            _recorder().getCohortScore(
+                refB
+            ),
             1_050 * ONE
         );
 
         assertEq(
-            _ringSlot(refB, BASE_SLOT),
+            _ringSlot(
+                refB,
+                BASE_SLOT
+            ),
             1_050 * ONE
+        );
+
+        assertEq(
+            _ringSlot(
+                refB,
+                (BASE_SLOT + 1) % 52
+            ),
+            0
         );
     }
 
@@ -854,7 +953,9 @@ contract WiseTelecomNodesCohortSeedTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getCohortScore(refB),
+            _recorder().getCohortScore(
+                refB
+            ),
             50 * ONE
         );
 
@@ -864,12 +965,16 @@ contract WiseTelecomNodesCohortSeedTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getCohortScore(refB),
+            _recorder().getCohortScore(
+                refB
+            ),
             1_050 * ONE
         );
 
         assertEq(
-            _recorder().getCohortScore(refA),
+            _recorder().getCohortScore(
+                refA
+            ),
             0
         );
     }
@@ -923,15 +1028,15 @@ contract WiseTelecomNodesCohortSeedTest is DiamondTestHarness {
 
         _arm();
 
-        AdminFacet(address(diamond)).proposeTransferHookFacet(
-            address(0)
-        );
-
         vm.warp(
             BASE_TIME + 3 days + 1
         );
 
-        AdminFacet(address(diamond)).executeTransferHookFacetChange();
+        vm.store(
+            address(diamond),
+            bytes32(TRANSFER_HOOK_SLOT),
+            bytes32(0)
+        );
 
         vm.expectRevert(
             WiseTelecomNodesDiamondErrors.CohortHookNotInstalled.selector
@@ -943,7 +1048,9 @@ contract WiseTelecomNodesCohortSeedTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             0
         );
     }
@@ -958,7 +1065,121 @@ contract WiseTelecomNodesCohortSeedTest is DiamondTestHarness {
 
         _arm();
 
+        registry.latchSeeds();
+
+        vm.expectRevert(
+            WiseTelecomNodesDiamondErrors.SeedingLatched.selector
+        );
+
+        _recorder().seedCohortContribution(
+            user1,
+            type(uint256).max
+        );
+    }
+
+    function test_seedCohortContribution_correctionsLatchDoesNotBlockSeed()
+        public
+    {
+        _plainDepositAs(
+            user1,
+            1_000 * ONE
+        );
+
+        _arm();
+
         registry.latchCorrections();
+
+        vm.expectEmit(
+            true,
+            false,
+            false,
+            true,
+            address(diamond)
+        );
+
+        emit CohortContributionSeeded(
+            user1,
+            1_000 * ONE
+        );
+
+        _recorder().seedCohortContribution(
+            user1,
+            type(uint256).max
+        );
+
+        assertEq(
+            _recorder().getTrackedContribution(
+                user1
+            ),
+            1_000 * ONE
+        );
+    }
+
+    function test_seedCohortContribution_seedLatchedCorrectionStillExecutes()
+        public
+    {
+        _plainDepositAs(
+            user1,
+            1_000 * ONE
+        );
+
+        _arm();
+
+        _depositWithReferralAs(
+            user1,
+            50 * ONE,
+            refA
+        );
+
+        registry.latchSeeds();
+
+        vm.expectRevert(
+            WiseTelecomNodesDiamondErrors.SeedingLatched.selector
+        );
+
+        _recorder().seedCohortContribution(
+            user1,
+            type(uint256).max
+        );
+
+        registry.proposeCorrectReferrer(
+            user1,
+            refB
+        );
+
+        vm.warp(
+            BASE_TIME + 3 days
+        );
+
+        registry.executeCorrectReferrer(
+            user1
+        );
+
+        registry.pokeMigrationAt(
+            user1,
+            address(diamond)
+        );
+
+        assertEq(
+            _recorder().getCohortScore(
+                refB
+            ),
+            50 * ONE
+        );
+
+        assertEq(
+            _recorder().getCohortScore(
+                refA
+            ),
+            0
+        );
+
+        assertEq(
+            registry.referrerOf(
+                user1
+            ),
+            refB
+        );
 
         vm.expectRevert(
             WiseTelecomNodesDiamondErrors.SeedingLatched.selector
@@ -1060,7 +1281,9 @@ contract WiseTelecomNodesCohortSeedTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             1_000 * ONE
         );
     }
@@ -1089,7 +1312,15 @@ contract WiseTelecomNodesCohortSeedTest is DiamondTestHarness {
             BASE_TIME + 3 days + 1
         );
 
+        AdminFacet(address(diamond)).setCohortSyncEnabled(
+            false
+        );
+
         AdminFacet(address(diamond)).executeReferralRegistryChange();
+
+        AdminFacet(address(diamond)).setCohortSyncEnabled(
+            true
+        );
 
         vm.expectRevert(
             WiseTelecomNodesDiamondErrors.NothingToSeed.selector
@@ -1101,7 +1332,9 @@ contract WiseTelecomNodesCohortSeedTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             1_000 * ONE
         );
     }
@@ -1161,7 +1394,9 @@ contract WiseTelecomNodesCohortSeedTest is DiamondTestHarness {
 
         assertEq(
             trackedSum,
-            _recorder().getCohortScore(refA)
+            _recorder().getCohortScore(
+                refA
+            )
         );
 
         assertEq(
@@ -1170,7 +1405,10 @@ contract WiseTelecomNodesCohortSeedTest is DiamondTestHarness {
         );
 
         assertEq(
-            _ringSlot(refA, BASE_SLOT),
+            _ringSlot(
+                refA,
+                BASE_SLOT
+            ),
             trackedSum
         );
     }
@@ -1233,16 +1471,23 @@ contract WiseTelecomNodesCohortSeedTest is DiamondTestHarness {
 
         assertLe(
             tracked,
-            diamond.balanceOf(user1)
+            diamond.balanceOf(
+                user1
+            )
         );
 
         assertEq(
-            _recorder().getCohortScore(refA),
+            _recorder().getCohortScore(
+                refA
+            ),
             tracked
         );
 
         assertEq(
-            _ringSlot(refA, BASE_SLOT),
+            _ringSlot(
+                refA,
+                BASE_SLOT
+            ),
             tracked
         );
     }

@@ -3,6 +3,7 @@
 pragma solidity =0.8.36;
 
 import {Vm} from "forge-std/Vm.sol";
+import {console} from "forge-std/console.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {Client} from "@chainlink/contracts-ccip/contracts/libraries/Client.sol";
 
@@ -15,9 +16,14 @@ import {ReferralFacet} from "../../src/diamond/vault/facets/pending/ReferralFace
 import {CohortHookFacet} from "../../src/diamond/vault/facets/pending/CohortHookFacet.sol";
 import {CohortRecorderFacet} from "../../src/diamond/vault/facets/pending/CohortRecorderFacet.sol";
 import {CohortFlushFacet} from "../../src/diamond/vault/facets/pending/CohortFlushFacet.sol";
+import {CohortFlushPolicyFacet} from "../../src/diamond/vault/facets/pending/CohortFlushPolicyFacet.sol";
 
 import {ReferralRegistry} from "../../src/registry/pending/ReferralRegistry.sol";
-import {ReferralHub} from "../../src/hub/pending/ReferralHub.sol";
+import {IReferralHub} from "../../src/hub/pending/IReferralHub.sol";
+import {HubLeverGrants} from "../hub/utils/HubLeverGrants.sol";
+import {HubDiamondHarness} from "../hub/utils/HubDiamondHarness.sol";
+import {ReferralHubReader} from "../../src/hub/pending/ReferralHubReader.sol";
+import {CohortFlushCodec} from "../../src/diamond/shared/pending/CohortFlushCodec.sol";
 import {CohortWeeks} from "../../src/diamond/shared/pending/CohortWeeks.sol";
 import {NotMaster} from "../../src/diamond/shared/OwnableMaster.sol";
 import {OnlyDelegateCall, FacetNotFound} from "../../src/diamond/shared/DiamondErrors.sol";
@@ -261,7 +267,8 @@ contract FlushRefundRejector {
  * propose/execute/cancel timelock (instant pre-finalize, 3-day
  * afterwards, zero-hub-nonzero-selector shape rejected at execute),
  * the flush policy levers (bot whitelist, public switch, CCIP gas
- * budget), the default-off guarantee while the pointer is unset, and
+ * budget; a lever set to its current value writes and emits nothing),
+ * the default-off guarantee while the pointer is unset, and
  * both delivery modes of {CohortFlushFacet}: LOCAL direct-call
  * delivery end-to-end against a REAL {ReferralHub} with every
  * expected claimable computed independently from recorder words and
@@ -270,12 +277,16 @@ contract FlushRefundRejector {
  * header, entry, scores, designation, crumb pairs and pre-sliced gap
  * records word by word. Cursor behavior (catch-up window start,
  * ~104-week advance per flush, gap-record slicing across flushes,
- * work-budget degradation to scores-only entries) is pinned against
- * real recorder histories, never hand-built words. The window
+ * work-budget degradation to entries without crumbs, a third-party
+ * batch writing no cursor while the stored one is virgin and
+ * advancing it once the referrer's own flush has set it) is pinned
+ * against real recorder histories, never hand-built words. The window
  * entrypoint is additionally exercised in CCIP mode (payable fee and
  * exact-excess refund, envelope restricted to the requested slice
  * with the caller stamped as deliverer, the shared foreign-book
- * gate), and a size-dependent fee mock pins `quoteFlushFee` as a
+ * gate); in local mode a third-party window is refused unless it
+ * starts after both stored cursors while an own window may start
+ * anywhere; and a size-dependent fee mock pins `quoteFlushFee` as a
  * strict lower bound when storage settles and grows between quote
  * and execution, the courier's mandatory over-funding margin.
  * `previewFlushEnvelope` is pinned byte-identical to the CCIP send
@@ -285,9 +296,61 @@ contract FlushRefundRejector {
  * quote. `getFlushCursors` is pinned element by element against
  * `getFlushedThroughWeek` and `getFlushGapCursor` over a batch that
  * mixes a fresh gap slice, a mid-walk gap cursor and a never-flushed
- * book, and returns three empty arrays for an empty batch.
+ * book, and returns three empty arrays for an empty batch. A book that
+ * emptied between two of its own CCIP flushes is replayed to the real
+ * hub through the mailbox on mirrored referrers, one whose full
+ * envelope lands a week late behind the emptied one and one whose full
+ * envelope landed in its own week, pinning the one-week skew of the
+ * referred aggregate between the two (the late full envelope has its
+ * score half refused as stale and retains nothing, the in-week one is
+ * retained for the earlier bucket); nothing prices in that fixture
+ * because no checkpoint precedes the delivered weeks. The self score is
+ * pinned as the lower of the ledger value clamped to the held balance
+ * and the referrer's own-stake presence during the completed previous
+ * week, read from the per-account self crumb: a fresh deposit reports
+ * zero until a week completes and is pro-rated for its arrival inside
+ * the week, a top-up made in the flush week is floored at the stake
+ * held through the previous week, a deposit moved away inside one block
+ * counts nothing, and a transfer in the flush block (the sender still
+ * parked, its ledger lagging) is clamped to the balance at once, every
+ * clamp pin giving the stake a completed week first so it proves the
+ * clamp and not the floor. The dormant-book builders ship the
+ * referrer's completed first week through an allowlisted bot window
+ * at week 3002, so the hub holds a nonzero self and referred
+ * checkpoint while the referrer's own send cursors stay untouched (a
+ * third-party window never writes a cursor). A planted gap record
+ * whose mature principal
+ * exceeds the per-week lane ceiling reads clamped on the referred
+ * presence read exactly as on the wire. Both flush entrypoints
+ * refuse a recorder that is not fully armed: a disarmed switch
+ * ({CohortSyncDisabled}), a zero transfer-hook pointer
+ * ({CohortHookNotInstalled}, written directly because the AdminFacet
+ * refuses a zero hook while armed) and a zero registry pointer
+ * ({ReferralRegistryNotSet}, written directly because the AdminFacet
+ * refuses a registry change while armed; the pointer returns through
+ * a disarm, the execute and a re-arm in one second); every refusal
+ * leaves the cursors and
+ * the hub claimable untouched, the weeks of the outage ship with the
+ * first own flush once the pointer returns, and the quote and the
+ * preview keep planning in all three states. Local mode never reads
+ * the payout designation, so a local preview carries none even after
+ * the referrer designated. A disarm span is zero-weighted: after the
+ * re-arm the first own flush ships no crumb for the weeks the span
+ * covered and leaves the hub claimable unchanged, and the book
+ * resumes at the re-arm instant. A batch that lists one referrer
+ * twice prices each week once at the hub, and the payout designation
+ * of a rank-two registry rides the remote envelope as
+ * `packFlushDesignation(payout, setAt, 2)` and lands on the hub under
+ * the same packed stamp.
  */
-contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
+contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness, HubDiamondHarness {
+
+    event CohortSelfLogged(
+        address indexed user,
+        uint256 fromWeek,
+        uint256 completedSeconds,
+        uint256 stake
+    );
 
     event FlushHubSet(
         address flushHub,
@@ -347,6 +410,16 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
 
     uint256 internal constant FIXED_FEE = 0.01 ether;
 
+    uint256 internal constant LOCAL_ENTRIES = 6;
+
+    uint256 internal constant LOCAL_FLUSH_GAS_CEILING = 14_000_000;
+
+    uint256 internal constant TRANSFER_HOOK_SLOT = 45;
+
+    uint256 internal constant REGISTRY_SLOT = 77;
+
+    uint256 internal constant REGISTRY_DELAY = 3 days;
+
     address internal user1 = address(0xA1);
     address internal user2 = address(0xA2);
     address internal user3 = address(0xA3);
@@ -358,9 +431,11 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
     address internal refE = address(0xB8);
     address internal stranger = address(0xC1);
     address internal bot = address(0xD1);
+    address internal reporter2 = address(0xE2);
 
     MockUSD internal usd;
-    ReferralHub internal hub;
+    IReferralHub internal hub;
+    ReferralHubReader internal reader;
     MockFlushCcipRouter internal router;
 
     WiseTelecomNodesDiamond internal diamond;
@@ -383,8 +458,12 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
 
         usd = new MockUSD();
 
-        hub = new ReferralHub(
+        hub = _deployHub(
             address(usd)
+        );
+
+        reader = new ReferralHubReader(
+            address(hub)
         );
 
         router = new MockFlushCcipRouter();
@@ -405,9 +484,15 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
             true
         );
 
-        hub.setAllowedReporter(
-            address(diamond),
-            true
+        HubLeverGrants._grant(
+            address(hub),
+            abi.encodeCall(
+                IReferralHub.setAllowedReporter,
+                (
+                    address(diamond),
+                    true
+                )
+            )
         );
 
         vm.deal(
@@ -439,13 +524,13 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
         _wireOne(
             d,
             address(new ReferralFacet()),
-            WiseTelecomNodesDiamondSelectors.referralSelectors()
+            WiseTelecomNodesDiamondSelectors._referralSelectors()
         );
 
         _wireOne(
             d,
             address(new CohortRecorderFacet()),
-            WiseTelecomNodesDiamondSelectors.cohortRecorderSelectors()
+            WiseTelecomNodesDiamondSelectors._cohortRecorderSelectors()
         );
 
         AdminFacet(address(d)).proposeTransferHookFacet(
@@ -461,7 +546,13 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
         _wireOne(
             d,
             address(new CohortFlushFacet()),
-            WiseTelecomNodesDiamondSelectors.cohortFlushSelectors()
+            WiseTelecomNodesDiamondSelectors._cohortFlushSelectors()
+        );
+
+        _wireOne(
+            d,
+            address(new CohortFlushPolicyFacet()),
+            WiseTelecomNodesDiamondSelectors._cohortFlushPolicySelectors()
         );
 
         if (_withRouter) {
@@ -469,7 +560,7 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
             _wireOne(
                 d,
                 address(new BridgeFacet()),
-                WiseTelecomNodesDiamondSelectors.bridgeSelectors()
+                WiseTelecomNodesDiamondSelectors._bridgeSelectors()
             );
 
             BridgeFacet(address(d)).setCcipRouter(
@@ -499,6 +590,18 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
         returns (CohortFlushFacet)
     {
         return CohortFlushFacet(
+            address(_d)
+        );
+    }
+
+    function _flushPolicy(
+        WiseTelecomNodesDiamond _d
+    )
+        internal
+        pure
+        returns (CohortFlushPolicyFacet)
+    {
+        return CohortFlushPolicyFacet(
             address(_d)
         );
     }
@@ -587,6 +690,37 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
         UserFacet(address(_d)).deposit(
             _amount
         );
+    }
+
+    function _advanceBooks(
+        WiseTelecomNodesDiamond _d,
+        address[] memory _refs
+    )
+        internal
+    {
+        for (uint256 i; i < _refs.length; ++i) {
+
+            for (uint256 k; k < 8; ++k) {
+
+                (
+                    ,
+                    ,
+                    ,
+                    uint256 lastSettle
+                ) = _rec(_d).getCohortBook(
+                    _refs[i]
+                );
+
+                if (lastSettle / 1 weeks == block.timestamp / 1 weeks) {
+                    break;
+                }
+
+                _rec(_d).advanceBook(
+                    _refs[i],
+                    104
+                );
+            }
+        }
     }
 
     function _oneRef(
@@ -689,9 +823,11 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
             _week
         );
 
-        return CohortWeeks.laneY1(_word) * y1Bps / 10_000 / CohortWeeks.YEAR
-            + CohortWeeks.laneY2(_word) * y2Bps / 10_000 / CohortWeeks.YEAR
-            + CohortWeeks.laneM(_word) * mBps / 10_000 / CohortWeeks.YEAR;
+        return (
+            CohortWeeks._laneY1(_word) * y1Bps
+                + CohortWeeks._laneY2(_word) * y2Bps
+                + CohortWeeks._laneM(_word) * mBps
+        ) / (10_000 * CohortWeeks.YEAR);
     }
 
     function _expectedGapPay(
@@ -704,7 +840,7 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
         returns (uint256)
     {
         return _expectedPay(
-            CohortWeeks.packLanes(
+            CohortWeeks._packLanes(
                 0,
                 0,
                 _mature * CohortWeeks.WEEK
@@ -755,6 +891,47 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
                 week
             );
         }
+    }
+
+    function _selfAverageInEnvelope(
+        bytes memory _envelope,
+        uint256 _week
+    )
+        internal
+        pure
+        returns (uint256)
+    {
+        uint256 entryWord = _envWord(
+            _envelope,
+            1
+        );
+
+        uint256 cursor = CohortFlushCodec._flushEntryFlags(entryWord) & CohortFlushCodec.FLUSH_FLAG_DESIGNATION != 0
+            ? 3
+            : 2;
+
+        uint256 runCount = CohortFlushCodec._flushEntrySelfRunCount(
+            entryWord
+        );
+
+        for (uint256 i; i < runCount; ++i) {
+
+            uint256 run = _envWord(
+                _envelope,
+                cursor + i
+            );
+
+            if (
+                CohortFlushCodec._selfRunFromWeek(run) <= _week
+                    && _week < CohortFlushCodec._selfRunToWeek(run)
+            ) {
+                return CohortFlushCodec._selfRunAverage(
+                    run
+                );
+            }
+        }
+
+        return 0;
     }
 
     function _envWord(
@@ -817,7 +994,13 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
         _wireOne(
             d,
             address(new CohortFlushFacet()),
-            WiseTelecomNodesDiamondSelectors.cohortFlushSelectors()
+            WiseTelecomNodesDiamondSelectors._cohortFlushSelectors()
+        );
+
+        _wireOne(
+            d,
+            address(new CohortFlushPolicyFacet()),
+            WiseTelecomNodesDiamondSelectors._cohortFlushPolicySelectors()
         );
 
         AdminFacet(address(d)).proposeFlushHub(
@@ -850,13 +1033,13 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
         _wireOne(
             d,
             address(new ReferralFacet()),
-            WiseTelecomNodesDiamondSelectors.referralSelectors()
+            WiseTelecomNodesDiamondSelectors._referralSelectors()
         );
 
         _wireOne(
             d,
             address(new CohortRecorderFacet()),
-            WiseTelecomNodesDiamondSelectors.cohortRecorderSelectors()
+            WiseTelecomNodesDiamondSelectors._cohortRecorderSelectors()
         );
 
         AdminFacet(address(d)).proposeTransferHookFacet(
@@ -872,13 +1055,19 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
         _wireOne(
             d,
             address(new CohortFlushFacet()),
-            WiseTelecomNodesDiamondSelectors.cohortFlushSelectors()
+            WiseTelecomNodesDiamondSelectors._cohortFlushSelectors()
+        );
+
+        _wireOne(
+            d,
+            address(new CohortFlushPolicyFacet()),
+            WiseTelecomNodesDiamondSelectors._cohortFlushPolicySelectors()
         );
 
         _wireOne(
             d,
             address(new BridgeFacet()),
-            WiseTelecomNodesDiamondSelectors.bridgeSelectors()
+            WiseTelecomNodesDiamondSelectors._bridgeSelectors()
         );
 
         BridgeFacet(address(d)).setCcipRouter(
@@ -951,7 +1140,9 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
         );
 
         assertEq(
-            _admin(diamond).getFlushHubChangeQueuedAt(),
+            _admin(
+                diamond
+            ).getFlushHubChangeQueuedAt(),
             0
         );
     }
@@ -994,7 +1185,9 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
         );
 
         assertEq(
-            _admin(diamond).getFlushHubChangeQueuedAt(),
+            _admin(
+                diamond
+            ).getFlushHubChangeQueuedAt(),
             block.timestamp
         );
 
@@ -1010,7 +1203,9 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
             address(0xF1)
         );
 
-        _admin(diamond).cancelFlushHubChange();
+        _admin(
+            diamond
+        ).cancelFlushHubChange();
 
         (
             proposedHub,
@@ -1028,7 +1223,9 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
         );
 
         assertEq(
-            _admin(diamond).getFlushHubChangeQueuedAt(),
+            _admin(
+                diamond
+            ).getFlushHubChangeQueuedAt(),
             0
         );
 
@@ -1060,7 +1257,9 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
             WiseTelecomNodesDiamondErrors.FlushHubTimelockNotElapsed.selector
         );
 
-        _admin(diamond).executeFlushHubChange();
+        _admin(
+            diamond
+        ).executeFlushHubChange();
 
         vm.warp(
             block.timestamp + FLUSH_HUB_DELAY + 1
@@ -1079,7 +1278,9 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
             9
         );
 
-        _admin(diamond).executeFlushHubChange();
+        _admin(
+            diamond
+        ).executeFlushHubChange();
 
         (
             address newHub,
@@ -1104,7 +1305,9 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
             WiseTelecomNodesDiamondErrors.NoFlushHubChangeProposed.selector
         );
 
-        _admin(diamond).executeFlushHubChange();
+        _admin(
+            diamond
+        ).executeFlushHubChange();
     }
 
     function test_RevertWhen_executeFlushHubChange_zeroHubNonzeroSelector()
@@ -1123,7 +1326,9 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
             WiseTelecomNodesDiamondErrors.InvalidValue.selector
         );
 
-        _admin(diamond).executeFlushHubChange();
+        _admin(
+            diamond
+        ).executeFlushHubChange();
     }
 
     function test_flushHubPointer_zeroProposal_detachesToOffState()
@@ -1138,7 +1343,9 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
             block.timestamp + FLUSH_HUB_DELAY + 1
         );
 
-        _admin(diamond).executeFlushHubChange();
+        _admin(
+            diamond
+        ).executeFlushHubChange();
 
         (
             address detachedHub,
@@ -1196,7 +1403,9 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
             NotMaster.selector
         );
 
-        _admin(diamond).executeFlushHubChange();
+        _admin(
+            diamond
+        ).executeFlushHubChange();
 
         vm.prank(
             stranger
@@ -1206,7 +1415,9 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
             NotMaster.selector
         );
 
-        _admin(diamond).cancelFlushHubChange();
+        _admin(
+            diamond
+        ).cancelFlushHubChange();
     }
 
     // ---- flush policy ----
@@ -1227,25 +1438,63 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
             true
         );
 
-        _flush(diamond).setAllowedFlushBot(
+        _flushPolicy(diamond).setAllowedFlushBot(
             bot,
             true
         );
 
         assertTrue(
-            _flush(diamond).getAllowedFlushBot(
+            _flushPolicy(diamond).getAllowedFlushBot(
                 bot
             )
         );
 
-        _flush(diamond).setAllowedFlushBot(
+        _flushPolicy(diamond).setAllowedFlushBot(
             bot,
             false
         );
 
         assertFalse(
-            _flush(diamond).getAllowedFlushBot(
+            _flushPolicy(diamond).getAllowedFlushBot(
                 bot
+            )
+        );
+    }
+
+    function test_setAllowedFlushBot_unchangedValue_emitsNothing()
+        public
+    {
+        _flushPolicy(diamond).setAllowedFlushBot(
+            bot,
+            true
+        );
+
+        vm.recordLogs();
+
+        _flushPolicy(diamond).setAllowedFlushBot(
+            bot,
+            true
+        );
+
+        _flushPolicy(diamond).setAllowedFlushBot(
+            address(0xD2),
+            false
+        );
+
+        assertEq(
+            vm.getRecordedLogs().length,
+            0
+        );
+
+        assertTrue(
+            _flushPolicy(diamond).getAllowedFlushBot(
+                bot
+            )
+        );
+
+        assertFalse(
+            _flushPolicy(diamond).getAllowedFlushBot(
+                address(0xD2)
             )
         );
     }
@@ -1257,7 +1506,7 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
             WiseTelecomNodesDiamondErrors.InvalidValue.selector
         );
 
-        _flush(diamond).setAllowedFlushBot(
+        _flushPolicy(diamond).setAllowedFlushBot(
             address(0),
             true
         );
@@ -1267,7 +1516,9 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
         public
     {
         assertFalse(
-            _flush(diamond).getPublicFlushEnabled()
+            _flushPolicy(
+                diamond
+            ).getPublicFlushEnabled()
         );
 
         vm.expectEmit(
@@ -1282,20 +1533,45 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
             true
         );
 
-        _flush(diamond).setPublicFlushEnabled(
+        _flushPolicy(diamond).setPublicFlushEnabled(
             true
         );
 
         assertTrue(
-            _flush(diamond).getPublicFlushEnabled()
+            _flushPolicy(
+                diamond
+            ).getPublicFlushEnabled()
         );
 
-        _flush(diamond).setPublicFlushEnabled(
+        _flushPolicy(diamond).setPublicFlushEnabled(
             false
         );
 
         assertFalse(
-            _flush(diamond).getPublicFlushEnabled()
+            _flushPolicy(
+                diamond
+            ).getPublicFlushEnabled()
+        );
+    }
+
+    function test_setPublicFlushEnabled_unchangedValue_emitsNothing()
+        public
+    {
+        vm.recordLogs();
+
+        _flushPolicy(diamond).setPublicFlushEnabled(
+            false
+        );
+
+        assertEq(
+            vm.getRecordedLogs().length,
+            0
+        );
+
+        assertFalse(
+            _flushPolicy(
+                diamond
+            ).getPublicFlushEnabled()
         );
     }
 
@@ -1303,7 +1579,9 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
         public
     {
         assertEq(
-            _flush(diamond).getFlushGasLimit(),
+            _flushPolicy(
+                diamond
+            ).getFlushGasLimit(),
             0
         );
 
@@ -1319,22 +1597,52 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
             300_000
         );
 
-        _flush(diamond).setFlushGasLimit(
+        _flushPolicy(diamond).setFlushGasLimit(
             300_000
         );
 
         assertEq(
-            _flush(diamond).getFlushGasLimit(),
+            _flushPolicy(
+                diamond
+            ).getFlushGasLimit(),
             300_000
         );
 
-        _flush(diamond).setFlushGasLimit(
+        _flushPolicy(diamond).setFlushGasLimit(
             2_000_000
         );
 
         assertEq(
-            _flush(diamond).getFlushGasLimit(),
+            _flushPolicy(
+                diamond
+            ).getFlushGasLimit(),
             2_000_000
+        );
+    }
+
+    function test_setFlushGasLimit_unchangedValue_emitsNothing()
+        public
+    {
+        _flushPolicy(diamond).setFlushGasLimit(
+            300_000
+        );
+
+        vm.recordLogs();
+
+        _flushPolicy(diamond).setFlushGasLimit(
+            300_000
+        );
+
+        assertEq(
+            vm.getRecordedLogs().length,
+            0
+        );
+
+        assertEq(
+            _flushPolicy(
+                diamond
+            ).getFlushGasLimit(),
+            300_000
         );
     }
 
@@ -1345,7 +1653,7 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
             WiseTelecomNodesDiamondErrors.InvalidFlushGasLimit.selector
         );
 
-        _flush(diamond).setFlushGasLimit(
+        _flushPolicy(diamond).setFlushGasLimit(
             299_999
         );
 
@@ -1353,7 +1661,7 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
             WiseTelecomNodesDiamondErrors.InvalidFlushGasLimit.selector
         );
 
-        _flush(diamond).setFlushGasLimit(
+        _flushPolicy(diamond).setFlushGasLimit(
             2_000_001
         );
     }
@@ -1369,7 +1677,7 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
             NotMaster.selector
         );
 
-        _flush(diamond).setAllowedFlushBot(
+        _flushPolicy(diamond).setAllowedFlushBot(
             bot,
             true
         );
@@ -1382,7 +1690,7 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
             NotMaster.selector
         );
 
-        _flush(diamond).setPublicFlushEnabled(
+        _flushPolicy(diamond).setPublicFlushEnabled(
             true
         );
 
@@ -1394,7 +1702,7 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
             NotMaster.selector
         );
 
-        _flush(diamond).setFlushGasLimit(
+        _flushPolicy(diamond).setFlushGasLimit(
             300_000
         );
     }
@@ -1415,7 +1723,7 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
         _wireOne(
             bare,
             address(new CohortFlushFacet()),
-            WiseTelecomNodesDiamondSelectors.cohortFlushSelectors()
+            WiseTelecomNodesDiamondSelectors._cohortFlushSelectors()
         );
 
         bare.finalizeSetup();
@@ -1460,6 +1768,226 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
     }
 
     // ---- gating ----
+    function test_RevertWhen_flushReferrals_localBatchOverLocalEntryCap()
+        public
+    {
+        address[] memory refs = new address[](
+            LOCAL_ENTRIES + 1
+        );
+
+        for (uint256 i; i < refs.length; ++i) {
+            refs[i] = refA;
+        }
+
+        vm.expectRevert(
+            WiseTelecomNodesDiamondErrors.FlushBatchTooLarge.selector
+        );
+
+        _flush(diamond).flushReferrals(
+            refs
+        );
+
+        vm.expectRevert(
+            WiseTelecomNodesDiamondErrors.FlushBatchTooLarge.selector
+        );
+
+        _flush(diamond).previewFlushEnvelope(
+            refs
+        );
+    }
+
+    function test_flushReferrals_batchOverParkedBook_advancedToTheDisarm()
+        public
+    {
+        _depositWithReferralOn(
+            diamond,
+            user1,
+            10_000 * 1e6,
+            refA
+        );
+
+        vm.warp(
+            BASE_TIME + 2 weeks + 1 days
+        );
+
+        _admin(diamond).setCohortSyncEnabled(
+            false
+        );
+
+        vm.warp(
+            BASE_TIME + 3 weeks + 1 days
+        );
+
+        _admin(diamond).setCohortSyncEnabled(
+            true
+        );
+
+        address[] memory refs = new address[](2);
+
+        refs[0] = refA;
+        refs[1] = refA;
+
+        vm.prank(
+            refA
+        );
+
+        vm.expectRevert(
+            WiseTelecomNodesDiamondErrors.FlushBookNotAdvanced.selector
+        );
+
+        _flush(diamond).flushReferrals(
+            refs
+        );
+
+        _advanceBooks(
+            diamond,
+            refs
+        );
+
+        (
+            ,
+            ,
+            ,
+            uint256 lastSettle
+        ) = _rec(diamond).getCohortBook(
+            refA
+        );
+
+        assertEq(
+            lastSettle,
+            BASE_TIME + 2 weeks + 1 days
+        );
+
+        vm.prank(
+            refA
+        );
+
+        _flush(diamond).flushReferrals(
+            refs
+        );
+
+        assertEq(
+            _flushPolicy(diamond).getFlushedThroughWeek(
+                refA
+            ),
+            3_001
+        );
+    }
+
+    function test_flushOwn_refereeGetsNoHubRecord()
+        public
+    {
+        _depositWithReferralOn(
+            diamond,
+            user2,
+            10_000 * 1e6,
+            refA
+        );
+
+        vm.warp(
+            BASE_TIME + 2 weeks
+        );
+
+        _flushOwnLocal(
+            refA
+        );
+
+        bytes32 source = hub.sourceKeyOf(
+            block.chainid,
+            address(diamond)
+        );
+
+        assertGt(
+            hub.claimable(
+                block.chainid,
+                refA
+            ),
+            0
+        );
+
+        assertEq(
+            hub.weekSelfOf(
+                source,
+                user2,
+                3_000
+            ),
+            0
+        );
+
+        assertEq(
+            hub.weekSelfOf(
+                source,
+                user2,
+                3_001
+            ),
+            0
+        );
+
+        assertEq(
+            hub.claimable(
+                block.chainid,
+                user2
+            ),
+            0
+        );
+    }
+
+    function test_RevertWhen_flushReferrals_remoteBatchOverUnadvancedBook()
+        public
+    {
+        _depositWithReferralOn(
+            rdiamond,
+            user1,
+            10_000 * 1e6,
+            refA
+        );
+
+        vm.warp(
+            BASE_TIME + 2 weeks
+        );
+
+        address[] memory refs = new address[](2);
+
+        refs[0] = refA;
+        refs[1] = refA;
+
+        vm.deal(
+            refA,
+            FIXED_FEE
+        );
+
+        vm.prank(
+            refA
+        );
+
+        vm.expectRevert(
+            WiseTelecomNodesDiamondErrors.FlushBookNotAdvanced.selector
+        );
+
+        _flush(rdiamond).flushReferrals{value: FIXED_FEE}(
+            refs
+        );
+
+        _advanceBooks(
+            rdiamond,
+            refs
+        );
+
+        vm.prank(
+            refA
+        );
+
+        _flush(rdiamond).flushReferrals{value: FIXED_FEE}(
+            refs
+        );
+
+        assertEq(
+            _flushPolicy(rdiamond).getFlushedThroughWeek(
+                refA
+            ),
+            3_001
+        );
+    }
 
     function test_RevertWhen_flushReferrals_emptyBatch()
         public
@@ -1550,9 +2078,20 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
     function test_flushReferrals_allowedBotPasses()
         public
     {
-        _flush(diamond).setAllowedFlushBot(
+        _flushPolicy(diamond).setAllowedFlushBot(
             bot,
             true
+        );
+
+        _depositWithReferralOn(
+            diamond,
+            user1,
+            10_000 * 1e6,
+            refA
+        );
+
+        _flushOwnLocal(
+            refA
         );
 
         address[] memory refs = _oneRef(
@@ -1585,8 +2124,19 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
     function test_flushReferrals_publicFlushPasses()
         public
     {
-        _flush(diamond).setPublicFlushEnabled(
+        _flushPolicy(diamond).setPublicFlushEnabled(
             true
+        );
+
+        _depositWithReferralOn(
+            diamond,
+            user1,
+            10_000 * 1e6,
+            refA
+        );
+
+        _flushOwnLocal(
+            refA
         );
 
         address[] memory refs = _oneRef(
@@ -1646,10 +2196,363 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
         );
     }
 
+    function test_RevertWhen_flushReferrals_thirdPartyBatchOnVirginCursor_refused()
+        public
+    {
+        _flushPolicy(diamond).setAllowedFlushBot(
+            bot,
+            true
+        );
+
+        _depositWithReferralOn(
+            diamond,
+            user1,
+            10_000 * 1e6,
+            refA
+        );
+
+        vm.warp(
+            BASE_TIME + 2 weeks
+        );
+
+        vm.prank(
+            bot
+        );
+
+        vm.expectRevert(
+            WiseTelecomNodesDiamondErrors.FlushCursorVirgin.selector
+        );
+
+        _flush(diamond).flushReferrals(
+            _oneRef(
+                refA
+            )
+        );
+
+        assertEq(
+            _flushPolicy(diamond).getFlushedThroughWeek(
+                refA
+            ),
+            0
+        );
+    }
+
+    function test_flushReferrals_botBatchOnQuietLiveBook_writesNoCursor()
+        public
+    {
+        _flushPolicy(diamond).setAllowedFlushBot(
+            bot,
+            true
+        );
+
+        _seedOwnFlushedBook();
+
+        vm.warp(
+            BASE_TIME + 5 weeks
+        );
+
+        vm.prank(
+            bot
+        );
+
+        _flush(diamond).flushReferrals(
+            _oneRef(
+                refA
+            )
+        );
+
+        vm.warp(
+            BASE_TIME + 10 weeks
+        );
+
+        vm.prank(
+            bot
+        );
+
+        _flush(diamond).flushReferrals(
+            _oneRef(
+                refA
+            )
+        );
+
+        assertEq(
+            _flushPolicy(diamond).getFlushedThroughWeek(
+                refA
+            ),
+            3_001
+        );
+    }
+
+    function test_flushWindow_allowedBotAheadOfCursor_passes()
+        public
+    {
+        _flushPolicy(diamond).setAllowedFlushBot(
+            bot,
+            true
+        );
+
+        _seedOwnFlushedBook();
+
+        vm.warp(
+            3_008 weeks + 1 days
+        );
+
+        vm.prank(
+            bot
+        );
+
+        _flush(diamond).flushReferralWindow(
+            refA,
+            3_007,
+            0
+        );
+
+        assertEq(
+            _flushPolicy(diamond).getFlushedThroughWeek(
+                refA
+            ),
+            3_001
+        );
+    }
+
+    function test_RevertWhen_flushReferrals_mixedBatchForeignVirgin_refusesWholeBatch()
+        public
+    {
+        _flushPolicy(diamond).setAllowedFlushBot(
+            bot,
+            true
+        );
+
+        _depositWithReferralOn(
+            diamond,
+            user1,
+            10_000 * 1e6,
+            refA
+        );
+
+        _depositWithReferralOn(
+            diamond,
+            user2,
+            10_000 * 1e6,
+            bot
+        );
+
+        vm.warp(
+            BASE_TIME + 2 weeks
+        );
+
+        address[] memory refs = new address[](2);
+
+        refs[0] = refA;
+        refs[1] = bot;
+
+        _advanceBooks(
+            diamond,
+            refs
+        );
+
+        vm.prank(
+            bot
+        );
+
+        vm.expectRevert(
+            WiseTelecomNodesDiamondErrors.FlushCursorVirgin.selector
+        );
+
+        _flush(diamond).flushReferrals(
+            refs
+        );
+
+        assertEq(
+            _flushPolicy(diamond).getFlushedThroughWeek(
+                refA
+            ),
+            0
+        );
+
+        assertEq(
+            _flushPolicy(diamond).getFlushedThroughWeek(
+                bot
+            ),
+            0
+        );
+    }
+
+    function test_RevertWhen_flushReferrals_thirdPartyBatchOnVirginCursor_gapBook_refused()
+        public
+    {
+        _flushPolicy(diamond).setAllowedFlushBot(
+            bot,
+            true
+        );
+
+        _depositWithReferralOn(
+            diamond,
+            user1,
+            100_000 * 1e6,
+            refA
+        );
+
+        vm.warp(
+            3_104 weeks + 1 hours
+        );
+
+        _rec(diamond).advanceBook(
+            refA,
+            104
+        );
+
+        vm.warp(
+            3_358 weeks + 5 hours
+        );
+
+        vm.prank(
+            bot
+        );
+
+        vm.expectRevert(
+            WiseTelecomNodesDiamondErrors.FlushCursorVirgin.selector
+        );
+
+        _flush(diamond).flushReferrals(
+            _oneRef(
+                refA
+            )
+        );
+
+        assertEq(
+            _flushPolicy(diamond).getFlushedThroughWeek(
+                refA
+            ),
+            0
+        );
+    }
+
+    function test_flushReferrals_thirdPartyBatch_deliversGapTailWithoutCursorWrite()
+        public
+    {
+        _flushPolicy(diamond).setAllowedFlushBot(
+            bot,
+            true
+        );
+
+        _buildDormantMatureBook();
+
+        _flushOwnLocal(
+            refA
+        );
+
+        _flushOwnLocal(
+            refA
+        );
+
+        uint256 mature = CohortWeeks._gapRecordMature(
+            _rec(diamond).getCohortGapLogEntry(
+                refA,
+                0
+            )
+        );
+
+        uint256 claimableBefore = hub.claimable(
+            block.chainid,
+            refA
+        );
+
+        vm.warp(
+            block.timestamp + 1 hours
+        );
+
+        vm.prank(
+            bot
+        );
+
+        _flush(diamond).flushReferrals(
+            _oneRef(
+                refA
+            )
+        );
+
+        assertEq(
+            _flushPolicy(diamond).getFlushedThroughWeek(
+                refA
+            ),
+            3_055
+        );
+
+        (
+            uint256 gapIndex,
+            uint256 gapResumeWeek
+        ) = _flushPolicy(diamond).getFlushGapCursor(
+            refA
+        );
+
+        assertEq(
+            gapIndex,
+            0
+        );
+
+        assertEq(
+            gapResumeWeek,
+            3_288
+        );
+
+        assertEq(
+            hub.claimable(
+                block.chainid,
+                refA
+            ),
+            claimableBefore
+                + _expectedCrumbRangePay(
+                    diamond,
+                    refA,
+                    3_056,
+                    3_083
+                )
+                + _expectedGapRangePay(
+                    mature,
+                    refA,
+                    3_288,
+                    3_328
+                )
+        );
+
+        _assertPaidCursorSet(
+            3_083
+        );
+
+        _assertPaidCursorSet(
+            3_327
+        );
+    }
+
+    function _assertPaidCursorSet(
+        uint256 _week
+    )
+        internal
+        view
+    {
+        (
+            uint256 y1Paid,
+            uint256 y2Paid,
+            uint256 mPaid
+        ) = reader.paidCursorAt(
+            address(diamond),
+            refA,
+            _week
+        );
+
+        assertGt(
+            y1Paid + y2Paid + mPaid,
+            0
+        );
+    }
+
     function test_RevertWhen_flush_paused()
         public
     {
-        _admin(diamond).pauseDeposits();
+        _admin(
+            diamond
+        ).pauseDeposits();
 
         address[] memory refs = _oneRef(
             refA
@@ -1678,6 +2581,1146 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
         _flush(diamond).flushReferralWindow(
             refA,
             0,
+            0
+        );
+    }
+
+    function _readReopenStamp()
+        internal
+        view
+        returns (uint64)
+    {
+        bytes32 slot = vm.load(
+            address(diamond),
+            bytes32(
+                uint256(
+                    93
+                )
+            )
+        );
+
+        return uint64(
+            uint256(
+                slot
+            ) >> 128
+        );
+    }
+
+    function test_RevertWhen_flushReferrals_botFlushDuringOutageGrace()
+        public
+    {
+        _flushPolicy(diamond).setAllowedFlushBot(
+            bot,
+            true
+        );
+
+        _admin(
+            diamond
+        ).pauseDeposits();
+
+        vm.warp(
+            BASE_TIME + 12 hours
+        );
+
+        _admin(
+            diamond
+        ).unpauseDeposits();
+
+        assertEq(
+            _readReopenStamp(),
+            uint64(
+                BASE_TIME + 12 hours
+            )
+        );
+
+        vm.warp(
+            BASE_TIME + 18 hours
+        );
+
+        address[] memory refs = _oneRef(
+            refA
+        );
+
+        vm.prank(
+            bot
+        );
+
+        vm.expectRevert(
+            WiseTelecomNodesDiamondErrors.FlushOutageGraceActive.selector
+        );
+
+        _flush(diamond).flushReferrals(
+            refs
+        );
+    }
+
+    function test_flushReferrals_ownFlushDuringOutageGracePasses()
+        public
+    {
+        _admin(
+            diamond
+        ).pauseDeposits();
+
+        vm.warp(
+            BASE_TIME + 12 hours
+        );
+
+        _admin(
+            diamond
+        ).unpauseDeposits();
+
+        vm.warp(
+            BASE_TIME + 18 hours
+        );
+
+        address[] memory refs = _oneRef(
+            refA
+        );
+
+        vm.prank(
+            refA
+        );
+
+        _flush(diamond).flushReferrals(
+            refs
+        );
+    }
+
+    function test_flushReferrals_botFlushAfterOutageGracePasses()
+        public
+    {
+        _flushPolicy(diamond).setAllowedFlushBot(
+            bot,
+            true
+        );
+
+        _depositWithReferralOn(
+            diamond,
+            user1,
+            10_000 * 1e6,
+            refA
+        );
+
+        _admin(
+            diamond
+        ).pauseDeposits();
+
+        vm.warp(
+            BASE_TIME + 12 hours
+        );
+
+        _admin(
+            diamond
+        ).unpauseDeposits();
+
+        vm.warp(
+            BASE_TIME + 36 hours
+        );
+
+        _flushOwnLocal(
+            refA
+        );
+
+        vm.warp(
+            BASE_TIME + 48 hours + 1 seconds
+        );
+
+        address[] memory refs = _oneRef(
+            refA
+        );
+
+        vm.prank(
+            bot
+        );
+
+        _flush(diamond).flushReferrals(
+            refs
+        );
+    }
+
+    function test_RevertWhen_flushReferrals_botFlushDuringGrace_midRecordGapCursor()
+        public
+    {
+        _flushPolicy(diamond).setAllowedFlushBot(
+            bot,
+            true
+        );
+
+        _buildDormantMatureBook();
+
+        _flushOwnLocal(
+            refA
+        );
+
+        _admin(
+            diamond
+        ).pauseDeposits();
+
+        vm.warp(
+            block.timestamp + 12 hours
+        );
+
+        _admin(
+            diamond
+        ).unpauseDeposits();
+
+        vm.warp(
+            block.timestamp + 6 hours
+        );
+
+        address[] memory refs = _oneRef(
+            refA
+        );
+
+        vm.prank(
+            bot
+        );
+
+        vm.expectRevert(
+            WiseTelecomNodesDiamondErrors.FlushOutageGraceActive.selector
+        );
+
+        _flush(diamond).flushReferrals(
+            refs
+        );
+    }
+
+    function test_flushReferralWindow_botWindowAfterReopenBoundaryPasses()
+        public
+    {
+        _flushPolicy(diamond).setAllowedFlushBot(
+            bot,
+            true
+        );
+
+        vm.warp(
+            BASE_TIME - 8 weeks
+        );
+
+        _depositWithReferralOn(
+            diamond,
+            user1,
+            10_000 * 1e6,
+            refA
+        );
+
+        _flushOwnLocal(
+            refA
+        );
+
+        vm.warp(
+            BASE_TIME
+        );
+
+        _admin(
+            diamond
+        ).pauseDeposits();
+
+        vm.warp(
+            BASE_TIME + 12 hours
+        );
+
+        _admin(
+            diamond
+        ).unpauseDeposits();
+
+        vm.warp(
+            BASE_TIME + 18 hours
+        );
+
+        vm.prank(
+            bot
+        );
+
+        _flush(diamond).flushReferralWindow(
+            refA,
+            3_000,
+            0
+        );
+    }
+
+    /**
+     * @dev the settle-appended record spans only weeks that closed
+     * after the reopen, so the first arm of the outage gate
+     * carries it even inside the grace: the referrer never had
+     * a window to flush those weeks before the outage, and the
+     * own cursor the bot must stay behind still never moves
+     */
+    function test_flushWindow_thirdPartyGapSliceAfterReopenBoundary_carriesDuringGrace()
+        public
+    {
+        _flushPolicy(diamond).setAllowedFlushBot(
+            bot,
+            true
+        );
+
+        _depositWithReferralOn(
+            diamond,
+            user1,
+            100_000 * 1e6,
+            refA
+        );
+
+        _depositOn(
+            diamond,
+            refA,
+            100_000 * 1e6
+        );
+
+        vm.warp(
+            3_104 weeks + 1 hours
+        );
+
+        _rec(diamond).advanceBook(
+            refA,
+            104
+        );
+
+        vm.warp(
+            3_358 weeks + 5 hours
+        );
+
+        _flushOwnLocal(
+            refA
+        );
+
+        _admin(
+            diamond
+        ).pauseDeposits();
+
+        vm.warp(
+            3_400 weeks + 1 hours
+        );
+
+        _admin(
+            diamond
+        ).unpauseDeposits();
+
+        vm.warp(
+            3_400 weeks + 7 hours
+        );
+
+        vm.prank(
+            bot
+        );
+
+        _flush(diamond).flushReferralWindow(
+            refA,
+            3_400,
+            1
+        );
+
+        assertEq(
+            _countReferrerFlushedLogs(),
+            0
+        );
+
+        vm.prank(
+            refA
+        );
+
+        _flush(diamond).flushReferralWindow(
+            refA,
+            3_400,
+            1
+        );
+    }
+
+    function test_flushWindow_thirdPartyGapSliceAfterGracePasses()
+        public
+    {
+        _flushPolicy(diamond).setAllowedFlushBot(
+            bot,
+            true
+        );
+
+        _depositWithReferralOn(
+            diamond,
+            user1,
+            100_000 * 1e6,
+            refA
+        );
+
+        _depositOn(
+            diamond,
+            refA,
+            100_000 * 1e6
+        );
+
+        vm.warp(
+            3_104 weeks + 1 hours
+        );
+
+        _rec(diamond).advanceBook(
+            refA,
+            104
+        );
+
+        vm.warp(
+            3_358 weeks + 5 hours
+        );
+
+        _flushOwnLocal(
+            refA
+        );
+
+        _admin(
+            diamond
+        ).pauseDeposits();
+
+        vm.warp(
+            3_400 weeks + 1 hours
+        );
+
+        _admin(
+            diamond
+        ).unpauseDeposits();
+
+        vm.warp(
+            3_442 weeks + 1 days - 3 hours + 1 seconds
+        );
+
+        vm.prank(
+            bot
+        );
+
+        _flush(diamond).flushReferralWindow(
+            refA,
+            3_400,
+            1
+        );
+    }
+
+    function test_flushReferrals_botFlushAtExactGraceBoundaryPasses()
+        public
+    {
+        _flushPolicy(diamond).setAllowedFlushBot(
+            bot,
+            true
+        );
+
+        _depositWithReferralOn(
+            diamond,
+            user1,
+            10_000 * 1e6,
+            refA
+        );
+
+        _admin(
+            diamond
+        ).pauseDeposits();
+
+        vm.warp(
+            BASE_TIME + 12 hours
+        );
+
+        _admin(
+            diamond
+        ).unpauseDeposits();
+
+        vm.warp(
+            BASE_TIME + 36 hours
+        );
+
+        _flushOwnLocal(
+            refA
+        );
+
+        vm.warp(
+            BASE_TIME + 48 hours
+        );
+
+        address[] memory refs = _oneRef(
+            refA
+        );
+
+        vm.prank(
+            bot
+        );
+
+        _flush(diamond).flushReferrals(
+            refs
+        );
+    }
+
+    function test_RevertWhen_flushWindow_rearmLaterThanUnpause_extendsGrace()
+        public
+    {
+        _flushPolicy(diamond).setAllowedFlushBot(
+            bot,
+            true
+        );
+
+        vm.warp(
+            BASE_TIME - 8 weeks
+        );
+
+        _depositWithReferralOn(
+            diamond,
+            user1,
+            10_000 * 1e6,
+            refA
+        );
+
+        _flushOwnLocal(
+            refA
+        );
+
+        vm.warp(
+            BASE_TIME
+        );
+
+        _admin(
+            diamond
+        ).pauseDeposits();
+
+        vm.warp(
+            BASE_TIME + 12 hours
+        );
+
+        _admin(
+            diamond
+        ).unpauseDeposits();
+
+        _admin(diamond).setCohortSyncEnabled(
+            false
+        );
+
+        vm.warp(
+            BASE_TIME + 18 hours
+        );
+
+        _admin(diamond).setCohortSyncEnabled(
+            true
+        );
+
+        vm.warp(
+            BASE_TIME + 36 hours + 1 seconds
+        );
+
+        vm.prank(
+            bot
+        );
+
+        vm.expectRevert(
+            WiseTelecomNodesDiamondErrors.FlushOutageGraceActive.selector
+        );
+
+        _flush(diamond).flushReferralWindow(
+            refA,
+            2_999,
+            0
+        );
+    }
+
+    /**
+     * @dev a second, short pause of the SAME class must not collapse
+     * the grace the long first span earned: the refusal instant
+     * sits past the SHORT span own deadline (one grace day plus
+     * six hours past its reopen) but inside the LONG span
+     * deadline (one grace day plus two weeks)
+     * past the LONG span grace plus the short span, the window
+     * passes: the tail word kept the longer deadline
+     */
+    function test_RevertWhen_flushWindow_shortPauseAfterLongPause_holdsLongGrace()
+        public
+    {
+        _flushPolicy(diamond).setAllowedFlushBot(
+            bot,
+            true
+        );
+
+        vm.warp(
+            BASE_TIME - 8 weeks
+        );
+
+        _depositWithReferralOn(
+            diamond,
+            user1,
+            10_000 * 1e6,
+            refA
+        );
+
+        _flushOwnLocal(
+            refA
+        );
+
+        vm.warp(
+            BASE_TIME
+        );
+
+        _admin(
+            diamond
+        ).pauseDeposits();
+
+        vm.warp(
+            BASE_TIME + 2 weeks
+        );
+
+        _admin(
+            diamond
+        ).unpauseDeposits();
+
+        _admin(
+            diamond
+        ).pauseDeposits();
+
+        vm.warp(
+            BASE_TIME + 2 weeks + 6 hours
+        );
+
+        _admin(
+            diamond
+        ).unpauseDeposits();
+
+        vm.warp(
+            BASE_TIME + 3 weeks
+        );
+
+        vm.prank(
+            bot
+        );
+
+        vm.expectRevert(
+            WiseTelecomNodesDiamondErrors.FlushOutageGraceActive.selector
+        );
+
+        _flush(diamond).flushReferralWindow(
+            refA,
+            2_999,
+            0
+        );
+
+        vm.warp(
+            BASE_TIME + 4 weeks + 1 days + 1 hours
+        );
+
+        vm.prank(
+            bot
+        );
+
+        _flush(diamond).flushReferralWindow(
+            refA,
+            2_999,
+            0
+        );
+    }
+
+    function test_RevertWhen_flushWindow_shortDisarmAfterLongDisarm_holdsLongGrace()
+        public
+    {
+        _flushPolicy(diamond).setAllowedFlushBot(
+            bot,
+            true
+        );
+
+        vm.warp(
+            BASE_TIME - 8 weeks
+        );
+
+        _depositWithReferralOn(
+            diamond,
+            user1,
+            10_000 * 1e6,
+            refA
+        );
+
+        _flushOwnLocal(
+            refA
+        );
+
+        vm.warp(
+            BASE_TIME
+        );
+
+        _admin(diamond).setCohortSyncEnabled(
+            false
+        );
+
+        vm.warp(
+            BASE_TIME + 2 weeks
+        );
+
+        _admin(diamond).setCohortSyncEnabled(
+            true
+        );
+
+        _admin(diamond).setCohortSyncEnabled(
+            false
+        );
+
+        vm.warp(
+            BASE_TIME + 2 weeks + 6 hours
+        );
+
+        _admin(diamond).setCohortSyncEnabled(
+            true
+        );
+
+        vm.warp(
+            BASE_TIME + 3 weeks
+        );
+
+        vm.prank(
+            bot
+        );
+
+        vm.expectRevert(
+            WiseTelecomNodesDiamondErrors.FlushOutageGraceActive.selector
+        );
+
+        _flush(diamond).flushReferralWindow(
+            refA,
+            2_999,
+            0
+        );
+
+        vm.warp(
+            BASE_TIME + 4 weeks + 1 days + 1 hours
+        );
+
+        vm.prank(
+            bot
+        );
+
+        _flush(diamond).flushReferralWindow(
+            refA,
+            2_999,
+            0
+        );
+    }
+
+    /**
+     * @dev the crumbs and the gap tail share the work budget with a
+     * fixed slice held for the gap lane, so a crumb-heavy entry
+     * ships a gap slice in the same envelope instead of
+     * stranding the tail behind its own cursor
+     */
+    function test_flush_gapReservation_carriesGapTailInSameEnvelope()
+        public
+    {
+        _buildDormantMatureBook();
+
+        _flushOwnLocal(
+            refA
+        );
+
+        (
+            uint256 gapIndexBefore,
+            uint256 gapResumeBefore
+        ) = _flushPolicy(diamond).getFlushGapCursor(
+            refA
+        );
+
+        _flushOwnLocal(
+            refA
+        );
+
+        assertGt(
+            _flushPolicy(diamond).getFlushedThroughWeek(
+                refA
+            ),
+            3_027
+        );
+
+        (
+            uint256 gapIndex,
+            uint256 gapResumeWeek
+        ) = _flushPolicy(diamond).getFlushGapCursor(
+            refA
+        );
+
+        bool gapAdvanced = gapIndex > gapIndexBefore
+            || (
+                gapIndex == gapIndexBefore
+                    && gapResumeWeek > gapResumeBefore
+            );
+
+        assertTrue(
+            gapAdvanced,
+            "the gap lane shipped nothing beside the crumbs"
+        );
+    }
+
+    function test_RevertWhen_flushWindow_twoWeekPause_strandedWeeksStayGatedPastFlatDay()
+        public
+    {
+        _flushPolicy(diamond).setAllowedFlushBot(
+            bot,
+            true
+        );
+
+        vm.warp(
+            BASE_TIME - 8 weeks
+        );
+
+        _depositWithReferralOn(
+            diamond,
+            user1,
+            10_000 * 1e6,
+            refA
+        );
+
+        _flushOwnLocal(
+            refA
+        );
+
+        vm.warp(
+            BASE_TIME
+        );
+
+        _admin(
+            diamond
+        ).pauseDeposits();
+
+        vm.warp(
+            BASE_TIME + 2 weeks
+        );
+
+        _admin(
+            diamond
+        ).unpauseDeposits();
+
+        vm.warp(
+            BASE_TIME + 2 weeks + 1 days + 1 hours
+        );
+
+        vm.prank(
+            bot
+        );
+
+        vm.expectRevert(
+            WiseTelecomNodesDiamondErrors.FlushOutageGraceActive.selector
+        );
+
+        _flush(diamond).flushReferralWindow(
+            refA,
+            2_999,
+            0
+        );
+
+        vm.warp(
+            BASE_TIME + 4 weeks + 1 days + 1 seconds
+        );
+
+        vm.prank(
+            bot
+        );
+
+        _flush(diamond).flushReferralWindow(
+            refA,
+            2_999,
+            0
+        );
+    }
+
+    function test_RevertWhen_flushWindow_courierAtLogLengthDuringGrace_settleAppendedRecord()
+        public
+    {        _flushPolicy(diamond).setAllowedFlushBot(
+            bot,
+            true
+        );
+
+        _buildDormantMatureBook();
+
+        assertEq(
+            _rec(diamond).getCohortGapLogLength(
+                refA
+            ),
+            0
+        );
+
+        _admin(
+            diamond
+        ).pauseDeposits();
+
+        vm.warp(
+            3_358 weeks + 6 hours
+        );
+
+        _admin(
+            diamond
+        ).unpauseDeposits();
+
+        vm.prank(
+            bot
+        );
+
+        vm.expectRevert(
+            WiseTelecomNodesDiamondErrors.FlushOutageGraceActive.selector
+        );
+
+        _flush(diamond).flushReferralWindow(
+            refA,
+            3_358,
+            0
+        );
+
+        vm.prank(
+            refA
+        );
+
+        _flush(diamond).flushReferralWindow(
+            refA,
+            3_358,
+            0
+        );
+    }
+
+    function test_RevertWhen_flushWindow_shortDisarmAfterLongPause_holdsBothGraces()
+        public
+    {
+        _flushPolicy(diamond).setAllowedFlushBot(
+            bot,
+            true
+        );
+
+        vm.warp(
+            BASE_TIME - 8 weeks
+        );
+
+        _depositWithReferralOn(
+            diamond,
+            user1,
+            10_000 * 1e6,
+            refA
+        );
+
+        _flushOwnLocal(
+            refA
+        );
+
+        vm.warp(
+            BASE_TIME
+        );
+
+        _admin(
+            diamond
+        ).pauseDeposits();
+
+        vm.warp(
+            BASE_TIME + 2 weeks
+        );
+
+        _admin(
+            diamond
+        ).unpauseDeposits();
+
+        _admin(diamond).setCohortSyncEnabled(
+            false
+        );
+
+        vm.warp(
+            BASE_TIME + 2 weeks + 1 hours
+        );
+
+        _admin(diamond).setCohortSyncEnabled(
+            true
+        );
+
+        vm.warp(
+            BASE_TIME + 2 weeks + 2 days
+        );
+
+        vm.prank(
+            bot
+        );
+
+        vm.expectRevert(
+            WiseTelecomNodesDiamondErrors.FlushOutageGraceActive.selector
+        );
+
+        _flush(diamond).flushReferralWindow(
+            refA,
+            2_999,
+            0
+        );
+
+        vm.warp(
+            BASE_TIME + 4 weeks + 1 days + 1 seconds
+        );
+
+        vm.prank(
+            bot
+        );
+
+        _flush(diamond).flushReferralWindow(
+            refA,
+            2_999,
+            0
+        );
+    }
+
+    function test_flushWindow_preUpgradePauseStamp_backfillsToOneDayGrace()
+        public
+    {
+        _flushPolicy(diamond).setAllowedFlushBot(
+            bot,
+            true
+        );
+
+        vm.warp(
+            BASE_TIME - 8 weeks
+        );
+
+        _depositWithReferralOn(
+            diamond,
+            user1,
+            10_000 * 1e6,
+            refA
+        );
+
+        _flushOwnLocal(
+            refA
+        );
+
+        vm.warp(
+            BASE_TIME
+        );
+
+        _admin(
+            diamond
+        ).pauseDeposits();
+
+        bytes32 slot93 = vm.load(
+            address(diamond),
+            bytes32(
+                uint256(
+                    93
+                )
+            )
+        );
+
+        vm.store(
+            address(diamond),
+            bytes32(
+                uint256(
+                    93
+                )
+            ),
+            bytes32(
+                uint256(slot93)
+                    & ~(type(uint64).max << 192)
+            )
+        );
+
+        vm.warp(
+            BASE_TIME + 2 weeks
+        );
+
+        _admin(
+            diamond
+        ).unpauseDeposits();
+
+        vm.warp(
+            BASE_TIME + 2 weeks + 12 hours
+        );
+
+        vm.prank(
+            bot
+        );
+
+        vm.expectRevert(
+            WiseTelecomNodesDiamondErrors.FlushOutageGraceActive.selector
+        );
+
+        _flush(diamond).flushReferralWindow(
+            refA,
+            2_999,
+            0
+        );
+
+        vm.warp(
+            BASE_TIME + 2 weeks + 1 days + 1 seconds
+        );
+
+        vm.prank(
+            bot
+        );
+
+        _flush(diamond).flushReferralWindow(
+            refA,
+            2_999,
+            0
+        );
+    }
+
+    function test_RevertWhen_flushWindow_equalSecondRearmAndUnpause_holdsDisarmSpan()
+        public
+    {
+        _flushPolicy(diamond).setAllowedFlushBot(
+            bot,
+            true
+        );
+
+        vm.warp(
+            BASE_TIME - 8 weeks
+        );
+
+        _depositWithReferralOn(
+            diamond,
+            user1,
+            10_000 * 1e6,
+            refA
+        );
+
+        _flushOwnLocal(
+            refA
+        );
+
+        vm.warp(
+            BASE_TIME
+        );
+
+        _admin(diamond).setCohortSyncEnabled(
+            false
+        );
+
+        vm.warp(
+            BASE_TIME + 1 weeks
+        );
+
+        _admin(diamond).setCohortSyncEnabled(
+            true
+        );
+
+        _admin(
+            diamond
+        ).pauseDeposits();
+
+        _admin(
+            diamond
+        ).unpauseDeposits();
+
+        vm.warp(
+            BASE_TIME + 1 weeks + 2 days
+        );
+
+        vm.prank(
+            bot
+        );
+
+        vm.expectRevert(
+            WiseTelecomNodesDiamondErrors.FlushOutageGraceActive.selector
+        );
+
+        _flush(diamond).flushReferralWindow(
+            refA,
+            2_999,
+            0
+        );
+
+        vm.warp(
+            BASE_TIME + 2 weeks + 1 days + 1 seconds
+        );
+
+        vm.prank(
+            bot
+        );
+
+        _flush(diamond).flushReferralWindow(
+            refA,
+            2_999,
             0
         );
     }
@@ -1776,12 +3819,23 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
         );
 
         assertEq(
-            hub.claimable(block.chainid, refA),
+            hub.claimable(
+                block.chainid,
+                refA
+            ),
             0
         );
 
+        (
+            uint256 referredInput,
+            uint256 selfInput
+        ) = hub.ladderInputsAt(
+            refA,
+            3_000
+        );
+
         assertEq(
-            hub.globalReferredScore(refA),
+            referredInput,
             0
         );
 
@@ -1793,13 +3847,21 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
             refA
         );
 
+        (
+            referredInput,
+            selfInput
+        ) = hub.ladderInputsAt(
+            refA,
+            3_001
+        );
+
         assertEq(
-            hub.globalReferredScore(refA),
+            referredInput,
             10_000 * 1e6
         );
 
         assertEq(
-            hub.globalSelfScore(refA),
+            selfInput,
             _rec(diamond).getTrackedContribution(
                 refA
             )
@@ -1813,10 +3875,18 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
         );
 
         assertEq(
-            _flush(diamond).getFlushedThroughWeek(
+            _flushPolicy(diamond).getFlushedThroughWeek(
                 refA
             ),
             3_001
+        );
+
+        vm.warp(
+            BASE_TIME + 3 weeks
+        );
+
+        _flushOwnLocal(
+            refA
         );
 
         vm.warp(
@@ -1860,6 +3930,122 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
             diamond,
             refA,
             3_000,
+            3_003
+        );
+
+        assertGt(
+            expected,
+            0
+        );
+
+        assertEq(
+            hub.claimable(
+                block.chainid,
+                refA
+            ),
+            expected
+        );
+
+        (
+            uint256 y1Cursor,
+            ,
+
+        ) = reader.paidCursorAt(
+            address(diamond),
+            refA,
+            3_003
+        );
+
+        assertEq(
+            y1Cursor,
+            10_000 * 1e6 * CohortWeeks.WEEK
+        );
+
+        (
+            uint256 openWeekCursor,
+            ,
+        ) = reader.paidCursorAt(
+            address(diamond),
+            refA,
+            3_004
+        );
+
+        assertEq(
+            openWeekCursor,
+            0
+        );
+
+        assertEq(
+            _flushPolicy(diamond).getFlushedThroughWeek(
+                refA
+            ),
+            3_003
+        );
+    }
+
+    function test_flushReferrals_duplicateReferrer_pricesEachWeekOnce()
+        public
+    {
+        _depositWithReferralOn(
+            diamond,
+            user1,
+            10_000 * 1e6,
+            refA
+        );
+
+        _depositOn(
+            diamond,
+            refA,
+            12_000 * 1e6
+        );
+
+        _flushOwnLocal(
+            refA
+        );
+
+        vm.warp(
+            BASE_TIME + 2 weeks
+        );
+
+        _flushOwnLocal(
+            refA
+        );
+
+        vm.warp(
+            BASE_TIME + 3 weeks
+        );
+
+        _flushOwnLocal(
+            refA
+        );
+
+        vm.warp(
+            BASE_TIME + 4 weeks + 12 hours
+        );
+
+        address[] memory refs = new address[](2);
+
+        refs[0] = refA;
+
+        refs[1] = refA;
+
+        _advanceBooks(
+            diamond,
+            refs
+        );
+
+        vm.prank(
+            refA
+        );
+
+        _flush(diamond).flushReferrals(
+            refs
+        );
+
+        uint256 expected = _expectedCrumbRangePay(
+            diamond,
+            refA,
+            3_000,
             3_004
         );
 
@@ -1869,34 +4055,22 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
         );
 
         assertEq(
-            hub.claimable(block.chainid, refA),
+            hub.claimable(
+                block.chainid,
+                refA
+            ),
             expected
         );
 
-        (
-            uint256 y1Cursor,
-            ,
-
-        ) = hub.paidCursorAt(
-            address(diamond),
-            refA,
-            3_004
-        );
-
         assertEq(
-            y1Cursor,
-            10_000 * 1e6 * (block.timestamp - 3_004 weeks)
-        );
-
-        assertEq(
-            _flush(diamond).getFlushedThroughWeek(
+            _flushPolicy(diamond).getFlushedThroughWeek(
                 refA
             ),
             3_003
         );
     }
 
-    function test_localFlush_sameWeekReflush_paysOnlyIncrement()
+    function test_localFlush_sameWeekReflush_paysNothingUntilTheWeekCloses()
         public
     {
         _depositWithReferralOn(
@@ -1919,6 +4093,14 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
         );
 
         vm.warp(
+            BASE_TIME + 3 weeks
+        );
+
+        _flushOwnLocal(
+            refA
+        );
+
+        vm.warp(
             BASE_TIME + 4 weeks + 12 hours
         );
 
@@ -1931,17 +4113,15 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
             refA
         );
 
-        uint256 wordBase = _rec(diamond).getCohortWeekCrumb(
-            refA,
-            3_004
-        );
-
         _flushOwnLocal(
             refA
         );
 
         assertEq(
-            hub.claimable(block.chainid, refA),
+            hub.claimable(
+                block.chainid,
+                refA
+            ),
             claimableBase
         );
 
@@ -1953,35 +4133,53 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
             refA
         );
 
-        uint256 wordGrown = _rec(diamond).getCohortWeekCrumb(
-            refA,
-            3_004
+        assertEq(
+            hub.claimable(
+                block.chainid,
+                refA
+            ),
+            claimableBase
         );
 
-        (
-            uint256 y1Bps,
-            ,
-
-        ) = hub.weeklyRates(
-            refA,
-            3_004
+        vm.warp(
+            BASE_TIME + 5 weeks
         );
 
-        uint256 expectedIncrement = (
-            CohortWeeks.laneY1(wordGrown) - CohortWeeks.laneY1(wordBase)
-        ) * y1Bps / 10_000 / CohortWeeks.YEAR;
+        _flushOwnLocal(
+            refA
+        );
+
+        uint256 closedWeekPrice = _weekPriceOracle(
+            _rec(diamond).getCohortWeekCrumb(
+                refA,
+                3_004
+            ),
+            0
+        );
 
         assertGt(
-            expectedIncrement,
+            closedWeekPrice,
             0
         );
 
         assertEq(
-            hub.claimable(block.chainid, refA),
-            claimableBase + expectedIncrement
+            hub.claimable(
+                block.chainid,
+                refA
+            ),
+            claimableBase + closedWeekPrice
         );
     }
 
+    /**
+     * @dev the pre-plan settle parks the book at the disarm instant, so
+     * the cursor stays below the disarm week instead of jumping over
+     * the weeks the parked book has not written yet
+     * one week past the re-arm the park ends, so the flush itself
+     * settles the intact but quiet book through the span: the span
+     * weeks stay unwritten and the week after the re-arm carries the
+     * book's presence from the re-arm instant, shipped and priced
+     */
     function test_RevertWhen_flush_disarmedRecorder()
         public
     {
@@ -1990,6 +4188,14 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
             user1,
             10_000 * 1e6,
             refA
+        );
+
+        _flushOwnLocal(
+            refA
+        );
+
+        vm.warp(
+            BASE_TIME + 2 weeks
         );
 
         _flushOwnLocal(
@@ -2010,10 +4216,15 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
         );
 
         assertEq(
-            _flush(diamond).getFlushedThroughWeek(
+            _flushPolicy(diamond).getFlushedThroughWeek(
                 refA
             ),
             3_002
+        );
+
+        uint256 crumbAtDisarm = _rec(diamond).getCohortWeekCrumb(
+            refA,
+            3_003
         );
 
         _admin(diamond).setCohortSyncEnabled(
@@ -2055,14 +4266,17 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
         );
 
         assertEq(
-            _flush(diamond).getFlushedThroughWeek(
+            _flushPolicy(diamond).getFlushedThroughWeek(
                 refA
             ),
             3_002
         );
 
         assertEq(
-            hub.claimable(block.chainid, refA),
+            hub.claimable(
+                block.chainid,
+                refA
+            ),
             claimableArmed
         );
 
@@ -2079,19 +4293,104 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
         );
 
         assertEq(
-            _flush(diamond).getFlushedThroughWeek(
+            _flushPolicy(diamond).getFlushedThroughWeek(
                 refA
             ),
-            3_005
+            3_002
         );
 
-        assertGt(
-            hub.claimable(block.chainid, refA),
+        assertEq(
+            _rec(diamond).getCohortWeekCrumb(
+                refA,
+                3_003
+            ),
+            crumbAtDisarm
+        );
+
+        assertEq(
+            _rec(diamond).getCohortWeekCrumb(
+                refA,
+                3_004
+            ),
+            0
+        );
+
+        assertEq(
+            _rec(diamond).getCohortWeekCrumb(
+                refA,
+                3_005
+            ),
+            0
+        );
+
+        assertEq(
+            hub.claimable(
+                block.chainid,
+                refA
+            ),
             claimableArmed
+        );
+
+        vm.warp(
+            BASE_TIME + 7 weeks
+        );
+
+        _flushOwnLocal(
+            refA
+        );
+
+        assertEq(
+            _flushPolicy(diamond).getFlushedThroughWeek(
+                refA
+            ),
+            3_006
+        );
+
+        assertEq(
+            CohortWeeks._laneY1(
+                _rec(diamond).getCohortWeekCrumb(
+                    refA,
+                    3_006
+                )
+            ),
+            10_000 * 1e6 * (1 weeks - 1 hours)
+        );
+
+        assertEq(
+            _paidLanes(
+                refA,
+                3_006
+            ),
+            10_000 * 1e6 * (1 weeks - 1 hours)
+        );
+
+        _depositWithReferralOn(
+            diamond,
+            user1,
+            1_000 * 1e6,
+            refA
+        );
+
+        assertEq(
+            _rec(diamond).getCohortWeekCrumb(
+                refA,
+                3_005
+            ),
+            0
+        );
+
+        assertEq(
+            CohortWeeks._laneY1(
+                _rec(diamond).getCohortWeekCrumb(
+                    refA,
+                    3_006
+                )
+            ),
+            10_000 * 1e6 * (1 weeks - 1 hours)
         );
     }
 
-    function test_localFlush_neverCreditedReferrer_scoresOnlyCursorPin()
+    function test_localFlush_neverCreditedReferrer_reportsNothingPinsCursor()
         public
     {
         address virgin = address(0xE1);
@@ -2116,32 +4415,35 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
         );
 
         assertEq(
-            _flush(diamond).getFlushedThroughWeek(
+            _flushPolicy(diamond).getFlushedThroughWeek(
                 virgin
             ),
             2_999
         );
 
         (
-            uint256 referredScore,
-            uint256 selfScore
-        ) = hub.lastReportOf(
-            address(diamond),
-            virgin
+            uint256 referredInput,
+            uint256 selfInput
+        ) = hub.ladderInputsAt(
+            virgin,
+            2_999
         );
 
         assertEq(
-            referredScore,
+            referredInput,
             0
         );
 
         assertEq(
-            selfScore,
+            selfInput,
             0
         );
 
         assertEq(
-            hub.claimable(block.chainid, virgin),
+            hub.claimable(
+                block.chainid,
+                virgin
+            ),
             0
         );
 
@@ -2161,10 +4463,43 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
         );
 
         assertEq(
-            _flush(diamond).getFlushedThroughWeek(
+            _flushPolicy(diamond).getFlushedThroughWeek(
                 virgin
             ),
             2_999
+        );
+    }
+
+    function test_previewFlushEnvelope_unsettledSelfWeeks_matchesTheSentEnvelope()
+        public
+    {
+        _depositOn(
+            rdiamond,
+            refD,
+            100_000 * 1e6
+        );
+
+        vm.warp(
+            BASE_TIME + 3 weeks
+        );
+
+        bytes memory preview = _flush(rdiamond).previewFlushEnvelope(
+            _oneRef(
+                refD
+            )
+        );
+
+        _flushOwnRemote(
+            refD
+        );
+
+        assertEq(
+            keccak256(
+                preview
+            ),
+            keccak256(
+                router.lastData()
+            )
         );
     }
 
@@ -2172,7 +4507,7 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
         public
     {
         WiseTelecomNodesDiamond bare = _newBareFlushDiamond(
-            0
+            REMOTE_SELECTOR
         );
 
         bytes memory preview = _flush(bare).previewFlushEnvelope(
@@ -2183,12 +4518,15 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
 
         assertEq(
             preview.length,
-            3 * 32
+            2 * 32
         );
 
         assertEq(
-            CohortWeeks.flushEntryFlags(
-                _envWord(preview, 1)
+            CohortFlushCodec._flushEntryFlags(
+                _envWord(
+                    preview,
+                    1
+                )
             ),
             0
         );
@@ -2228,6 +4566,491 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
         _flush(bare).flushReferralWindow(
             refA,
             3_000,
+            0
+        );
+    }
+
+    function test_RevertWhen_flush_armedWithZeroTransferHook()
+        public
+    {
+        _depositWithReferralOn(
+            diamond,
+            user1,
+            10_000 * 1e6,
+            refA
+        );
+
+        _flushOwnLocal(
+            refA
+        );
+
+        vm.warp(
+            BASE_TIME + 2 weeks
+        );
+
+        _flushOwnLocal(
+            refA
+        );
+
+        vm.warp(
+            BASE_TIME + 3 weeks
+        );
+
+        _flushOwnLocal(
+            refA
+        );
+
+        uint256 claimableArmed = hub.claimable(
+            block.chainid,
+            refA
+        );
+
+        address hook = diamond.transferHookFacet();
+
+        vm.store(
+            address(diamond),
+            bytes32(TRANSFER_HOOK_SLOT),
+            bytes32(0)
+        );
+
+        vm.warp(
+            BASE_TIME + 5 weeks
+        );
+
+        address[] memory refs = _oneRef(
+            refA
+        );
+
+        vm.prank(
+            refA
+        );
+
+        vm.expectRevert(
+            WiseTelecomNodesDiamondErrors.CohortHookNotInstalled.selector
+        );
+
+        _flush(diamond).flushReferrals(
+            refs
+        );
+
+        vm.prank(
+            refA
+        );
+
+        vm.expectRevert(
+            WiseTelecomNodesDiamondErrors.CohortHookNotInstalled.selector
+        );
+
+        _flush(diamond).flushReferralWindow(
+            refA,
+            3_000,
+            0
+        );
+
+        assertEq(
+            _flushPolicy(diamond).getFlushedThroughWeek(
+                refA
+            ),
+            3_002
+        );
+
+        assertEq(
+            hub.claimable(
+                block.chainid,
+                refA
+            ),
+            claimableArmed
+        );
+
+        vm.store(
+            address(diamond),
+            bytes32(TRANSFER_HOOK_SLOT),
+            bytes32(uint256(uint160(hook)))
+        );
+
+        _flushOwnLocal(
+            refA
+        );
+
+        assertEq(
+            _flushPolicy(diamond).getFlushedThroughWeek(
+                refA
+            ),
+            3_004
+        );
+
+        assertGt(
+            hub.claimable(
+                block.chainid,
+                refA
+            ),
+            claimableArmed
+        );
+    }
+
+    function test_RevertWhen_flushReferrals_armedWithZeroRegistryPointer()
+        public
+    {
+        _depositWithReferralOn(
+            diamond,
+            user1,
+            10_000 * 1e6,
+            refA
+        );
+
+        _flushOwnLocal(
+            refA
+        );
+
+        vm.warp(
+            BASE_TIME + 2 weeks
+        );
+
+        _flushOwnLocal(
+            refA
+        );
+
+        vm.warp(
+            BASE_TIME + 3 weeks
+        );
+
+        _flushOwnLocal(
+            refA
+        );
+
+        uint256 claimableArmed = hub.claimable(
+            block.chainid,
+            refA
+        );
+
+        vm.store(
+            address(diamond),
+            bytes32(REGISTRY_SLOT),
+            bytes32(0)
+        );
+
+        vm.warp(
+            BASE_TIME + 5 weeks
+        );
+
+        address[] memory refs = _oneRef(
+            refA
+        );
+
+        vm.prank(
+            refA
+        );
+
+        vm.expectRevert(
+            WiseTelecomNodesDiamondErrors.ReferralRegistryNotSet.selector
+        );
+
+        _flush(diamond).flushReferrals(
+            refs
+        );
+
+        assertEq(
+            _flushPolicy(diamond).getFlushedThroughWeek(
+                refA
+            ),
+            3_002
+        );
+
+        assertEq(
+            hub.claimable(
+                block.chainid,
+                refA
+            ),
+            claimableArmed
+        );
+
+        _admin(diamond).proposeReferralRegistry(
+            address(localRegistry)
+        );
+
+        vm.warp(
+            BASE_TIME + 5 weeks + REGISTRY_DELAY
+        );
+
+        _admin(diamond).setCohortSyncEnabled(
+            false
+        );
+
+        _admin(
+            diamond
+        ).executeReferralRegistryChange();
+
+        _admin(diamond).setCohortSyncEnabled(
+            true
+        );
+
+        _flushOwnLocal(
+            refA
+        );
+
+        assertEq(
+            _flushPolicy(diamond).getFlushedThroughWeek(
+                refA
+            ),
+            3_004
+        );
+
+        assertGt(
+            hub.claimable(
+                block.chainid,
+                refA
+            ),
+            claimableArmed
+        );
+    }
+
+    function test_RevertWhen_flushReferralWindow_armedWithZeroRegistryPointer()
+        public
+    {
+        _depositWithReferralOn(
+            diamond,
+            user1,
+            10_000 * 1e6,
+            refA
+        );
+
+        _flushOwnLocal(
+            refA
+        );
+
+        vm.warp(
+            BASE_TIME + 2 weeks
+        );
+
+        _flushOwnLocal(
+            refA
+        );
+
+        vm.warp(
+            BASE_TIME + 3 weeks
+        );
+
+        _flushOwnLocal(
+            refA
+        );
+
+        uint256 claimableArmed = hub.claimable(
+            block.chainid,
+            refA
+        );
+
+        vm.store(
+            address(diamond),
+            bytes32(REGISTRY_SLOT),
+            bytes32(0)
+        );
+
+        vm.warp(
+            BASE_TIME + 5 weeks
+        );
+
+        vm.prank(
+            refA
+        );
+
+        vm.expectRevert(
+            WiseTelecomNodesDiamondErrors.ReferralRegistryNotSet.selector
+        );
+
+        _flush(diamond).flushReferralWindow(
+            refA,
+            3_003,
+            0
+        );
+
+        assertEq(
+            _flushPolicy(diamond).getFlushedThroughWeek(
+                refA
+            ),
+            3_002
+        );
+
+        assertEq(
+            hub.claimable(
+                block.chainid,
+                refA
+            ),
+            claimableArmed
+        );
+
+        _admin(diamond).proposeReferralRegistry(
+            address(localRegistry)
+        );
+
+        vm.warp(
+            BASE_TIME + 5 weeks + REGISTRY_DELAY
+        );
+
+        _admin(diamond).setCohortSyncEnabled(
+            false
+        );
+
+        _admin(
+            diamond
+        ).executeReferralRegistryChange();
+
+        _admin(diamond).setCohortSyncEnabled(
+            true
+        );
+
+        vm.prank(
+            refA
+        );
+
+        _flush(diamond).flushReferralWindow(
+            refA,
+            3_004,
+            0
+        );
+
+        assertEq(
+            _flushPolicy(diamond).getFlushedThroughWeek(
+                refA
+            ),
+            3_004
+        );
+
+        assertGt(
+            hub.claimable(
+                block.chainid,
+                refA
+            ),
+            claimableArmed
+        );
+    }
+
+    function test_quoteAndPreview_ungatedWhileArmingIncomplete()
+        public
+    {
+        _depositWithReferralOn(
+            rdiamond,
+            user1,
+            10_000 * 1e6,
+            refA
+        );
+
+        vm.prank(
+            refA
+        );
+
+        remoteRegistry.setPayoutAddress(
+            address(0xF2)
+        );
+
+        address[] memory refs = _oneRef(
+            refA
+        );
+
+        assertEq(
+            CohortFlushCodec._flushEntryFlags(
+                _envWord(
+                    _flush(rdiamond).previewFlushEnvelope(
+                        refs
+                    ),
+                    1
+                )
+            ),
+            CohortFlushCodec.FLUSH_FLAG_DESIGNATION
+        );
+
+        vm.store(
+            address(rdiamond),
+            bytes32(REGISTRY_SLOT),
+            bytes32(0)
+        );
+
+        assertEq(
+            _flush(rdiamond).quoteFlushFee(
+                refs
+            ),
+            FIXED_FEE
+        );
+
+        assertEq(
+            CohortFlushCodec._flushEntryFlags(
+                _envWord(
+                    _flush(rdiamond).previewFlushEnvelope(
+                        refs
+                    ),
+                    1
+                )
+            ),
+            0
+        );
+
+        vm.store(
+            address(rdiamond),
+            bytes32(TRANSFER_HOOK_SLOT),
+            bytes32(0)
+        );
+
+        assertEq(
+            _flush(rdiamond).quoteFlushFee(
+                refs
+            ),
+            FIXED_FEE
+        );
+
+        _admin(rdiamond).setCohortSyncEnabled(
+            false
+        );
+
+        assertEq(
+            _flush(rdiamond).quoteFlushFee(
+                refs
+            ),
+            FIXED_FEE
+        );
+
+        assertGt(
+            _flush(rdiamond).previewFlushEnvelope(
+                refs
+            ).length,
+            0
+        );
+    }
+
+    function test_previewFlushEnvelope_localMode_skipsDesignationRead()
+        public
+    {
+        _depositWithReferralOn(
+            diamond,
+            user1,
+            10_000 * 1e6,
+            refA
+        );
+
+        vm.prank(
+            refA
+        );
+
+        localRegistry.setPayoutAddress(
+            address(0xF2)
+        );
+
+        bytes memory preview = _flush(diamond).previewFlushEnvelope(
+            _oneRef(
+                refA
+            )
+        );
+
+        assertEq(
+            preview.length,
+            2 * 32
+        );
+
+        assertEq(
+            CohortFlushCodec._flushEntryFlags(
+                _envWord(
+                    preview,
+                    1
+                )
+            ),
             0
         );
     }
@@ -2302,6 +5125,14 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
         );
 
         vm.warp(
+            BASE_TIME + 3 weeks
+        );
+
+        _flushOwnLocal(
+            refA
+        );
+
+        vm.warp(
             BASE_TIME + 4 weeks
         );
 
@@ -2330,12 +5161,15 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
         );
 
         assertEq(
-            hub.claimable(block.chainid, refA),
+            hub.claimable(
+                block.chainid,
+                refA
+            ),
             claimableBefore
         );
 
         assertEq(
-            _flush(diamond).getFlushedThroughWeek(
+            _flushPolicy(diamond).getFlushedThroughWeek(
                 refA
             ),
             3_003
@@ -2408,12 +5242,15 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
         );
 
         assertEq(
-            hub.claimable(block.chainid, stranger),
+            hub.claimable(
+                block.chainid,
+                stranger
+            ),
             0
         );
 
         assertEq(
-            _flush(diamond).getFlushedThroughWeek(
+            _flushPolicy(diamond).getFlushedThroughWeek(
                 stranger
             ),
             2_999
@@ -2423,7 +5260,7 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
     function test_flushWindow_allowedBot_leavesCursorsUntouched()
         public
     {
-        _flush(diamond).setAllowedFlushBot(
+        _flushPolicy(diamond).setAllowedFlushBot(
             bot,
             true
         );
@@ -2438,7 +5275,7 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
     function test_flushWindow_publicFlush_leavesCursorsUntouched()
         public
     {
-        _flush(diamond).setPublicFlushEnabled(
+        _flushPolicy(diamond).setPublicFlushEnabled(
             true
         );
 
@@ -2472,7 +5309,7 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
         );
 
         assertEq(
-            _flush(diamond).getFlushedThroughWeek(
+            _flushPolicy(diamond).getFlushedThroughWeek(
                 refA
             ),
             3_001
@@ -2485,13 +5322,13 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
         internal
     {
         vm.warp(
-            BASE_TIME + 4 weeks
+            BASE_TIME + 6 weeks
         );
 
         (
             uint256 gapIndexBefore,
             uint256 gapResumeBefore
-        ) = _flush(diamond).getFlushGapCursor(
+        ) = _flushPolicy(diamond).getFlushGapCursor(
             refA
         );
 
@@ -2508,7 +5345,7 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
 
         _flush(diamond).flushReferralWindow(
             refA,
-            3_000,
+            3_005,
             0
         );
 
@@ -2518,7 +5355,7 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
         );
 
         assertEq(
-            _flush(diamond).getFlushedThroughWeek(
+            _flushPolicy(diamond).getFlushedThroughWeek(
                 refA
             ),
             3_001
@@ -2527,7 +5364,7 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
         (
             uint256 gapIndexAfter,
             uint256 gapResumeAfter
-        ) = _flush(diamond).getFlushGapCursor(
+        ) = _flushPolicy(diamond).getFlushGapCursor(
             refA
         );
 
@@ -2542,15 +5379,23 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
         );
 
         assertGt(
-            hub.claimable(block.chainid, refA),
+            hub.claimable(
+                block.chainid,
+                refA
+            ),
             claimableBefore
         );
     }
 
-    function test_flushWindow_thirdPartySkipAhead_cannotStrandOlderWeeks()
+    /**
+     * @dev the own window jumped the cursor past the early crumbs:
+     * they stay deliverable by the referrer own window only, and
+     * that window still carries them at their frozen rates
+     */
+    function test_flushWindow_ownSkipAhead_leavesOlderWeeksToOwnBatch()
         public
     {
-        _flush(diamond).setAllowedFlushBot(
+        _flushPolicy(diamond).setAllowedFlushBot(
             bot,
             true
         );
@@ -2584,7 +5429,11 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
         );
 
         assertEq(
-            _rec(diamond).getCohortScore(refA),
+            _rec(
+                diamond
+            ).getCohortScore(
+                refA
+            ),
             0
         );
 
@@ -2603,23 +5452,6 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
             BASE_TIME + 29 weeks
         );
 
-        vm.prank(
-            bot
-        );
-
-        _flush(diamond).flushReferralWindow(
-            refA,
-            3_029,
-            0
-        );
-
-        assertEq(
-            _flush(diamond).getFlushedThroughWeek(
-                refA
-            ),
-            0
-        );
-
         vm.expectEmit(
             true,
             false,
@@ -2635,8 +5467,31 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
             0
         );
 
-        _flushOwnLocal(
+        vm.prank(
             refA
+        );
+
+        _flush(diamond).flushReferralWindow(
+            refA,
+            3_029,
+            0
+        );
+
+        assertEq(
+            _flushPolicy(diamond).getFlushedThroughWeek(
+                refA
+            ),
+            3_028
+        );
+
+        vm.prank(
+            refA
+        );
+
+        _flush(diamond).flushReferralWindow(
+            refA,
+            3_001,
+            0
         );
 
         for (uint256 week = 3_001; week <= 3_003; ++week) {
@@ -2645,7 +5500,7 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
                 uint256 y1Cursor,
                 ,
 
-            ) = hub.paidCursorAt(
+            ) = reader.paidCursorAt(
                 address(diamond),
                 refA,
                 week
@@ -2653,7 +5508,7 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
 
             assertEq(
                 y1Cursor,
-                CohortWeeks.laneY1(
+                CohortWeeks._laneY1(
                     _rec(diamond).getCohortWeekCrumb(
                         refA,
                         week
@@ -2666,7 +5521,7 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
     function test_flushWindow_thirdPartyOverDormantBook_leavesGapCursor()
         public
     {
-        _flush(diamond).setAllowedFlushBot(
+        _flushPolicy(diamond).setAllowedFlushBot(
             bot,
             true
         );
@@ -2678,16 +5533,16 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
         );
 
         assertEq(
-            _flush(diamond).getFlushedThroughWeek(
+            _flushPolicy(diamond).getFlushedThroughWeek(
                 refA
             ),
-            3_103
+            3_027
         );
 
         (
             uint256 gapIndexBefore,
             uint256 gapResumeBefore
-        ) = _flush(diamond).getFlushGapCursor(
+        ) = _flushPolicy(diamond).getFlushGapCursor(
             refA
         );
 
@@ -2698,7 +5553,222 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
 
         assertEq(
             gapResumeBefore,
-            3_312
+            3_248
+        );
+
+        vm.recordLogs();
+
+        vm.prank(
+            bot
+        );
+
+        _flush(diamond).flushReferralWindow(
+            refA,
+            3_358,
+            1
+        );
+
+        assertEq(
+            _countReferrerFlushedLogs(),
+            0
+        );
+
+        assertEq(
+            _flushPolicy(diamond).getFlushedThroughWeek(
+                refA
+            ),
+            3_027
+        );
+
+        (
+            uint256 gapIndexAfter,
+            uint256 gapResumeAfter
+        ) = _flushPolicy(diamond).getFlushGapCursor(
+            refA
+        );
+
+        assertEq(
+            gapIndexAfter,
+            0
+        );
+
+        assertEq(
+            gapResumeAfter,
+            3_248
+        );
+    }
+
+    function test_RevertWhen_flushWindow_allowedBotStartsAtOrBelowCursor()
+        public
+    {
+        _flushPolicy(diamond).setAllowedFlushBot(
+            bot,
+            true
+        );
+
+        _seedOwnFlushedBook();
+
+        _assertThirdPartyWindowBelowCursorReverts(
+            bot
+        );
+    }
+
+    function test_RevertWhen_flushWindow_publicFlushStartsAtOrBelowCursor()
+        public
+    {
+        _flushPolicy(diamond).setPublicFlushEnabled(
+            true
+        );
+
+        _seedOwnFlushedBook();
+
+        _assertThirdPartyWindowBelowCursorReverts(
+            stranger
+        );
+    }
+
+    function _assertThirdPartyWindowBelowCursorReverts(
+        address _caller
+    )
+        internal
+    {
+        vm.warp(
+            BASE_TIME + 4 weeks
+        );
+
+        vm.prank(
+            _caller
+        );
+
+        vm.expectRevert(
+            WiseTelecomNodesDiamondErrors.FlushWindowInvalid.selector
+        );
+
+        _flush(diamond).flushReferralWindow(
+            refA,
+            3_001,
+            0
+        );
+
+        vm.prank(
+            _caller
+        );
+
+        vm.expectRevert(
+            WiseTelecomNodesDiamondErrors.FlushWindowInvalid.selector
+        );
+
+        _flush(diamond).flushReferralWindow(
+            refA,
+            3_000,
+            0
+        );
+    }
+
+    function test_RevertWhen_flushWindow_thirdPartyGapIndexBehindCursor()
+        public
+    {
+        _flushPolicy(diamond).setAllowedFlushBot(
+            bot,
+            true
+        );
+
+        _buildDormantMatureBook();
+
+        for (uint256 i; i < 8; ++i) {
+
+            _flushOwnLocal(
+                refA
+            );
+
+            vm.warp(
+                block.timestamp + 1 hours
+            );
+
+            (
+                uint256 walkedIndex,
+            ) = _flushPolicy(diamond).getFlushGapCursor(
+                refA
+            );
+
+            if (walkedIndex == 1) {
+                break;
+            }
+        }
+
+        (
+            uint256 gapIndex,
+            uint256 gapResumeWeek
+        ) = _flushPolicy(diamond).getFlushGapCursor(
+            refA
+        );
+
+        assertEq(
+            gapIndex,
+            1
+        );
+
+        assertEq(
+            gapResumeWeek,
+            0
+        );
+
+        vm.prank(
+            bot
+        );
+
+        vm.expectRevert(
+            WiseTelecomNodesDiamondErrors.FlushWindowInvalid.selector
+        );
+
+        _flush(diamond).flushReferralWindow(
+            refA,
+            block.timestamp / 1 weeks,
+            0
+        );
+    }
+
+    function test_flushWindow_thirdPartyGapIndexAtCursorMidRecord_resumesWithoutWrite()
+        public
+    {
+        _flushPolicy(diamond).setAllowedFlushBot(
+            bot,
+            true
+        );
+
+        _buildDormantMatureBook();
+
+        _flushOwnLocal(
+            refA
+        );
+
+        (
+            uint256 gapIndex,
+            uint256 gapResumeWeek
+        ) = _flushPolicy(diamond).getFlushGapCursor(
+            refA
+        );
+
+        assertEq(
+            gapIndex,
+            0
+        );
+
+        assertEq(
+            gapResumeWeek,
+            3_248
+        );
+
+        uint256 mature = CohortWeeks._gapRecordMature(
+            _rec(diamond).getCohortGapLogEntry(
+                refA,
+                0
+            )
+        );
+
+        uint256 claimableBefore = hub.claimable(
+            block.chainid,
+            refA
         );
 
         vm.recordLogs();
@@ -2718,28 +5788,396 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
             0
         );
 
-        assertEq(
-            _flush(diamond).getFlushedThroughWeek(
-                refA
-            ),
-            3_103
-        );
-
         (
-            uint256 gapIndexAfter,
-            uint256 gapResumeAfter
-        ) = _flush(diamond).getFlushGapCursor(
+            gapIndex,
+            gapResumeWeek
+        ) = _flushPolicy(diamond).getFlushGapCursor(
             refA
         );
 
         assertEq(
-            gapIndexAfter,
+            gapIndex,
             0
         );
 
         assertEq(
-            gapResumeAfter,
-            3_312
+            gapResumeWeek,
+            3_248
+        );
+
+        assertEq(
+            _flushPolicy(diamond).getFlushedThroughWeek(
+                refA
+            ),
+            3_027
+        );
+
+        assertEq(
+            hub.claimable(
+                block.chainid,
+                refA
+            ),
+            claimableBefore
+        );
+
+        (
+            ,
+            ,
+            uint256 mCursorResumed
+        ) = reader.paidCursorAt(
+            address(diamond),
+            refA,
+            3_270
+        );
+
+        assertEq(
+            mCursorResumed,
+            mature * CohortWeeks.WEEK
+        );
+
+        (
+            ,
+            ,
+            uint256 mCursorUntouched
+        ) = reader.paidCursorAt(
+            address(diamond),
+            refA,
+            3_360
+        );
+
+        assertEq(
+            mCursorUntouched,
+            0
+        );
+    }
+
+    function test_flushWindow_thirdPartyGapIndexPastTheLog_shipsNoOpenWeekNorCursor()
+        public
+    {
+        _flushPolicy(diamond).setAllowedFlushBot(
+            bot,
+            true
+        );
+
+        _buildDormantMatureBook();
+
+        _flushOwnLocal(
+            refA
+        );
+
+        vm.warp(
+            block.timestamp + 1 hours
+        );
+
+        _flushOwnLocal(
+            refA
+        );
+
+        uint256 claimableBefore = hub.claimable(
+            block.chainid,
+            refA
+        );
+
+        vm.recordLogs();
+
+        vm.prank(
+            bot
+        );
+
+        _flush(diamond).flushReferralWindow(
+            refA,
+            3_358,
+            1
+        );
+
+        assertEq(
+            _countReferrerFlushedLogs(),
+            0
+        );
+
+        (
+            uint256 gapIndex,
+            uint256 gapResumeWeek
+        ) = _flushPolicy(diamond).getFlushGapCursor(
+            refA
+        );
+
+        assertEq(
+            gapIndex,
+            0
+        );
+
+        assertEq(
+            gapResumeWeek,
+            3_288
+        );
+
+        assertEq(
+            _flushPolicy(diamond).getFlushedThroughWeek(
+                refA
+            ),
+            3_055
+        );
+
+        assertEq(
+            hub.claimable(
+                block.chainid,
+                refA
+            ),
+            claimableBefore
+        );
+
+        (
+            uint256 y1Open,
+            ,
+        ) = reader.paidCursorAt(
+            address(diamond),
+            refA,
+            3_358
+        );
+
+        assertEq(
+            y1Open,
+            0
+        );
+    }
+
+    function test_flushWindow_ownGapIndexBehindCursor_allowed()
+        public
+    {
+        _buildDormantMatureBook();
+
+        _flushOwnLocal(
+            refA
+        );
+
+        vm.warp(
+            block.timestamp + 1 hours
+        );
+
+        vm.prank(
+            refA
+        );
+
+        _flush(diamond).flushReferralWindow(
+            refA,
+            3_358,
+            0
+        );
+
+        assertEq(
+            _flushPolicy(diamond).getFlushedThroughWeek(
+                refA
+            ),
+            3_357
+        );
+
+        (
+            uint256 gapIndex,
+            uint256 gapResumeWeek
+        ) = _flushPolicy(diamond).getFlushGapCursor(
+            refA
+        );
+
+        assertEq(
+            gapIndex,
+            0
+        );
+
+        assertEq(
+            gapResumeWeek,
+            3_344
+        );
+    }
+
+    /**
+     * @dev the referrer own window writes the cursors and carries the
+     * weeks its own batch lookback had missed, up to the work budget
+     * the carried weeks price at their frozen openings (the
+     * pre-history zeros here), and the paid cursors prove the
+     * delivery happened
+     */
+    function test_flushWindow_ownWindowReachesOlderWeeks_thenBotCarriesLapsedTail()
+        public
+    {
+        _flushPolicy(diamond).setAllowedFlushBot(
+            bot,
+            true
+        );
+
+        _depositWithReferralOn(
+            diamond,
+            user1,
+            10_000 * 1e6,
+            refA
+        );
+
+        vm.warp(
+            BASE_TIME + 110 weeks
+        );
+
+        vm.prank(
+            refA
+        );
+
+        _flush(diamond).flushReferralWindow(
+            refA,
+            3_000,
+            0
+        );
+
+        assertEq(
+            _flushPolicy(diamond).getFlushedThroughWeek(
+                refA
+            ),
+            3_055
+        );
+
+        (
+            uint256 storedGapIndex,
+            uint256 storedGapResume
+        ) = _flushPolicy(diamond).getFlushGapCursor(
+            refA
+        );
+
+        assertEq(
+            _flushPolicy(diamond).getFlushedThroughWeek(
+                refA
+            ),
+            3_055
+        );
+
+        vm.prank(
+            bot
+        );
+
+        _flush(diamond).flushReferralWindow(
+            refA,
+            3_110,
+            storedGapResume == 0 ? storedGapIndex : storedGapIndex + 1
+        );
+
+        (
+            uint256 y1Cursor,
+            uint256 y2Cursor,
+            uint256 mCursor
+        ) = reader.paidCursorAt(
+            address(diamond),
+            refA,
+            3_108
+        );
+
+        assertGt(
+            y1Cursor + y2Cursor + mCursor,
+            0
+        );
+
+    }
+
+    function test_flushWindow_thirdPartyShipsGapSlice_leavesCursors()
+        public
+    {
+        _flushPolicy(diamond).setAllowedFlushBot(
+            bot,
+            true
+        );
+
+        _buildDormantMatureBook();
+
+        assertEq(
+            _flushPolicy(diamond).getFlushedThroughWeek(
+                refA
+            ),
+            2_999
+        );
+
+        vm.recordLogs();
+
+        vm.prank(
+            bot
+        );
+
+        _flush(diamond).flushReferralWindow(
+            refA,
+            3_007,
+            0
+        );
+
+        assertEq(
+            _countReferrerFlushedLogs(),
+            0
+        );
+
+        assertEq(
+            _flushPolicy(diamond).getFlushedThroughWeek(
+                refA
+            ),
+            2_999
+        );
+
+        (
+            uint256 gapIndex,
+            uint256 gapResumeWeek
+        ) = _flushPolicy(diamond).getFlushGapCursor(
+            refA
+        );
+
+        assertEq(
+            gapIndex,
+            0
+        );
+
+        assertEq(
+            gapResumeWeek,
+            0
+        );
+
+        uint256 mature = CohortWeeks._gapRecordMature(
+            _rec(diamond).getCohortGapLogEntry(
+                refA,
+                0
+            )
+        );
+
+        uint256 expected = _expectedCrumbRangePay(
+            diamond,
+            refA,
+            3_007,
+            3_103
+        ) + _expectedGapRangePay(
+            mature,
+            refA,
+            3_208,
+            3_271
+        );
+
+        assertGt(
+            expected,
+            0
+        );
+
+        uint256 botShare = hub.claimable(
+            block.chainid,
+            bot
+        );
+
+        assertEq(
+            hub.claimable(
+                block.chainid,
+                refA
+            ),
+            expected
+        );
+
+        assertApproxEqAbs(
+            botShare,
+            expected * 500 / 10_000,
+            (3_103 - 3_007 + 1) + (3_271 - 3_208 + 1)
+        );
+
+        assertGt(
+            botShare,
+            0
         );
     }
 
@@ -2778,7 +6216,7 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
         );
 
         assertEq(
-            _flush(diamond).getFlushedThroughWeek(
+            _flushPolicy(diamond).getFlushedThroughWeek(
                 stranger
             ),
             49
@@ -2821,6 +6259,10 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
             refA
         );
 
+        _reportCompletedWeekByBotWindow(
+            refA
+        );
+
         vm.warp(
             3_104 weeks + 1 hours
         );
@@ -2832,6 +6274,45 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
 
         vm.warp(
             3_358 weeks + 5 hours
+        );
+    }
+
+    function _reportCompletedWeekByBotWindow(
+        address _referrer
+    )
+        internal
+    {
+        _flushPolicy(diamond).setAllowedFlushBot(
+            bot,
+            true
+        );
+
+        vm.warp(
+            3_010 weeks + 1 hours
+        );
+
+        vm.prank(
+            bot
+        );
+
+        _flush(diamond).flushReferralWindow(
+            _referrer,
+            3_008,
+            0
+        );
+
+        vm.warp(
+            3_011 weeks + 1 hours
+        );
+
+        vm.prank(
+            bot
+        );
+
+        _flush(diamond).flushReferralWindow(
+            _referrer,
+            3_008,
+            0
         );
     }
 
@@ -2857,34 +6338,34 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
         );
 
         assertEq(
-            CohortWeeks.gapRecordFromWeek(
+            CohortWeeks._gapRecordFromWeek(
                 record
             ),
             3_208
         );
 
         assertEq(
-            CohortWeeks.gapRecordToWeek(
+            CohortWeeks._gapRecordToWeek(
                 record
             ),
             3_358
         );
 
-        uint256 mature = CohortWeeks.gapRecordMature(
+        uint256 mature = CohortWeeks._gapRecordMature(
             record
         );
 
         assertEq(
-            _flush(diamond).getFlushedThroughWeek(
+            _flushPolicy(diamond).getFlushedThroughWeek(
                 refA
             ),
-            3_103
+            3_027
         );
 
         (
             uint256 gapIndex,
             uint256 gapResumeWeek
-        ) = _flush(diamond).getFlushGapCursor(
+        ) = _flushPolicy(diamond).getFlushGapCursor(
             refA
         );
 
@@ -2895,19 +6376,19 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
 
         assertEq(
             gapResumeWeek,
-            3_312
+            3_248
         );
 
         uint256 expectedStage1 = _expectedCrumbRangePay(
             diamond,
             refA,
             3_000,
-            3_103
+            3_027
         ) + _expectedGapRangePay(
             mature,
             refA,
             3_208,
-            3_312
+            3_248
         );
 
         assertGt(
@@ -2916,7 +6397,10 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
         );
 
         assertEq(
-            hub.claimable(block.chainid, refA),
+            hub.claimable(
+                block.chainid,
+                refA
+            ),
             expectedStage1
         );
 
@@ -2930,63 +6414,68 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
     )
         internal
     {
-        vm.warp(
-            block.timestamp + 1 hours
-        );
+        uint256[3] memory throughWeeks = [
+            uint256(3_055),
+            3_083,
+            3_111
+        ];
 
-        _flushOwnLocal(
-            refA
-        );
-
-        assertEq(
-            _flush(diamond).getFlushedThroughWeek(
-                refA
-            ),
-            3_207
-        );
-
-        (
-            uint256 gapIndex,
-            uint256 gapResumeWeek
-        ) = _flush(diamond).getFlushGapCursor(
-            refA
-        );
-
-        assertEq(
-            gapIndex,
-            1
-        );
-
-        assertEq(
-            gapResumeWeek,
+        uint256[3] memory resumeWeeks = [
+            uint256(3_288),
+            3_328,
             0
-        );
+        ];
 
-        vm.warp(
-            block.timestamp + 1 hours
-        );
+        for (uint256 i; i < 3; ++i) {
 
-        _flushOwnLocal(
-            refA
-        );
+            vm.warp(
+                block.timestamp + 1 hours
+            );
 
-        assertEq(
-            _flush(diamond).getFlushedThroughWeek(
+            _flushOwnLocal(
                 refA
-            ),
-            3_311
-        );
+            );
 
-        vm.warp(
-            block.timestamp + 1 hours
-        );
+            (
+                uint256 gapIndex,
+                uint256 gapResumeWeek
+            ) = _flushPolicy(diamond).getFlushGapCursor(
+                refA
+            );
 
-        _flushOwnLocal(
-            refA
-        );
+            assertEq(
+                _flushPolicy(
+                    diamond
+                ).getFlushedThroughWeek(
+                    refA
+                ),
+                throughWeeks[i]
+            );
+
+            assertEq(
+                gapIndex,
+                i == 2 ? 1 : 0
+            );
+
+            assertEq(
+                gapResumeWeek,
+                resumeWeeks[i]
+            );
+        }
+
+        for (uint256 i; i < 6; ++i) {
+
+            vm.warp(
+                block.timestamp + 1 hours
+            );
+
+            _flushOwnLocal(
+                refA
+            );
+        }
 
         assertEq(
-            _flush(diamond).getFlushedThroughWeek(
+            _flushPolicy(diamond).getFlushedThroughWeek(
                 refA
             ),
             3_357
@@ -3002,17 +6491,13 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
             refA,
             3_208,
             3_358
-        ) + _expectedPay(
-            _rec(diamond).getCohortWeekCrumb(
-                refA,
-                3_358
-            ),
-            refA,
-            3_358
         );
 
         assertEq(
-            hub.claimable(block.chainid, refA),
+            hub.claimable(
+                block.chainid,
+                refA
+            ),
             expectedFinal
         );
     }
@@ -3031,7 +6516,7 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
             0
         );
 
-        uint256 mature = CohortWeeks.gapRecordMature(
+        uint256 mature = CohortWeeks._gapRecordMature(
             record
         );
 
@@ -3051,7 +6536,7 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
         (
             uint256 staleIndex,
             uint256 staleResumeWeek
-        ) = _flush(diamond).getFlushGapCursor(
+        ) = _flushPolicy(diamond).getFlushGapCursor(
             refA
         );
 
@@ -3076,7 +6561,7 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
         (
             uint256 gapIndex,
             uint256 gapResumeWeek
-        ) = _flush(diamond).getFlushGapCursor(
+        ) = _flushPolicy(diamond).getFlushGapCursor(
             refA
         );
 
@@ -3094,12 +6579,12 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
             diamond,
             refA,
             3_000,
-            3_207
+            3_139
         ) + _expectedGapRangePay(
             mature,
             refA,
             3_208,
-            3_312
+            3_248
         );
 
         assertGt(
@@ -3108,7 +6593,10 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
         );
 
         assertEq(
-            hub.claimable(block.chainid, refA),
+            hub.claimable(
+                block.chainid,
+                refA
+            ),
             expectedAfterSkip
         );
     }
@@ -3177,45 +6665,50 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
 
         assertEq(
             data.length,
-            9 * 32
+            6 * 32
         );
 
         assertEq(
-            _envWord(data, 0),
-            CohortWeeks.packFlushHeader(
-                refD,
+            _envWord(
+                data,
+                0
+            ),
+            CohortFlushCodec._packFlushHeader(
+                address(0),
                 1,
                 block.timestamp
             )
         );
 
         assertEq(
-            _envWord(data, 1),
-            CohortWeeks.packFlushEntry(
+            _envWord(
+                data,
+                1
+            ),
+            CohortFlushCodec._packFlushEntry(
                 refD,
-                3,
+                2,
+                0,
                 0,
                 0
             )
         );
 
-        assertEq(
-            _envWord(data, 2),
-            CohortWeeks.packFlushScores(
-                8_000 * 1e6,
-                0
-            )
-        );
-
-        for (uint256 i; i < 3; ++i) {
+        for (uint256 i; i < 2; ++i) {
 
             assertEq(
-                _envWord(data, 3 + 2 * i),
+                _envWord(
+                    data,
+                    2 + 2 * i
+                ),
                 3_000 + i
             );
 
             assertEq(
-                _envWord(data, 4 + 2 * i),
+                _envWord(
+                    data,
+                    3 + 2 * i
+                ),
                 _rec(rdiamond).getCohortWeekCrumb(
                     refD,
                     3_000 + i
@@ -3224,14 +6717,17 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
         }
 
         assertEq(
-            _flush(rdiamond).getFlushedThroughWeek(
+            _flushPolicy(rdiamond).getFlushedThroughWeek(
                 refD
             ),
             3_001
         );
 
         assertEq(
-            hub.claimable(block.chainid, refD),
+            hub.claimable(
+                block.chainid,
+                refD
+            ),
             0
         );
     }
@@ -3340,7 +6836,7 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
             )
         );
 
-        _flush(rdiamond).setFlushGasLimit(
+        _flushPolicy(rdiamond).setFlushGasLimit(
             1_500_000
         );
 
@@ -3384,19 +6880,25 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
 
         assertEq(
             data.length,
-            4 * 32
+            3 * 32
         );
 
         assertEq(
-            CohortWeeks.flushEntryFlags(
-                _envWord(data, 1)
+            CohortFlushCodec._flushEntryFlags(
+                _envWord(
+                    data,
+                    1
+                )
             ),
-            CohortWeeks.FLUSH_FLAG_DESIGNATION
+            CohortFlushCodec.FLUSH_FLAG_DESIGNATION
         );
 
         assertEq(
-            _envWord(data, 3),
-            CohortWeeks.packFlushDesignation(
+            _envWord(
+                data,
+                2
+            ),
+            CohortFlushCodec._packFlushDesignation(
                 address(0xF2),
                 setAt,
                 0
@@ -3411,14 +6913,133 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
 
         assertEq(
             data.length,
-            3 * 32
+            2 * 32
         );
 
         assertEq(
-            CohortWeeks.flushEntryFlags(
-                _envWord(data, 1)
+            CohortFlushCodec._flushEntryFlags(
+                _envWord(
+                    data,
+                    1
+                )
             ),
             0
+        );
+    }
+
+    function test_remoteFlush_rankTwoDesignation_landsOnHubEndToEnd()
+        public
+    {
+        ReferralRegistry rankTwoRegistry = new ReferralRegistry(
+            address(this),
+            2
+        );
+
+        rankTwoRegistry.setAllowedVault(
+            address(rdiamond),
+            true
+        );
+
+        _admin(rdiamond).proposeReferralRegistry(
+            address(rankTwoRegistry)
+        );
+
+        vm.warp(
+            BASE_TIME + REGISTRY_DELAY
+        );
+
+        _admin(rdiamond).setCohortSyncEnabled(
+            false
+        );
+
+        _admin(
+            rdiamond
+        ).executeReferralRegistryChange();
+
+        _admin(rdiamond).setCohortSyncEnabled(
+            true
+        );
+
+        HubLeverGrants._grant(
+            address(hub),
+            abi.encodeCall(
+                IReferralHub.setCcipRouter,
+                (
+                    address(this)
+                )
+            )
+        );
+
+        HubLeverGrants._grant(
+            address(hub),
+            abi.encodeCall(
+                IReferralHub.setFlushSource,
+                (
+                    REMOTE_SELECTOR,
+                    address(rdiamond),
+                    8_453
+                )
+            )
+        );
+
+        uint256 setAt = block.timestamp;
+
+        vm.prank(
+            refE
+        );
+
+        rankTwoRegistry.setPayoutAddress(
+            address(0xF2)
+        );
+
+        _flushOwnRemote(
+            refE
+        );
+
+        bytes memory data = router.lastData();
+
+        assertEq(
+            CohortFlushCodec._flushEntryFlags(
+                _envWord(
+                    data,
+                    1
+                )
+            ),
+            CohortFlushCodec.FLUSH_FLAG_DESIGNATION
+        );
+
+        assertEq(
+            _envWord(
+                data,
+                2
+            ),
+            CohortFlushCodec._packFlushDesignation(
+                address(0xF2),
+                setAt,
+                2
+            )
+        );
+
+        _applyVaultBuilt(
+            bytes32(uint256(0xA8)),
+            8_453,
+            data
+        );
+
+        assertEq(
+            hub.payoutStamp(
+                8_453,
+                refE
+            ),
+            (setAt << 8) | 2
+        );
+
+        assertEq(
+            hub.payoutAddressOf(
+                8_453,
+                refE
+            ),
+            address(0xF2)
         );
     }
 
@@ -3473,12 +7094,15 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
 
         assertEq(
             data.length,
-            3 * 32
+            2 * 32
         );
 
         assertEq(
-            CohortWeeks.flushEntryFlags(
-                _envWord(data, 1)
+            CohortFlushCodec._flushEntryFlags(
+                _envWord(
+                    data,
+                    1
+                )
             ),
             0
         );
@@ -3521,14 +7145,17 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
         );
 
         assertEq(
-            CohortWeeks.flushEntryCrumbCount(
+            CohortFlushCodec._flushEntryCrumbCount(
                 entryWord
             ),
-            104
+            103
         );
 
         assertEq(
-            _envWord(data, 3),
+            _envWord(
+                data,
+                2
+            ),
             3_255
         );
 
@@ -3541,7 +7168,7 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
         );
 
         assertEq(
-            _flush(rdiamond).getFlushedThroughWeek(
+            _flushPolicy(rdiamond).getFlushedThroughWeek(
                 refE
             ),
             3_357
@@ -3558,22 +7185,26 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
         data = router.lastData();
 
         assertEq(
-            CohortWeeks.flushEntryCrumbCount(
-                _envWord(data, 1)
+            CohortFlushCodec._flushEntryCrumbCount(
+                _envWord(
+                    data,
+                    1
+                )
             ),
-            1
-        );
-
-        assertEq(
-            _envWord(data, 3),
-            3_358
+            0
         );
     }
 
-    function test_remoteFlush_workBudget_leavesLaterEntriesScoresOnly()
+    /**
+     * @dev the abandoned entry consumes the shared work budget with
+     * its crumbs and its dormant gap slices, so the second entry
+     * carries no crumbs or gaps until the next flush
+     * the bot never writes the abandoned book send cursors
+     */
+    function test_remoteFlush_workBudget_abandonedEntryLeavesOwnEntryWithoutCrumbs()
         public
     {
-        _flush(rdiamond).setAllowedFlushBot(
+        _flushPolicy(rdiamond).setAllowedFlushBot(
             address(this),
             true
         );
@@ -3585,170 +7216,118 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
             bigR
         );
 
+        vm.warp(
+            BASE_TIME + 1 weeks
+        );
+
+        _flushOwnRemote(
+            bigR
+        );
+
         _depositWithReferralOn(
             rdiamond,
-            user4,
+            user2,
             5_000 * 1e6,
-            smallR
-        );
-
-        _flushBotRemote(
-            _oneRef(
-                bigR
-            )
-        );
-
-        vm.warp(
-            3_104 weeks + 1 hours
-        );
-
-        _rec(rdiamond).advanceBook(
-            bigR,
-            104
+            address(this)
         );
 
         vm.warp(
             3_358 weeks + 5 hours
         );
 
+        _flushOwnRemote(
+            bigR
+        );
+
         address[] memory pair = new address[](2);
 
         pair[0] = bigR;
-        pair[1] = smallR;
+        pair[1] = address(this);
+
+        _advanceBooks(
+            rdiamond,
+            pair
+        );
 
         _flushBotRemote(
             pair
         );
 
-        _assertBudgetEnvelope();
-
-        _flushBotRemote(
-            _oneRef(
-                smallR
-            )
-        );
-
         bytes memory data = router.lastData();
 
-        uint256 entryWord = _envWord(
+        assertEq(
+            CohortFlushCodec._flushHeaderEntryCount(
+                _envWord(
+                    data,
+                    0
+                )
+            ),
+            2
+        );
+
+        uint256 firstWord = _envWord(
             data,
             1
         );
 
         assertEq(
-            CohortWeeks.flushEntryCrumbCount(
-                entryWord
+            CohortFlushCodec._flushEntryReferrer(
+                firstWord
             ),
-            1
+            bigR
         );
 
         assertEq(
-            CohortWeeks.flushEntryGapCount(
-                entryWord
+            CohortFlushCodec._flushEntryCrumbCount(
+                firstWord
             ),
-            2
-        );
-
-        (
-            uint256 gapIndex,
-            uint256 gapResumeWeek
-        ) = _flush(rdiamond).getFlushGapCursor(
-            smallR
-        );
-
-        assertEq(
-            gapIndex,
             0
         );
 
-        assertEq(
-            gapResumeWeek,
-            3_311
-        );
-    }
-
-    function _assertBudgetEnvelope()
-        internal
-        view
-    {
-        bytes memory data = router.lastData();
-
-        assertEq(
-            data.length,
-            214 * 32
-        );
-
-        assertEq(
-            CohortWeeks.flushHeaderEntryCount(
-                _envWord(data, 0)
+        assertGt(
+            CohortFlushCodec._flushEntryGapCount(
+                firstWord
             ),
-            2
+            0
+        );
+
+        uint256 secondOffset = 2
+            + CohortFlushCodec._flushEntrySelfRunCount(firstWord)
+            + CohortFlushCodec._flushEntryCrumbCount(firstWord) * 2
+            + CohortFlushCodec._flushEntryGapCount(firstWord)
+            + (CohortFlushCodec._flushEntryFlags(firstWord) != 0 ? 1 : 0);
+
+        uint256 secondWord = _envWord(
+            data,
+            secondOffset
         );
 
         assertEq(
-            CohortWeeks.flushHeaderDeliverer(
-                _envWord(data, 0)
+            CohortFlushCodec._flushEntryReferrer(
+                secondWord
             ),
             address(this)
         );
 
         assertEq(
-            _envWord(data, 1),
-            CohortWeeks.packFlushEntry(
-                bigR,
-                104,
-                1,
-                0
-            )
-        );
-
-        for (uint256 i; i < 104; ++i) {
-
-            assertEq(
-                _envWord(data, 3 + 2 * i),
-                3_000 + i
-            );
-
-            assertEq(
-                _envWord(data, 4 + 2 * i),
-                _rec(rdiamond).getCohortWeekCrumb(
-                    bigR,
-                    3_000 + i
-                )
-            );
-        }
-
-        uint256 record = _rec(rdiamond).getCohortGapLogEntry(
-            bigR,
+            CohortFlushCodec._flushEntryCrumbCount(
+                secondWord
+            ),
             0
         );
 
         assertEq(
-            _envWord(data, 211),
-            CohortWeeks.packGapRecord(
-                3_208,
-                3_312,
-                CohortWeeks.gapRecordMature(
-                    record
-                )
-            )
-        );
-
-        assertEq(
-            _envWord(data, 212),
-            CohortWeeks.packFlushEntry(
-                smallR,
-                0,
-                0,
-                0
-            )
-        );
-
-        assertEq(
-            CohortWeeks.flushScoreReferred(
-                _envWord(data, 213)
+            CohortFlushCodec._flushEntryGapCount(
+                secondWord
             ),
-            5_000 * 1e6
+            0
+        );
+
+        assertEq(
+            _flushPolicy(rdiamond).getFlushedThroughWeek(
+                bigR
+            ),
+            3_104
         );
     }
 
@@ -3838,7 +7417,7 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
     function test_remoteFlushWindow_envelopeRestrictedToWindowSlice()
         public
     {
-        _flush(rdiamond).setAllowedFlushBot(
+        _flushPolicy(rdiamond).setAllowedFlushBot(
             bot,
             true
         );
@@ -3847,6 +7426,10 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
             rdiamond,
             user1,
             8_000 * 1e6,
+            refD
+        );
+
+        _flushOwnRemote(
             refD
         );
 
@@ -3873,12 +7456,15 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
 
         assertEq(
             data.length,
-            7 * 32
+            4 * 32
         );
 
         assertEq(
-            _envWord(data, 0),
-            CohortWeeks.packFlushHeader(
+            _envWord(
+                data,
+                0
+            ),
+            CohortFlushCodec._packFlushHeader(
                 bot,
                 1,
                 block.timestamp
@@ -3886,19 +7472,15 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
         );
 
         assertEq(
-            _envWord(data, 1),
-            CohortWeeks.packFlushEntry(
+            _envWord(
+                data,
+                1
+            ),
+            CohortFlushCodec._packFlushEntry(
                 refD,
-                2,
+                1,
                 0,
-                0
-            )
-        );
-
-        assertEq(
-            _envWord(data, 2),
-            CohortWeeks.packFlushScores(
-                8_000 * 1e6,
+                0,
                 0
             )
         );
@@ -3911,15 +7493,21 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
             0
         );
 
-        for (uint256 i; i < 2; ++i) {
+        for (uint256 i; i < 1; ++i) {
 
             assertEq(
-                _envWord(data, 3 + 2 * i),
+                _envWord(
+                    data,
+                    2 + 2 * i
+                ),
                 3_001 + i
             );
 
             assertEq(
-                _envWord(data, 4 + 2 * i),
+                _envWord(
+                    data,
+                    3 + 2 * i
+                ),
                 _rec(rdiamond).getCohortWeekCrumb(
                     refD,
                     3_001 + i
@@ -3998,7 +7586,7 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
 
         assertEq(
             quoted,
-            sizeRouter.BASE_FEE() + 3 * 32 * sizeRouter.FEE_PER_BYTE()
+            sizeRouter.BASE_FEE() + 2 * 32 * sizeRouter.FEE_PER_BYTE()
         );
 
         _depositWithReferralOn(
@@ -4035,7 +7623,7 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
 
         assertEq(
             sizeRouter.lastFee(),
-            sizeRouter.BASE_FEE() + 9 * 32 * sizeRouter.FEE_PER_BYTE()
+            sizeRouter.BASE_FEE() + 6 * 32 * sizeRouter.FEE_PER_BYTE()
         );
 
         assertEq(
@@ -4095,7 +7683,7 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
 
         assertEq(
             windowFee,
-            sizeRouter.BASE_FEE() + 7 * 32 * sizeRouter.FEE_PER_BYTE()
+            sizeRouter.BASE_FEE() + 4 * 32 * sizeRouter.FEE_PER_BYTE()
         );
 
         assertLt(
@@ -4138,7 +7726,7 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
     function test_previewFlushEnvelope_matchesSentEnvelope_ccipMode()
         public
     {
-        _flush(rdiamond).setAllowedFlushBot(
+        _flushPolicy(rdiamond).setAllowedFlushBot(
             bot,
             true
         );
@@ -4158,6 +7746,10 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
             rdiamond,
             user2,
             2_000 * 1e6,
+            refD
+        );
+
+        _flushOwnRemote(
             refD
         );
 
@@ -4206,7 +7798,7 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
     function test_previewFlushEnvelope_localMode_carriesEntries()
         public
     {
-        _flush(diamond).setAllowedFlushBot(
+        _flushPolicy(diamond).setAllowedFlushBot(
             bot,
             true
         );
@@ -4222,6 +7814,14 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
             diamond,
             user2,
             5_000 * 1e6,
+            refD
+        );
+
+        _flushOwnLocal(
+            refA
+        );
+
+        _flushOwnLocal(
             refD
         );
 
@@ -4243,17 +7843,20 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
             0
         );
 
-        uint256 header = _envWord(preview, 0);
+        uint256 header = _envWord(
+            preview,
+            0
+        );
 
         assertEq(
-            CohortWeeks.flushHeaderEntryCount(
+            CohortFlushCodec._flushHeaderEntryCount(
                 header
             ),
             refs.length
         );
 
         assertEq(
-            CohortWeeks.flushHeaderDeliverer(
+            CohortFlushCodec._flushHeaderDeliverer(
                 header
             ),
             bot
@@ -4310,12 +7913,15 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
 
         assertEq(
             preview.length,
-            3 * 32
+            2 * 32
         );
 
         assertEq(
-            CohortWeeks.flushHeaderStamp(
-                _envWord(preview, 0)
+            CohortFlushCodec._flushHeaderStamp(
+                _envWord(
+                    preview,
+                    0
+                )
             ),
             block.timestamp
         );
@@ -4340,11 +7946,11 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
 
         assertEq(
             sent.length,
-            9 * 32
+            6 * 32
         );
     }
 
-    function test_previewFlushEnvelope_selfScoreClampedToBalance()
+    function test_previewFlushEnvelope_departedSelfMidSpan_thirdPartyPricesZero()
         public
     {
         _depositOn(
@@ -4353,13 +7959,45 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
             12_000 * 1e6
         );
 
+        vm.warp(
+            BASE_TIME + 2 weeks
+        );
+
+        _admin(
+            rdiamond
+        ).setCohortSyncEnabled(
+            false
+        );
+
+        vm.warp(
+            BASE_TIME + 2 weeks + 2 days
+        );
+
         vm.prank(
             refD
         );
 
         rdiamond.transfer(
             user2,
-            5_000 * 1e6
+            12_000 * 1e6
+        );
+
+        vm.warp(
+            BASE_TIME + 4 weeks
+        );
+
+        _admin(
+            rdiamond
+        ).setCohortSyncEnabled(
+            true
+        );
+
+        vm.warp(
+            BASE_TIME + 6 weeks
+        );
+
+        vm.prank(
+            bot
         );
 
         bytes memory preview = _flush(rdiamond).previewFlushEnvelope(
@@ -4369,20 +8007,90 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
         );
 
         assertEq(
-            preview.length,
-            3 * 32
-        );
-
-        assertEq(
-            _envWord(preview, 2),
-            CohortWeeks.packFlushScores(
-                0,
-                7_000 * 1e6
-            )
+            _selfAverageInEnvelope(
+                preview,
+                3_003
+            ),
+            0
         );
     }
 
-    function test_previewFlushEnvelope_disarmedRecorder_reportsPresenceFloor()
+    function test_previewFlushEnvelope_redepositedSelfInsideSpan_ownArmPricesSpanZero()
+        public
+    {
+        _depositOn(
+            rdiamond,
+            refD,
+            12_000 * 1e6
+        );
+
+        vm.warp(
+            BASE_TIME + 1 weeks
+        );
+
+        _admin(
+            rdiamond
+        ).setCohortSyncEnabled(
+            false
+        );
+
+        vm.warp(
+            BASE_TIME + 1 weeks + 1 days
+        );
+
+        vm.prank(
+            refD
+        );
+
+        rdiamond.transfer(
+            user2,
+            12_000 * 1e6
+        );
+
+        vm.warp(
+            BASE_TIME + 1 weeks + 2 days
+        );
+
+        _depositOn(
+            rdiamond,
+            refD,
+            12_000 * 1e6
+        );
+
+        vm.warp(
+            BASE_TIME + 3 weeks
+        );
+
+        _admin(
+            rdiamond
+        ).setCohortSyncEnabled(
+            true
+        );
+
+        vm.warp(
+            BASE_TIME + 3 weeks + 1 days
+        );
+
+        vm.prank(
+            refD
+        );
+
+        bytes memory preview = _flush(rdiamond).previewFlushEnvelope(
+            _oneRef(
+                refD
+            )
+        );
+
+        assertEq(
+            _selfAverageInEnvelope(
+                preview,
+                3_002
+            ),
+            0
+        );
+    }
+
+    function test_flushReferrals_departedRefereeMidSpan_prePlanSettleVouchesNothing()
         public
     {
         _depositWithReferralOn(
@@ -4393,54 +8101,58 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
         );
 
         vm.warp(
-            BASE_TIME + 3 weeks
+            BASE_TIME + 2 weeks
         );
 
         _flushOwnLocal(
             refA
         );
 
-        _admin(diamond).setCohortSyncEnabled(
+        _admin(
+            diamond
+        ).setCohortSyncEnabled(
             false
+        );
+
+        vm.warp(
+            BASE_TIME + 2 weeks + 2 days
+        );
+
+        vm.prank(
+            user1
+        );
+
+        diamond.transfer(
+            user2,
+            10_000 * 1e6
         );
 
         vm.warp(
             BASE_TIME + 4 weeks
         );
 
-        bytes memory fresh = _flush(diamond).previewFlushEnvelope(
-            _oneRef(
-                refA
-            )
-        );
-
-        assertEq(
-            CohortWeeks.flushScoreReferred(
-                _envWord(fresh, 2)
-            ),
-            uint256(10_000 * 1e6) * 1 hours / 1 weeks
+        _admin(
+            diamond
+        ).setCohortSyncEnabled(
+            true
         );
 
         vm.warp(
-            BASE_TIME + 5 weeks
+            BASE_TIME + 4 weeks + 5 days
         );
 
-        bytes memory preview = _flush(diamond).previewFlushEnvelope(
-            _oneRef(
-                refA
-            )
+        _flushOwnLocal(
+            refA
         );
 
         assertEq(
-            CohortWeeks.flushScoreReferred(
-                _envWord(preview, 2)
+            _rec(
+                diamond
+            ).getCohortWeekCrumb(
+                refA,
+                BASE_TIME / 1 weeks + 4
             ),
             0
-        );
-
-        assertEq(
-            _rec(diamond).getCohortScore(refA),
-            10_000 * 1e6
         );
     }
 
@@ -4458,7 +8170,7 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
         _wireOne(
             bare,
             address(new CohortFlushFacet()),
-            WiseTelecomNodesDiamondSelectors.cohortFlushSelectors()
+            WiseTelecomNodesDiamondSelectors._cohortFlushSelectors()
         );
 
         bare.finalizeSetup();
@@ -4549,6 +8261,14 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
             refD
         );
 
+        _reportCompletedWeekByBotWindow(
+            refA
+        );
+
+        _reportCompletedWeekByBotWindow(
+            refD
+        );
+
         vm.warp(
             3_104 weeks + 1 hours
         );
@@ -4599,7 +8319,7 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
             uint256[] memory throughWeeks,
             uint256[] memory gapIndexes,
             uint256[] memory gapResumeWeeks
-        ) = _flush(diamond).getFlushCursors(
+        ) = _flushPolicy(diamond).getFlushCursors(
             refs
         );
 
@@ -4623,13 +8343,13 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
             (
                 uint256 gapIndex,
                 uint256 gapResumeWeek
-            ) = _flush(diamond).getFlushGapCursor(
+            ) = _flushPolicy(diamond).getFlushGapCursor(
                 refs[i]
             );
 
             assertEq(
                 throughWeeks[i],
-                _flush(diamond).getFlushedThroughWeek(
+                _flushPolicy(diamond).getFlushedThroughWeek(
                     refs[i]
                 )
             );
@@ -4647,7 +8367,7 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
 
         assertEq(
             throughWeeks[0],
-            3_103
+            3_027
         );
 
         assertEq(
@@ -4657,22 +8377,22 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
 
         assertEq(
             gapResumeWeeks[0],
-            3_312
+            3_248
         );
 
         assertEq(
             throughWeeks[1],
-            3_207
+            3_055
         );
 
         assertEq(
             gapIndexes[1],
-            1
+            0
         );
 
         assertEq(
             gapResumeWeeks[1],
-            0
+            3_288
         );
 
         assertEq(
@@ -4701,7 +8421,7 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
             uint256[] memory throughWeeks,
             uint256[] memory gapIndexes,
             uint256[] memory gapResumeWeeks
-        ) = _flush(diamond).getFlushCursors(
+        ) = _flushPolicy(diamond).getFlushCursors(
             refs
         );
 
@@ -4758,7 +8478,7 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
             refA
         );
 
-        uint256 cursorAfter = _flush(diamond).getFlushedThroughWeek(
+        uint256 cursorAfter = _flushPolicy(diamond).getFlushedThroughWeek(
             refA
         );
 
@@ -4767,12 +8487,15 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
         );
 
         assertEq(
-            hub.claimable(block.chainid, refA),
+            hub.claimable(
+                block.chainid,
+                refA
+            ),
             claimableAfter
         );
 
         assertEq(
-            _flush(diamond).getFlushedThroughWeek(
+            _flushPolicy(diamond).getFlushedThroughWeek(
                 refA
             ),
             cursorAfter
@@ -4781,172 +8504,50 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
 
     // ---- reported referred score: presence-weighted ----
 
-    function test_flushScore_arrivalReportsNothingUntilItsWeekCompletes()
-        public
+    function _disarmSpanInWeek3002()
+        internal
     {
-        _depositWithReferralOn(
-            diamond,
-            user1,
-            10_000 * 1e6,
-            refA
-        );
-
         vm.warp(
-            BASE_TIME + 1 days
+            BASE_TIME + 2 weeks + 1 days
         );
 
-        _flushOwnLocal(
-            refA
-        );
-
-        assertEq(
-            hub.globalReferredScore(refA),
-            0
-        );
-
-        assertEq(
-            _rec(diamond).getCohortScore(refA),
-            10_000 * 1e6
-        );
-
-        vm.warp(
-            BASE_TIME + 1 weeks - 1 hours + 1 minutes
-        );
-
-        _flushOwnLocal(
-            refA
-        );
-
-        assertEq(
-            hub.globalReferredScore(refA),
-            uint256(10_000 * 1e6) * (1 weeks - 1 hours) / 1 weeks
-        );
-    }
-
-    function test_flushScore_fullAfterWholeWeekHeld()
-        public
-    {
-        _depositWithReferralOn(
-            diamond,
-            user1,
-            10_000 * 1e6,
-            refA
-        );
-
-        vm.warp(
-            BASE_TIME + 2 weeks
-        );
-
-        _flushOwnLocal(
-            refA
-        );
-
-        assertEq(
-            hub.globalReferredScore(refA),
-            10_000 * 1e6
-        );
-    }
-
-    function test_flushScore_stakeTouredToSiblingVaultCountsOnce()
-        public
-    {
-        (
-            WiseTelecomNodesDiamond sibling,
-        ) = _buildFlushDiamond(
-            0,
+        _admin(diamond).setCohortSyncEnabled(
             false
         );
 
-        hub.setAllowedReporter(
-            address(sibling),
+        vm.warp(
+            BASE_TIME + 2 weeks + 3 days
+        );
+
+        _admin(diamond).setCohortSyncEnabled(
             true
         );
-
-        _depositWithReferralOn(
-            diamond,
-            user1,
-            10_000 * 1e6,
-            refA
-        );
-
-        vm.warp(
-            BASE_TIME + 2 weeks - 1 hours
-        );
-
-        _flushOwnLocal(
-            refA
-        );
-
-        assertEq(
-            hub.globalReferredScore(refA),
-            10_000 * 1e6
-        );
-
-        vm.prank(
-            user1
-        );
-
-        diamond.transfer(
-            user2,
-            10_000 * 1e6
-        );
-
-        _depositWithReferralOn(
-            sibling,
-            user1,
-            10_000 * 1e6,
-            refA
-        );
-
-        vm.warp(
-            block.timestamp + 6 days
-        );
-
-        _flushOwnOn(
-            sibling,
-            refA
-        );
-
-        assertEq(
-            _rec(sibling).getCohortScore(refA),
-            10_000 * 1e6
-        );
-
-        assertEq(
-            hub.globalReferredScore(refA),
-            10_000 * 1e6
-        );
-
-        vm.warp(
-            BASE_TIME + 3 weeks - 1 hours + 1 minutes
-        );
-
-        _flushOwnOn(
-            sibling,
-            refA
-        );
-
-        assertEq(
-            hub.globalReferredScore(refA),
-            10_000 * 1e6
-        );
-
-        _flushOwnLocal(
-            refA
-        );
-
-        assertEq(
-            _rec(diamond).getCohortScore(refA),
-            0
-        );
-
-        assertEq(
-            hub.globalReferredScore(refA),
-            10_000 * 1e6
-        );
     }
 
-    function test_flushScore_bookThatLeftReportsZeroAtOnce()
+    function _paidLanes(
+        address _referrer,
+        uint256 _week
+    )
+        internal
+        view
+        returns (uint256)
+    {
+        (
+            uint256 y1Paid,
+            uint256 y2Paid,
+            uint256 mPaid
+        ) = reader.paidCursorAt(
+            address(diamond),
+            _referrer,
+            _week
+        );
+
+        return y1Paid
+            + y2Paid
+            + mPaid;
+    }
+
+    function test_flushOwn_parkedAfterRearm_capsCursorThenShipsDeferredWeek()
         public
     {
         _depositWithReferralOn(
@@ -4957,7 +8558,17 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
         );
 
         vm.warp(
-            BASE_TIME + 2 weeks
+            BASE_TIME + 1 weeks
+        );
+
+        _flushOwnLocal(
+            refA
+        );
+
+        _disarmSpanInWeek3002();
+
+        vm.warp(
+            BASE_TIME + 3 weeks + 1 days
         );
 
         _flushOwnLocal(
@@ -4965,21 +8576,22 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
         );
 
         assertEq(
-            hub.globalReferredScore(refA),
-            10_000 * 1e6
+            _flushPolicy(diamond).getFlushedThroughWeek(
+                refA
+            ),
+            3_001
         );
 
-        vm.prank(
-            user1
-        );
-
-        diamond.transfer(
-            user2,
-            10_000 * 1e6
+        assertEq(
+            _paidLanes(
+                refA,
+                3_002
+            ),
+            0
         );
 
         vm.warp(
-            block.timestamp + 1 days
+            BASE_TIME + 3 weeks + 4 days
         );
 
         _flushOwnLocal(
@@ -4987,17 +8599,98 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
         );
 
         assertEq(
-            _rec(diamond).getCohortScore(refA),
-            0
+            _flushPolicy(diamond).getFlushedThroughWeek(
+                refA
+            ),
+            3_002
         );
 
         assertEq(
-            hub.globalReferredScore(refA),
-            0
+            _paidLanes(
+                refA,
+                3_002
+            ),
+            uint256(10_000 * 1e6) * 5 days
         );
     }
 
-    function test_flushScore_dormantSpanCountsButNeverVouchesForAReturn()
+    function test_flushOwn_parkedAfterRearm_settlesSelfCrumbToNow()
+        public
+    {
+        _depositWithReferralOn(
+            diamond,
+            user1,
+            10_000 * 1e6,
+            refA
+        );
+
+        _depositOn(
+            diamond,
+            refA,
+            30_000 * 1e6
+        );
+
+        vm.warp(
+            BASE_TIME + 1 weeks
+        );
+
+        _flushOwnLocal(
+            refA
+        );
+
+        _disarmSpanInWeek3002();
+
+        vm.warp(
+            BASE_TIME + 3 weeks + 1 days
+        );
+
+        _flushOwnLocal(
+            refA
+        );
+
+        assertEq(
+            _flushPolicy(diamond).getFlushedThroughWeek(
+                refA
+            ),
+            3_001
+        );
+
+        (
+            uint256 settledAt,
+            ,
+        ) = _rec(diamond).getCohortSelfCrumb(
+            refA
+        );
+
+        assertEq(
+            settledAt,
+            block.timestamp
+        );
+
+        vm.warp(
+            BASE_TIME + 5 weeks
+        );
+
+        _flushOwnLocal(
+            refA
+        );
+
+        bytes32 source = hub.sourceKeyOf(
+            block.chainid,
+            address(diamond)
+        );
+
+        assertEq(
+            hub.weekSelfOf(
+                source,
+                refA,
+                3_004
+            ),
+            30_000 * 1e6
+        );
+    }
+
+    function test_flushOwn_lastSecondOfParkWeek_stillParksAndCaps()
         public
     {
         _depositWithReferralOn(
@@ -5008,7 +8701,17 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
         );
 
         vm.warp(
-            BASE_TIME + 120 weeks
+            BASE_TIME + 1 weeks
+        );
+
+        _flushOwnLocal(
+            refA
+        );
+
+        _disarmSpanInWeek3002();
+
+        vm.warp(
+            BASE_TIME + 3 weeks + 3 days - 1
         );
 
         _flushOwnLocal(
@@ -5016,8 +8719,302 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
         );
 
         assertEq(
-            hub.globalReferredScore(refA),
+            _flushPolicy(diamond).getFlushedThroughWeek(
+                refA
+            ),
+            3_001
+        );
+
+        (
+            uint256 year1,
+            uint256 year2,
+            uint256 mature,
+            uint256 lastSettle
+        ) = _rec(diamond).getCohortBook(
+            refA
+        );
+
+        assertEq(
+            year1 + year2 + mature,
             10_000 * 1e6
+        );
+
+        assertEq(
+            lastSettle,
+            BASE_TIME + 2 weeks + 1 days
+        );
+    }
+
+    function test_flushOwn_parkWeekEnd_crossesSpanAndShips()
+        public
+    {
+        _depositWithReferralOn(
+            diamond,
+            user1,
+            10_000 * 1e6,
+            refA
+        );
+
+        vm.warp(
+            BASE_TIME + 1 weeks
+        );
+
+        _flushOwnLocal(
+            refA
+        );
+
+        _disarmSpanInWeek3002();
+
+        vm.warp(
+            BASE_TIME + 3 weeks + 3 days
+        );
+
+        _flushOwnLocal(
+            refA
+        );
+
+        assertEq(
+            _flushPolicy(diamond).getFlushedThroughWeek(
+                refA
+            ),
+            3_002
+        );
+
+        assertEq(
+            _paidLanes(
+                refA,
+                3_002
+            ),
+            uint256(10_000 * 1e6) * 5 days
+        );
+    }
+
+    function test_flushOwnWindow_openWeekWhileParked_capsCursorBelowDisarmWeek()
+        public
+    {
+        _depositWithReferralOn(
+            diamond,
+            user1,
+            10_000 * 1e6,
+            refA
+        );
+
+        vm.warp(
+            BASE_TIME + 1 weeks
+        );
+
+        _flushOwnLocal(
+            refA
+        );
+
+        _disarmSpanInWeek3002();
+
+        vm.warp(
+            BASE_TIME + 3 weeks + 1 days
+        );
+
+        vm.prank(
+            refA
+        );
+
+        _flush(diamond).flushReferralWindow(
+            refA,
+            3_003,
+            0
+        );
+
+        assertEq(
+            _flushPolicy(diamond).getFlushedThroughWeek(
+                refA
+            ),
+            3_001
+        );
+    }
+
+    function test_flushOwn_virginCursorWhileParked_capsCursorBelowDisarmWeek()
+        public
+    {
+        _depositWithReferralOn(
+            diamond,
+            user1,
+            10_000 * 1e6,
+            refA
+        );
+
+        _disarmSpanInWeek3002();
+
+        vm.warp(
+            BASE_TIME + 3 weeks + 1 days
+        );
+
+        _flushOwnLocal(
+            refA
+        );
+
+        assertEq(
+            _flushPolicy(diamond).getFlushedThroughWeek(
+                refA
+            ),
+            3_001
+        );
+    }
+
+    // ---- vault-built envelope application ----
+
+    function _applyVaultBuilt(
+        bytes32 _messageId,
+        uint256 _chainId,
+        bytes memory _payload
+    )
+        internal
+    {
+        hub.ccipReceive(
+            Client.Any2EVMMessage({
+                messageId: _messageId,
+                sourceChainSelector: REMOTE_SELECTOR,
+                sender: abi.encode(
+                    address(rdiamond)
+                ),
+                data: _payload,
+                destTokenAmounts: new Client.EVMTokenAmount[](0)
+            })
+        );
+
+        hub.applyFlush(
+            _messageId,
+            REMOTE_SELECTOR,
+            _chainId,
+            address(rdiamond),
+            _payload
+        );
+    }
+
+    // ---- realised week pricing: week W is priced from W's own completed
+    // averages, whoever flushes and whatever happens after W ----
+
+    function _tierOracle(
+        uint256 _value
+    )
+        internal
+        pure
+        returns (uint256)
+    {
+        uint256[8] memory thresholds = [
+            uint256(5_000 * 1e6),
+            10_000 * 1e6,
+            20_000 * 1e6,
+            30_000 * 1e6,
+            50_000 * 1e6,
+            100_000 * 1e6,
+            500_000 * 1e6,
+            1_000_000 * 1e6
+        ];
+
+        for (uint256 i = 8; i > 0; --i) {
+
+            if (_value >= thresholds[i - 1]) {
+                return 100 * i;
+            }
+        }
+
+        return 0;
+    }
+
+    function _weekPriceOracle(
+        uint256 _word,
+        uint256 _selfAvg
+    )
+        internal
+        pure
+        returns (uint256)
+    {
+        uint256 referredAvg = (
+            CohortWeeks._laneY1(
+                _word
+            )
+                + CohortWeeks._laneY2(
+                    _word
+                )
+                + CohortWeeks._laneM(
+                    _word
+                )
+        ) / CohortWeeks.WEEK;
+
+        uint256 y1Bps = _tierOracle(
+            referredAvg
+        ) + _tierOracle(
+            _selfAvg
+        );
+
+        uint256 y2Bps;
+
+        uint256 mBps;
+
+        if (y1Bps >= 1_000) {
+            y1Bps = 1_000;
+            y2Bps = 500;
+            mBps = 100;
+        }
+
+        return (
+            CohortWeeks._laneY1(
+                _word
+            ) * y1Bps
+                + CohortWeeks._laneY2(
+                    _word
+                ) * y2Bps
+                + CohortWeeks._laneM(
+                    _word
+                ) * mBps
+        ) / (10_000 * CohortWeeks.YEAR);
+    }
+
+    function _flushLocalAs(
+        address _caller,
+        address _referrer
+    )
+        internal
+    {
+        address[] memory refs = _oneRef(
+            _referrer
+        );
+
+        vm.prank(
+            _caller
+        );
+
+        _flush(diamond).flushReferrals(
+            refs
+        );
+    }
+
+    function _runReferredLeave(
+        address _flusher
+    )
+        internal
+        returns (uint256 claimed)
+    {
+        _depositWithReferralOn(
+            diamond,
+            user1,
+            100_000 * 1e6,
+            refA
+        );
+
+        _depositWithReferralOn(
+            diamond,
+            user2,
+            1_000 * 1e6,
+            refA
+        );
+
+        _flushLocalAs(
+            refA,
+            refA
+        );
+
+        vm.warp(
+            BASE_TIME + 1 weeks
         );
 
         vm.prank(
@@ -5025,69 +9022,116 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
         );
 
         diamond.transfer(
-            user2,
-            10_000 * 1e6
+            stranger,
+            100_000 * 1e6
         );
 
         _rec(diamond).syncReferee(
             user1
         );
 
-        assertEq(
-            _rec(diamond).getCohortScore(refA),
-            0
+        _flushLocalAs(
+            _flusher,
+            refA
         );
 
         vm.warp(
-            block.timestamp + 2 weeks
+            BASE_TIME + 2 weeks
+        );
+
+        _flushLocalAs(
+            _flusher,
+            refA
+        );
+
+        vm.warp(
+            BASE_TIME + 3 weeks
+        );
+
+        _flushLocalAs(
+            _flusher,
+            refA
+        );
+
+        claimed = hub.claimable(
+            block.chainid,
+            refA
+        );
+    }
+
+    function test_flush_referreeLeavesAfterW_ownAndThirdPartyPriceEachWeekFromItsOwnAverage()
+        public
+    {
+        _flushPolicy(diamond).setAllowedFlushBot(
+            bot,
+            true
+        );
+
+        uint256 snapshot = vm.snapshotState();
+
+        uint256 ownClaim = _runReferredLeave(
+            refA
+        );
+
+        vm.revertToState(
+            snapshot
+        );
+
+        uint256 thirdPartyClaim = _runReferredLeave(
+            bot
+        );
+
+        uint256 expected;
+
+        for (uint256 week = 3_000; week < 3_003; ++week) {
+            expected += _weekPriceOracle(
+                _rec(diamond).getCohortWeekCrumb(
+                    refA,
+                    week
+                ),
+                0
+            );
+        }
+
+        assertEq(
+            ownClaim,
+            thirdPartyClaim
+        );
+
+        assertEq(
+            thirdPartyClaim,
+            expected
+        );
+    }
+
+    function test_flush_withdrawnSelfStake_pricesOnlyTheWeeksItWasPresent()
+        public
+    {
+        _flushPolicy(diamond).setAllowedFlushBot(
+            bot,
+            true
+        );
+
+        _depositOn(
+            diamond,
+            refA,
+            100_000 * 1e6
         );
 
         _depositWithReferralOn(
             diamond,
             user2,
-            5_000 * 1e6,
+            10_000 * 1e6,
             refA
         );
 
-        vm.warp(
-            block.timestamp + 1 days
-        );
-
-        _flushOwnLocal(
-            refA
-        );
-
-        assertEq(
-            _rec(diamond).getCohortScore(refA),
-            5_000 * 1e6
-        );
-
-        assertEq(
-            hub.globalReferredScore(refA),
-            0
-        );
-
-        vm.warp(
-            BASE_TIME + 123 weeks - 1 hours + 1 minutes
-        );
-
-        _flushOwnLocal(
-            refA
-        );
-
-        assertEq(
-            hub.globalReferredScore(refA),
-            uint256(5_000 * 1e6) * (1 weeks - 1 hours) / 1 weeks
-        );
-    }
-
-    function test_flushSelfScore_transferAwaySameBlock_reportsZero()
-        public
-    {
-        _depositOn(
-            diamond,
+        _flushLocalAs(
             refA,
-            12_000 * 1e6
+            refA
+        );
+
+        vm.warp(
+            BASE_TIME + 1 weeks
         );
 
         vm.prank(
@@ -5095,34 +9139,289 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
         );
 
         diamond.transfer(
-            user2,
-            12_000 * 1e6
+            stranger,
+            100_000 * 1e6
         );
 
-        _flushOwnLocal(
+        _rec(diamond).syncReferee(
             refA
         );
 
-        assertEq(
-            hub.globalSelfScore(refA),
-            0
+        _flushLocalAs(
+            bot,
+            refA
         );
 
+        vm.warp(
+            BASE_TIME + 2 weeks
+        );
+
+        _flushLocalAs(
+            bot,
+            refA
+        );
+
+        vm.warp(
+            BASE_TIME + 3 weeks
+        );
+
+        _flushLocalAs(
+            bot,
+            refA
+        );
+
+        uint256 expected = _weekPriceOracle(
+            _rec(diamond).getCohortWeekCrumb(
+                refA,
+                3_000
+            ),
+            100_000 * 1e6 * (CohortWeeks.WEEK - 1 hours) / CohortWeeks.WEEK
+        )
+            + _weekPriceOracle(
+                _rec(diamond).getCohortWeekCrumb(
+                    refA,
+                    3_001
+                ),
+                100_000 * 1e6 * 1 hours / CohortWeeks.WEEK
+            )
+            + _weekPriceOracle(
+                _rec(diamond).getCohortWeekCrumb(
+                    refA,
+                    3_002
+                ),
+                0
+            );
+
         assertEq(
-            _rec(diamond).getTrackedContribution(
+            hub.claimable(
+                block.chainid,
                 refA
             ),
-            12_000 * 1e6
+            expected
         );
     }
 
-    function test_flushSelfScore_partialTransfer_clampsToBalance()
+    function test_flush_booklessSelfStake_reportsClosedWeeksWithoutAnchoringABook()
         public
     {
         _depositOn(
             diamond,
             refA,
-            12_000 * 1e6
+            100_000 * 1e6
+        );
+
+        _flushLocalAs(
+            refA,
+            refA
+        );
+
+        vm.warp(
+            BASE_TIME + 2 weeks
+        );
+
+        vm.expectEmit(
+            true,
+            false,
+            false,
+            false,
+            address(diamond)
+        );
+
+        emit CohortSelfLogged(
+            refA,
+            0,
+            0,
+            0
+        );
+
+        _flushLocalAs(
+            refA,
+            refA
+        );
+
+        (
+            ,
+            ,
+            ,
+            uint256 lastSettle
+        ) = _rec(diamond).getCohortBook(
+            refA
+        );
+
+        assertEq(
+            lastSettle,
+            0
+        );
+
+        assertEq(
+            _flushPolicy(
+                diamond
+            ).getFlushedThroughWeek(
+                refA
+            ),
+            3_001
+        );
+
+        bytes32 source = hub.sourceKeyOf(
+            block.chainid,
+            address(diamond)
+        );
+
+        assertEq(
+            hub.weekSelfOf(
+                source,
+                refA,
+                3_000
+            ),
+            100_000 * 1e6 * (CohortWeeks.WEEK - 1 hours) / CohortWeeks.WEEK
+        );
+
+        assertEq(
+            hub.weekSelfOf(
+                source,
+                refA,
+                3_001
+            ),
+            100_000 * 1e6
+        );
+
+        assertEq(
+            hub.weekSelfOf(
+                source,
+                refA,
+                3_002
+            ),
+            0
+        );
+    }
+
+    function test_flush_booklessSelfStake_firstFlushAfterBoundary_reportsPriorClosedWeeks()
+        public
+    {
+        _depositOn(
+            diamond,
+            refA,
+            100_000 * 1e6
+        );
+
+        vm.warp(
+            BASE_TIME + 2 weeks
+        );
+
+        _flushLocalAs(
+            refA,
+            refA
+        );
+
+        bytes32 source = hub.sourceKeyOf(
+            block.chainid,
+            address(diamond)
+        );
+
+        assertEq(
+            hub.weekSelfOf(
+                source,
+                refA,
+                3_000
+            ),
+            100_000 * 1e6 * (CohortWeeks.WEEK - 1 hours) / CohortWeeks.WEEK
+        );
+
+        assertEq(
+            hub.weekSelfOf(
+                source,
+                refA,
+                3_001
+            ),
+            100_000 * 1e6
+        );
+    }
+
+    function test_flush_booklessSelfStake_settleBeforeFirstFlush_keepsEarlierWeeks()
+        public
+    {
+        _depositOn(
+            diamond,
+            refA,
+            100_000 * 1e6
+        );
+
+        vm.warp(
+            BASE_TIME + 2 weeks
+        );
+
+        _depositOn(
+            diamond,
+            refA,
+            1 * 1e6
+        );
+
+        vm.warp(
+            BASE_TIME + 3 weeks
+        );
+
+        _flushLocalAs(
+            refA,
+            refA
+        );
+
+        bytes32 source = hub.sourceKeyOf(
+            block.chainid,
+            address(diamond)
+        );
+
+        assertEq(
+            hub.weekSelfOf(
+                source,
+                refA,
+                3_000
+            ),
+            100_000 * 1e6 * (CohortWeeks.WEEK - 1 hours) / CohortWeeks.WEEK
+        );
+
+        assertEq(
+            hub.weekSelfOf(
+                source,
+                refA,
+                3_001
+            ),
+            100_000 * 1e6
+        );
+
+        assertEq(
+            hub.weekSelfOf(
+                source,
+                refA,
+                3_002
+            ),
+            (100_000 * 1e6 * 1 hours + 100_001 * 1e6 * (CohortWeeks.WEEK - 1 hours)) / CohortWeeks.WEEK
+        );
+    }
+
+    function test_flush_refillByTransferAfterRearm_staysUntrackedAndCountsNoPresence()
+        public
+    {
+        _depositOn(
+            diamond,
+            refA,
+            100_000 * 1e6
+        );
+
+        vm.warp(
+            BASE_TIME + 1 weeks
+        );
+
+        _flushLocalAs(
+            refA,
+            refA
+        );
+
+        _admin(diamond).setCohortSyncEnabled(
+            false
+        );
+
+        vm.warp(
+            BASE_TIME + 1 weeks + 2 days
         );
 
         vm.prank(
@@ -5130,45 +9429,495 @@ contract WiseTelecomNodesCohortFlushTest is DiamondTestHarness {
         );
 
         diamond.transfer(
-            user2,
-            5_000 * 1e6
+            stranger,
+            100_000 * 1e6
         );
 
-        _flushOwnLocal(
+        vm.warp(
+            BASE_TIME + 2 weeks
+        );
+
+        _admin(diamond).setCohortSyncEnabled(
+            true
+        );
+
+        vm.warp(
+            BASE_TIME + 3 weeks
+        );
+
+        vm.prank(
+            stranger
+        );
+
+        diamond.transfer(
+            refA,
+            100_000 * 1e6
+        );
+
+        vm.warp(
+            BASE_TIME + 5 weeks
+        );
+
+        _flushLocalAs(
+            refA,
+            refA
+        );
+
+        vm.warp(
+            BASE_TIME + 6 weeks
+        );
+
+        _flushLocalAs(
+            refA,
+            refA
+        );
+
+        bytes32 source = hub.sourceKeyOf(
+            block.chainid,
+            address(diamond)
+        );
+
+        assertEq(
+            hub.weekSelfOf(
+                source,
+                refA,
+                3_002
+            ),
+            0
+        );
+
+        assertEq(
+            hub.weekSelfOf(
+                source,
+                refA,
+                3_003
+            ),
+            0
+        );
+
+        assertEq(
+            hub.weekSelfOf(
+                source,
+                refA,
+                3_004
+            ),
+            0
+        );
+
+        assertEq(
+            hub.weekSelfOf(
+                source,
+                refA,
+                3_005
+            ),
+            0
+        );
+
+        assertEq(
+            _rec(
+                diamond
+            ).getTrackedContribution(
+                refA
+            ),
+            0
+        );
+    }
+
+    function test_flush_publicNonBotCaller_earnsNoCourierFee()
+        public
+    {
+        _depositWithReferralOn(
+            diamond,
+            user1,
+            100_000 * 1e6,
+            refA
+        );
+
+        vm.warp(
+            BASE_TIME + 1 weeks
+        );
+
+        _flushLocalAs(
+            refA,
+            refA
+        );
+
+        _flushPolicy(diamond).setPublicFlushEnabled(
+            true
+        );
+
+        vm.warp(
+            BASE_TIME + 3 weeks
+        );
+
+        uint256 referrerBefore = hub.claimable(
+            block.chainid,
+            refA
+        );
+
+        _flushLocalAs(
+            stranger,
+            refA
+        );
+
+        assertGt(
+            hub.claimable(
+                block.chainid,
+                refA
+            ),
+            referrerBefore
+        );
+
+        assertEq(
+            hub.claimable(
+                block.chainid,
+                stranger
+            ),
+            0
+        );
+
+        assertEq(
+            hub.totalAccrued(),
+            hub.claimable(
+                block.chainid,
+                refA
+            )
+        );
+    }
+
+    function test_flush_stakeLeftDuringDisarmSpan_neverLoggedAgainAfterRearm()
+        public
+    {
+        _depositWithReferralOn(
+            diamond,
+            user1,
+            10_000 * 1e6,
+            refA
+        );
+
+        _depositOn(
+            diamond,
+            refA,
+            100_000 * 1e6
+        );
+
+        vm.warp(
+            BASE_TIME + 1 weeks
+        );
+
+        _flushLocalAs(
+            refA,
+            refA
+        );
+
+        _admin(diamond).setCohortSyncEnabled(
+            false
+        );
+
+        vm.warp(
+            BASE_TIME + 1 weeks + 2 days
+        );
+
+        vm.prank(
+            refA
+        );
+
+        diamond.transfer(
+            stranger,
+            100_000 * 1e6
+        );
+
+        vm.warp(
+            BASE_TIME + 2 weeks
+        );
+
+        _admin(diamond).setCohortSyncEnabled(
+            true
+        );
+
+        vm.warp(
+            BASE_TIME + 3 weeks
+        );
+
+        _flushLocalAs(
+            refA,
+            refA
+        );
+
+        vm.warp(
+            BASE_TIME + 5 weeks
+        );
+
+        _flushLocalAs(
+            refA,
+            refA
+        );
+
+        bytes32 source = hub.sourceKeyOf(
+            block.chainid,
+            address(diamond)
+        );
+
+        assertEq(
+            hub.weekSelfOf(
+                source,
+                refA,
+                3_003
+            ),
+            0
+        );
+
+        assertEq(
+            hub.weekSelfOf(
+                source,
+                refA,
+                3_004
+            ),
+            0
+        );
+
+        assertEq(
+            _rec(
+                diamond
+            ).getTrackedContribution(
+                refA
+            ),
+            0
+        );
+    }
+
+    function test_flush_dipAfterWeekCloses_leavesThatWeeksPrice()
+        public
+    {
+        _depositWithReferralOn(
+            diamond,
+            user1,
+            100_000 * 1e6,
+            refA
+        );
+
+        vm.warp(
+            BASE_TIME + 1 weeks
+        );
+
+        uint256 snapshot = vm.snapshotState();
+
+        _flushLocalAs(
+            refA,
+            refA
+        );
+
+        uint256 steady = hub.claimable(
+            block.chainid,
+            refA
+        );
+
+        vm.revertToState(
+            snapshot
+        );
+
+        vm.prank(
+            user1
+        );
+
+        diamond.transfer(
+            stranger,
+            99_000 * 1e6
+        );
+
+        _rec(diamond).syncReferee(
+            user1
+        );
+
+        _flushLocalAs(
+            refA,
             refA
         );
 
         assertEq(
-            hub.globalSelfScore(refA),
-            7_000 * 1e6
-        );
-
-        assertEq(
-            _rec(diamond).getTrackedContribution(
+            hub.claimable(
+                block.chainid,
                 refA
             ),
-            12_000 * 1e6
-        );
-
-        _flushOwnLocal(
-            user2
+            steady
         );
 
         assertEq(
-            diamond.balanceOf(user2),
-            5_000 * 1e6
+            steady,
+            _weekPriceOracle(
+                _rec(diamond).getCohortWeekCrumb(
+                    refA,
+                    3_000
+                ),
+                0
+            )
+        );
+    }
+
+    // ---- batch gas bound: sixteen books in one bot flush ----
+
+    function _measureBotFlush(
+        address[] memory _refs
+    )
+        internal
+        returns (uint256 used)
+    {
+        bytes memory payload = abi.encodeCall(
+            CohortFlushFacet.flushReferrals,
+            (
+                _refs
+            )
         );
 
-        assertEq(
-            _rec(diamond).getTrackedContribution(
-                user2
-            ),
-            0
+        vm.prank(
+            bot
         );
 
-        assertEq(
-            hub.globalSelfScore(user2),
-            0
+        uint256 g = gasleft();
+
+        (bool ok, ) = address(diamond).call(
+            payload
+        );
+
+        used = g - gasleft();
+
+        assertTrue(
+            ok
+        );
+    }
+
+    function _seedSixteenFlushedBooks()
+        internal
+        returns (address[] memory refs)
+    {
+        _flushPolicy(diamond).setAllowedFlushBot(
+            bot,
+            true
+        );
+
+        refs = new address[](
+            CohortFlushCodec.MAX_FLUSH_ENTRIES
+        );
+
+        for (uint256 i; i < refs.length; ++i) {
+
+            refs[i] = address(
+                uint160(
+                    0x7100 + i
+                )
+            );
+
+            _depositWithReferralOn(
+                diamond,
+                address(
+                    uint160(
+                        0x7200 + i
+                    )
+                ),
+                10_000 * 1e6,
+                refs[i]
+            );
+        }
+
+        vm.warp(
+            BASE_TIME + 2 weeks
+        );
+
+        for (uint256 i; i < refs.length; ++i) {
+            _flushOwnLocal(
+                refs[i]
+            );
+        }
+
+        vm.warp(
+            BASE_TIME + 107 weeks
+        );
+    }
+
+    function test_gas_flushReferrals_localBatchBounds()
+        public
+    {
+        address[] memory refs = _seedSixteenFlushedBooks();
+
+        address[] memory batch = new address[](
+            LOCAL_ENTRIES
+        );
+
+        for (uint256 i; i < batch.length; ++i) {
+            batch[i] = refs[i];
+        }
+
+        vm.prank(
+            bot
+        );
+
+        vm.expectRevert(
+            WiseTelecomNodesDiamondErrors.FlushBookNotAdvanced.selector
+        );
+
+        _flush(diamond).flushReferrals(
+            batch
+        );
+
+        uint256 snap = vm.snapshotState();
+
+        uint256 dormantOne = _measureBotFlush(
+            _oneRef(
+                refs[0]
+            )
+        );
+
+        vm.revertToState(
+            snap
+        );
+
+        for (uint256 i; i < refs.length; ++i) {
+
+            _rec(diamond).advanceBook(
+                refs[i],
+                104
+            );
+
+            _rec(diamond).advanceBook(
+                refs[i],
+                104
+            );
+        }
+
+        vm.prank(
+            bot
+        );
+
+        vm.expectRevert(
+            WiseTelecomNodesDiamondErrors.FlushBatchTooLarge.selector
+        );
+
+        _flush(diamond).flushReferrals(
+            refs
+        );
+
+        uint256 prewalkedBatch = _measureBotFlush(
+            batch
+        );
+
+        console.log(
+            "GAS|local flush dormant one book",
+            dormantOne
+        );
+
+        console.log(
+            "GAS|local flush prewalked full local batch",
+            prewalkedBatch
+        );
+
+        assertLe(
+            dormantOne,
+            LOCAL_FLUSH_GAS_CEILING
+        );
+
+        assertLe(
+            prewalkedBatch,
+            LOCAL_FLUSH_GAS_CEILING
         );
     }
 }

@@ -18,6 +18,7 @@ import {QueueFulfillFacet} from "../../src/diamond/vault/facets/QueueFulfillFace
 import {ReferralFacet} from "../../src/diamond/vault/facets/pending/ReferralFacet.sol";
 import {Permit2ReferralFacet} from "../../src/diamond/vault/facets/pending/Permit2ReferralFacet.sol";
 import {CohortHookFacet} from "../../src/diamond/vault/facets/pending/CohortHookFacet.sol";
+import {CohortMoveHookFacet} from "../../src/diamond/vault/facets/pending/CohortMoveHookFacet.sol";
 import {CohortRecorderFacet} from "../../src/diamond/vault/facets/pending/CohortRecorderFacet.sol";
 import {IPermit2} from "../../src/diamond/vault/interfaces/IPermit2.sol";
 
@@ -143,7 +144,10 @@ contract MockCCIPRouter {
  * move/bridge/queue surfaces wired on top of the {CohortHookFacet}
  * engine installed as the transfer hook (see
  * `WiseTelecomNodesCohortTouchpoints.t.sol` for the deposit/compound
- * and lazy-clamp phase). `_executeMoveOut` / `_executeBridgeOut`
+ * and lazy-clamp phase), with the dispatcher-routed
+ * {CohortMoveHookFacet} slice installed beside it so the pointer
+ * facet's move pair forwards into the real capture and apply.
+ * `_executeMoveOut` / `_executeBridgeOut`
  * double-sync around their `_burn` (immediate discredit, no waiting
  * for the next poke); `_executeMintFromPeer` / `_executeBridgeReceive`
  * sync once BEFORE their `_mint` (clamp-before-heal, never re-credit);
@@ -191,6 +195,11 @@ contract MockCCIPRouter {
  * book strictly below their pre-join values, the buy-back leg being
  * recorder-silent because held never drops below tracked on either
  * hook side.
+ *
+ * `test_reduceQueAmount_returnsWithoutRecredit` pins that a partial
+ * reduce restores nothing either, exactly like `leaveQue`: the
+ * returned shares stay untracked and the referrer book keeps the
+ * post-join level.
  */
 contract WiseTelecomNodesCohortMoveBridgeQueueTest is DiamondTestHarness {
 
@@ -278,25 +287,31 @@ contract WiseTelecomNodesCohortMoveBridgeQueueTest is DiamondTestHarness {
         _wireOne(
             diamond,
             address(new BridgeFacet()),
-            WiseTelecomNodesDiamondSelectors.bridgeSelectors()
+            WiseTelecomNodesDiamondSelectors._bridgeSelectors()
         );
 
         _wireOne(
             diamond,
             address(new ReferralFacet()),
-            WiseTelecomNodesDiamondSelectors.referralSelectors()
+            WiseTelecomNodesDiamondSelectors._referralSelectors()
         );
 
         _wireOne(
             diamond,
             address(new Permit2ReferralFacet()),
-            WiseTelecomNodesDiamondSelectors.permit2ReferralSelectors()
+            WiseTelecomNodesDiamondSelectors._permit2ReferralSelectors()
         );
 
         _wireOne(
             diamond,
             address(new CohortRecorderFacet()),
-            WiseTelecomNodesDiamondSelectors.cohortRecorderSelectors()
+            WiseTelecomNodesDiamondSelectors._cohortRecorderSelectors()
+        );
+
+        _wireOne(
+            diamond,
+            address(new CohortMoveHookFacet()),
+            WiseTelecomNodesDiamondSelectors._cohortMoveHookSelectors()
         );
 
         AdminFacet(address(diamond)).proposeTransferHookFacet(
@@ -553,12 +568,16 @@ contract WiseTelecomNodesCohortMoveBridgeQueueTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             3_000 * 1e6
         );
 
         assertEq(
-            _recorder().getCohortScore(refA),
+            _recorder().getCohortScore(
+                refA
+            ),
             3_000 * 1e6
         );
     }
@@ -584,12 +603,16 @@ contract WiseTelecomNodesCohortMoveBridgeQueueTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             0
         );
 
         assertEq(
-            _recorder().getCohortScore(refA),
+            _recorder().getCohortScore(
+                refA
+            ),
             0
         );
     }
@@ -623,12 +646,16 @@ contract WiseTelecomNodesCohortMoveBridgeQueueTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             3_000 * 1e6
         );
 
         assertEq(
-            diamond.balanceOf(user1),
+            diamond.balanceOf(
+                user1
+            ),
             DEPOSIT
         );
     }
@@ -648,7 +675,9 @@ contract WiseTelecomNodesCohortMoveBridgeQueueTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(outsider),
+            _recorder().getTrackedContribution(
+                outsider
+            ),
             0
         );
     }
@@ -683,12 +712,16 @@ contract WiseTelecomNodesCohortMoveBridgeQueueTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             3_000 * 1e6
         );
 
         assertEq(
-            _recorder().getCohortScore(refA),
+            _recorder().getCohortScore(
+                refA
+            ),
             3_000 * 1e6
         );
     }
@@ -729,12 +762,16 @@ contract WiseTelecomNodesCohortMoveBridgeQueueTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             3_000 * 1e6
         );
 
         assertEq(
-            diamond.balanceOf(user1),
+            diamond.balanceOf(
+                user1
+            ),
             DEPOSIT
         );
     }
@@ -761,7 +798,9 @@ contract WiseTelecomNodesCohortMoveBridgeQueueTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(outsider),
+            _recorder().getTrackedContribution(
+                outsider
+            ),
             0
         );
     }
@@ -789,12 +828,16 @@ contract WiseTelecomNodesCohortMoveBridgeQueueTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             3_000 * 1e6
         );
 
         assertEq(
-            _recorder().getCohortScore(refA),
+            _recorder().getCohortScore(
+                refA
+            ),
             3_000 * 1e6
         );
     }
@@ -879,7 +922,9 @@ contract WiseTelecomNodesCohortMoveBridgeQueueTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             3_000 * 1e6
         );
 
@@ -969,7 +1014,9 @@ contract WiseTelecomNodesCohortMoveBridgeQueueTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             4_000 * 1e6
         );
 
@@ -1026,7 +1073,9 @@ contract WiseTelecomNodesCohortMoveBridgeQueueTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             2_500 * 1e6
         );
     }
@@ -1064,17 +1113,23 @@ contract WiseTelecomNodesCohortMoveBridgeQueueTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.balanceOf(user1),
+            diamond.balanceOf(
+                user1
+            ),
             DEPOSIT
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             3_000 * 1e6
         );
 
         assertEq(
-            _recorder().getCohortScore(refA),
+            _recorder().getCohortScore(
+                refA
+            ),
             3_000 * 1e6
         );
 
@@ -1087,7 +1142,74 @@ contract WiseTelecomNodesCohortMoveBridgeQueueTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
+            3_000 * 1e6
+        );
+    }
+
+    function test_reduceQueAmount_returnsWithoutRecredit()
+        public
+    {
+        _arm();
+
+        _depositWithReferralAs(
+            user1,
+            DEPOSIT,
+            refA
+        );
+
+        vm.prank(
+            user1
+        );
+
+        (
+            ,
+            uint256 queId
+        ) = QueueJoinLeaveFacet(address(diamond)).joinQue(
+            2_000 * 1e6,
+            0
+        );
+
+        vm.recordLogs();
+
+        vm.prank(
+            user1
+        );
+
+        QueueJoinLeaveFacet(address(diamond)).reduceQueAmount(
+            queId,
+            0,
+            500 * 1e6
+        );
+
+        assertEq(
+            _countTopic(
+                vm.getRecordedLogs(),
+                CREDITED_TOPIC
+            ),
+            0
+        );
+
+        assertEq(
+            diamond.balanceOf(
+                user1
+            ),
+            3_500 * 1e6
+        );
+
+        assertEq(
+            _recorder().getTrackedContribution(
+                user1
+            ),
+            3_000 * 1e6
+        );
+
+        assertEq(
+            _recorder().getCohortScore(
+                refA
+            ),
             3_000 * 1e6
         );
     }
@@ -1118,7 +1240,9 @@ contract WiseTelecomNodesCohortMoveBridgeQueueTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             3_000 * 1e6
         );
 
@@ -1149,17 +1273,23 @@ contract WiseTelecomNodesCohortMoveBridgeQueueTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.balanceOf(buyer),
+            diamond.balanceOf(
+                buyer
+            ),
             2_000 * 1e6
         );
 
         assertEq(
-            _recorder().getTrackedContribution(buyer),
+            _recorder().getTrackedContribution(
+                buyer
+            ),
             0
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             3_000 * 1e6
         );
     }
@@ -1194,7 +1324,9 @@ contract WiseTelecomNodesCohortMoveBridgeQueueTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(buyer),
+            _recorder().getTrackedContribution(
+                buyer
+            ),
             1_000 * 1e6
         );
 
@@ -1210,7 +1342,9 @@ contract WiseTelecomNodesCohortMoveBridgeQueueTest is DiamondTestHarness {
             uint64[52] memory ring2Before
         ) = _recorder().getCohortRings(refB);
 
-        uint256 refAScoreBefore = _recorder().getCohortScore(refA);
+        uint256 refAScoreBefore = _recorder().getCohortScore(
+            refA
+        );
 
         _fundAndApprove(
             buyer,
@@ -1231,17 +1365,23 @@ contract WiseTelecomNodesCohortMoveBridgeQueueTest is DiamondTestHarness {
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
         assertEq(
-            diamond.balanceOf(buyer),
+            diamond.balanceOf(
+                buyer
+            ),
             3_000 * 1e6
         );
 
         assertEq(
-            _recorder().getTrackedContribution(buyer),
+            _recorder().getTrackedContribution(
+                buyer
+            ),
             1_000 * 1e6
         );
 
         assertEq(
-            _recorder().getCohortScore(refB),
+            _recorder().getCohortScore(
+                refB
+            ),
             1_000 * 1e6
         );
 
@@ -1284,12 +1424,16 @@ contract WiseTelecomNodesCohortMoveBridgeQueueTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             3_000 * 1e6
         );
 
         assertEq(
-            _recorder().getCohortScore(refA),
+            _recorder().getCohortScore(
+                refA
+            ),
             refAScoreBefore
         );
 
@@ -1302,7 +1446,9 @@ contract WiseTelecomNodesCohortMoveBridgeQueueTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(buyer),
+            _recorder().getTrackedContribution(
+                buyer
+            ),
             1_000 * 1e6
         );
     }
@@ -1352,12 +1498,16 @@ contract WiseTelecomNodesCohortMoveBridgeQueueTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             100 * 1e6
         );
 
         assertEq(
-            diamond.balanceOf(user1),
+            diamond.balanceOf(
+                user1
+            ),
             70 * 1e6
         );
 
@@ -1411,17 +1561,23 @@ contract WiseTelecomNodesCohortMoveBridgeQueueTest is DiamondTestHarness {
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
         assertEq(
-            diamond.balanceOf(user1),
+            diamond.balanceOf(
+                user1
+            ),
             120 * 1e6
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             70 * 1e6
         );
 
         assertEq(
-            _recorder().getCohortScore(refA),
+            _recorder().getCohortScore(
+                refA
+            ),
             70 * 1e6
         );
 
@@ -1495,17 +1651,23 @@ contract WiseTelecomNodesCohortMoveBridgeQueueTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             70 * 1e6
         );
 
         assertLe(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             100 * 1e6
         );
 
         assertLe(
-            _recorder().getCohortScore(refA),
+            _recorder().getCohortScore(
+                refA
+            ),
             100 * 1e6
         );
     }
@@ -1567,17 +1729,23 @@ contract WiseTelecomNodesCohortMoveBridgeQueueTest is DiamondTestHarness {
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
         assertEq(
-            diamond.balanceOf(user1),
+            diamond.balanceOf(
+                user1
+            ),
             150 * 1e6
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             100 * 1e6
         );
 
         assertEq(
-            _recorder().getCohortScore(refA),
+            _recorder().getCohortScore(
+                refA
+            ),
             100 * 1e6
         );
 
@@ -1616,12 +1784,16 @@ contract WiseTelecomNodesCohortMoveBridgeQueueTest is DiamondTestHarness {
         logs = vm.getRecordedLogs();
 
         assertEq(
-            diamond.balanceOf(user1),
+            diamond.balanceOf(
+                user1
+            ),
             120 * 1e6
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             100 * 1e6
         );
 
@@ -1658,7 +1830,9 @@ contract WiseTelecomNodesCohortMoveBridgeQueueTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             100 * 1e6
         );
 
@@ -1690,7 +1864,9 @@ contract WiseTelecomNodesCohortMoveBridgeQueueTest is DiamondTestHarness {
         );
 
         assertLe(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             100 * 1e6
         );
     }
@@ -1761,22 +1937,30 @@ contract WiseTelecomNodesCohortMoveBridgeQueueTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             100 * 1e6 - sendAmt
         );
 
         assertEq(
-            _recorder().getCohortScore(refA),
+            _recorder().getCohortScore(
+                refA
+            ),
             100 * 1e6 - sendAmt
         );
 
         assertEq(
-            diamond.balanceOf(user1),
+            diamond.balanceOf(
+                user1
+            ),
             100 * 1e6 - sendAmt + buyAmt
         );
 
         assertLe(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             100 * 1e6
         );
 
@@ -1807,24 +1991,32 @@ contract WiseTelecomNodesCohortMoveBridgeQueueTest is DiamondTestHarness {
             user1
         );
 
-        uint256 heldAfter = diamond.balanceOf(user1);
+        uint256 heldAfter = diamond.balanceOf(
+            user1
+        );
 
         uint256 expectedTracked = heldAfter < 100 * 1e6
             ? heldAfter
             : 100 * 1e6;
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             expectedTracked
         );
 
         assertEq(
-            _recorder().getCohortScore(refA),
+            _recorder().getCohortScore(
+                refA
+            ),
             expectedTracked
         );
 
         assertLe(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             100 * 1e6
         );
     }
@@ -1854,9 +2046,13 @@ contract WiseTelecomNodesCohortMoveBridgeQueueTest is DiamondTestHarness {
             0
         );
 
-        uint256 trackedBefore = _recorder().getTrackedContribution(user1);
+        uint256 trackedBefore = _recorder().getTrackedContribution(
+            user1
+        );
 
-        uint256 scoreBefore = _recorder().getCohortScore(refA);
+        uint256 scoreBefore = _recorder().getCohortScore(
+            refA
+        );
 
         (
             uint256 year1Before,
@@ -1904,12 +2100,16 @@ contract WiseTelecomNodesCohortMoveBridgeQueueTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             trackedBefore
         );
 
         assertEq(
-            _recorder().getCohortScore(refA),
+            _recorder().getCohortScore(
+                refA
+            ),
             scoreBefore
         );
 
@@ -1954,9 +2154,13 @@ contract WiseTelecomNodesCohortMoveBridgeQueueTest is DiamondTestHarness {
             refA
         );
 
-        uint256 trackedBefore = _recorder().getTrackedContribution(user1);
+        uint256 trackedBefore = _recorder().getTrackedContribution(
+            user1
+        );
 
-        uint256 scoreBefore = _recorder().getCohortScore(refA);
+        uint256 scoreBefore = _recorder().getCohortScore(
+            refA
+        );
 
         (
             uint256 year1Before,
@@ -1978,12 +2182,16 @@ contract WiseTelecomNodesCohortMoveBridgeQueueTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             3_000 * 1e6
         );
 
         assertEq(
-            _recorder().getCohortScore(refA),
+            _recorder().getCohortScore(
+                refA
+            ),
             3_000 * 1e6
         );
 
@@ -2006,7 +2214,9 @@ contract WiseTelecomNodesCohortMoveBridgeQueueTest is DiamondTestHarness {
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
         assertEq(
-            diamond.balanceOf(user1),
+            diamond.balanceOf(
+                user1
+            ),
             DEPOSIT
         );
 
@@ -2016,22 +2226,30 @@ contract WiseTelecomNodesCohortMoveBridgeQueueTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             3_000 * 1e6
         );
 
         assertLt(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             trackedBefore
         );
 
         assertEq(
-            _recorder().getCohortScore(refA),
+            _recorder().getCohortScore(
+                refA
+            ),
             3_000 * 1e6
         );
 
         assertLt(
-            _recorder().getCohortScore(refA),
+            _recorder().getCohortScore(
+                refA
+            ),
             scoreBefore
         );
 
@@ -2105,7 +2323,9 @@ contract WiseTelecomNodesCohortMoveBridgeQueueTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             3_000 * 1e6
         );
     }
@@ -2148,12 +2368,16 @@ contract WiseTelecomNodesCohortMoveBridgeQueueTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.balanceOf(buyer),
+            diamond.balanceOf(
+                buyer
+            ),
             2_000 * 1e6
         );
 
         assertEq(
-            _recorder().getTrackedContribution(buyer),
+            _recorder().getTrackedContribution(
+                buyer
+            ),
             0
         );
 
@@ -2168,27 +2392,37 @@ contract WiseTelecomNodesCohortMoveBridgeQueueTest is DiamondTestHarness {
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
         assertEq(
-            diamond.balanceOf(user1),
+            diamond.balanceOf(
+                user1
+            ),
             DEPOSIT
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             3_000 * 1e6
         );
 
         assertLt(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             DEPOSIT
         );
 
         assertEq(
-            _recorder().getCohortScore(refA),
+            _recorder().getCohortScore(
+                refA
+            ),
             3_000 * 1e6
         );
 
         assertLt(
-            _recorder().getCohortScore(refA),
+            _recorder().getCohortScore(
+                refA
+            ),
             DEPOSIT
         );
 
@@ -2225,7 +2459,9 @@ contract WiseTelecomNodesCohortMoveBridgeQueueTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             3_000 * 1e6
         );
 
@@ -2238,8 +2474,441 @@ contract WiseTelecomNodesCohortMoveBridgeQueueTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(buyer),
+            _recorder().getTrackedContribution(
+                buyer
+            ),
             0
+        );
+    }
+
+    // ---- moved-amount pins: queue self crumb, unreferred queue, compound via fulfill ----
+
+    event CohortSelfLogged(
+        address indexed user,
+        uint256 fromWeek,
+        uint256 completedSeconds,
+        uint256 stake
+    );
+
+    function _assertQueueSelfCrumb(
+        address _user,
+        uint256 _settledAt,
+        uint256 _current
+    )
+        internal
+        view
+    {
+        (
+            uint256 settledAt,
+            uint256 current,
+        ) = _recorder().getCohortSelfCrumb(
+            _user
+        );
+
+        assertEq(
+            settledAt,
+            _settledAt
+        );
+
+        assertEq(
+            current,
+            _current
+        );
+    }
+
+    function _warpToFreshWeek()
+        internal
+    {
+        vm.warp(
+            (block.timestamp / 1 weeks + 1) * 1 weeks + 1 hours
+        );
+    }
+
+    function test_joinQue_settlesSelfCrumbAndLeaveLeavesItUntouched()
+        public
+    {
+        _arm();
+
+        _warpToFreshWeek();
+
+        _depositWithReferralAs(
+            user1,
+            DEPOSIT,
+            refA
+        );
+
+        vm.warp(
+            block.timestamp + 1 days
+        );
+
+        uint256 joinAt = block.timestamp;
+
+        vm.prank(
+            user1
+        );
+
+        (
+            ,
+            uint256 queId
+        ) = QueueJoinLeaveFacet(address(diamond)).joinQue(
+            2_000 * 1e6,
+            0
+        );
+
+        _assertQueueSelfCrumb(
+            user1,
+            joinAt,
+            DEPOSIT * 1 days
+        );
+
+        vm.warp(
+            block.timestamp + 1 hours
+        );
+
+        vm.prank(
+            user1
+        );
+
+        QueueJoinLeaveFacet(address(diamond)).leaveQue(
+            queId,
+            0
+        );
+
+        _assertQueueSelfCrumb(
+            user1,
+            joinAt,
+            DEPOSIT * 1 days
+        );
+
+        vm.recordLogs();
+
+        vm.prank(
+            poker
+        );
+
+        _recorder().syncReferee(
+            user1
+        );
+
+        assertEq(
+            _countTopic(
+                vm.getRecordedLogs(),
+                SYNCED_TOPIC
+            ),
+            0
+        );
+    }
+
+    function test_joinQue_unreferred_clampsTrackedOnlyNoBook()
+        public
+    {
+        _arm();
+
+        _warpToFreshWeek();
+
+        _depositAs(
+            outsider,
+            DEPOSIT
+        );
+
+        vm.warp(
+            block.timestamp + 1 days
+        );
+
+        vm.recordLogs();
+
+        vm.prank(
+            outsider
+        );
+
+        (
+            ,
+            uint256 queId
+        ) = QueueJoinLeaveFacet(address(diamond)).joinQue(
+            2_000 * 1e6,
+            0
+        );
+
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        assertEq(
+            _countTopic(
+                logs,
+                SYNCED_TOPIC
+            ),
+            1
+        );
+
+        assertEq(
+            _countTopic(
+                logs,
+                REDUCED_TOPIC
+            ),
+            0
+        );
+
+        assertEq(
+            _countTopic(
+                logs,
+                CREDITED_TOPIC
+            ),
+            0
+        );
+
+        assertEq(
+            _recorder().getTrackedContribution(
+                outsider
+            ),
+            3_000 * 1e6
+        );
+
+        assertEq(
+            _recorder().getAttributedContribution(
+                outsider
+            ),
+            0
+        );
+
+        assertEq(
+            _recorder().getCohortScore(
+                address(0)
+            ),
+            0
+        );
+
+        _assertQueueSelfCrumb(
+            outsider,
+            block.timestamp,
+            DEPOSIT * 1 days
+        );
+
+        vm.prank(
+            outsider
+        );
+
+        QueueJoinLeaveFacet(address(diamond)).reduceQueAmount(
+            queId,
+            0,
+            500 * 1e6
+        );
+
+        vm.prank(
+            outsider
+        );
+
+        QueueJoinLeaveFacet(address(diamond)).leaveQue(
+            queId,
+            0
+        );
+
+        assertEq(
+            diamond.balanceOf(
+                outsider
+            ),
+            DEPOSIT
+        );
+
+        assertEq(
+            _recorder().getTrackedContribution(
+                outsider
+            ),
+            3_000 * 1e6
+        );
+
+        _assertQueueSelfCrumb(
+            outsider,
+            block.timestamp,
+            DEPOSIT * 1 days
+        );
+
+        vm.recordLogs();
+
+        vm.prank(
+            poker
+        );
+
+        _recorder().syncReferee(
+            outsider
+        );
+
+        assertEq(
+            _countTopic(
+                vm.getRecordedLogs(),
+                SYNCED_TOPIC
+            ),
+            0
+        );
+    }
+
+    function test_joinQue_afterBoundary_logsTheCompletedSelfWeek()
+        public
+    {
+        _arm();
+
+        _warpToFreshWeek();
+
+        uint256 depositAt = block.timestamp;
+
+        _depositWithReferralAs(
+            user1,
+            DEPOSIT,
+            refA
+        );
+
+        vm.warp(
+            depositAt + 1 weeks + 1 days
+        );
+
+        vm.expectEmit(
+            true,
+            false,
+            false,
+            true,
+            address(diamond)
+        );
+
+        emit CohortSelfLogged(
+            user1,
+            depositAt / 1 weeks,
+            DEPOSIT * (1 weeks - 1 hours),
+            DEPOSIT
+        );
+
+        vm.prank(
+            user1
+        );
+
+        QueueJoinLeaveFacet(address(diamond)).joinQue(
+            2_000 * 1e6,
+            0
+        );
+    }
+
+    function test_compoundViaFulfillBulk_purchasedSharesUntrackedRemainderCredited()
+        public
+    {
+        _arm();
+
+        _depositWithReferralAs(
+            user1,
+            DEPOSIT,
+            refA
+        );
+
+        _depositAs(
+            outsider,
+            DEPOSIT
+        );
+
+        vm.prank(
+            outsider
+        );
+
+        (
+            ,
+            uint256 queId
+        ) = QueueJoinLeaveFacet(address(diamond)).joinQue(
+            50 * 1e6,
+            0
+        );
+
+        vm.warp(
+            block.timestamp + 365 days
+        );
+
+        int256[] memory incentives = new int256[](1);
+
+        uint256[] memory memberIds = new uint256[](1);
+
+        memberIds[0] = queId;
+
+        uint256 balanceBefore = diamond.balanceOf(
+            user1
+        );
+
+        vm.recordLogs();
+
+        vm.prank(
+            user1
+        );
+
+        (
+            uint256 received,
+        ) = QueueFulfillFacet(address(diamond)).compoundInterestViaFulfillBulk(
+            incentives,
+            memberIds,
+            new uint256[](0),
+            0,
+            0,
+            type(uint256).max
+        );
+
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        uint256 remainder;
+
+        bytes32 topic = keccak256(
+            "CompoundViaQueue(address,uint256,uint256,uint256)"
+        );
+
+        for (uint256 i; i < logs.length; ++i) {
+
+            if (logs[i].topics[0] != topic) {
+                continue;
+            }
+
+            (
+                ,
+                ,
+                remainder
+            ) = abi.decode(
+                logs[i].data,
+                (
+                    uint256,
+                    uint256,
+                    uint256
+                )
+            );
+        }
+
+        assertGt(
+            remainder,
+            0
+        );
+
+        assertEq(
+            diamond.balanceOf(
+                user1
+            ),
+            balanceBefore + received + remainder
+        );
+
+        assertEq(
+            _recorder().getTrackedContribution(
+                user1
+            ),
+            DEPOSIT + remainder
+        );
+
+        assertEq(
+            _recorder().getAttributedContribution(
+                user1
+            ),
+            DEPOSIT + remainder
+        );
+
+        assertEq(
+            _recorder().getCohortScore(
+                refA
+            ),
+            DEPOSIT + remainder
+        );
+
+        assertEq(
+            _recorder().getTrackedContribution(
+                outsider
+            ),
+            DEPOSIT - 50 * 1e6
         );
     }
 }

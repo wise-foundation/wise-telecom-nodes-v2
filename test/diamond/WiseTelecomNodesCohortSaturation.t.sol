@@ -132,7 +132,9 @@ contract WiseTelecomNodesCohortSaturationTest is Test {
         );
 
         assertEq(
-            CohortWeeks.laneY1(book),
+            CohortWeeks._laneY1(
+                book
+            ),
             100
         );
     }
@@ -227,7 +229,10 @@ contract WiseTelecomNodesCohortSaturationTest is Test {
 
         uint256 base = uint256(
             keccak256(
-                abi.encode(referrer, uint256(72))
+                abi.encode(
+                    referrer,
+                    uint256(72)
+                )
             )
         );
 
@@ -296,17 +301,23 @@ contract WiseTelecomNodesCohortSaturationTest is Test {
         );
 
         assertEq(
-            CohortWeeks.laneY1(book),
+            CohortWeeks._laneY1(
+                book
+            ),
             0
         );
 
         assertEq(
-            CohortWeeks.laneY2(book),
+            CohortWeeks._laneY2(
+                book
+            ),
             0
         );
 
         assertEq(
-            CohortWeeks.laneM(book),
+            CohortWeeks._laneM(
+                book
+            ),
             MASK80
         );
 
@@ -393,7 +404,7 @@ contract WiseTelecomNodesCohortSaturationTest is Test {
 
         uint256 mSeed = MASK80 - 999_999;
 
-        uint256 crumbSeed = WRITTEN_BIT | CohortWeeks.packLanes(
+        uint256 crumbSeed = WRITTEN_BIT | CohortWeeks._packLanes(
             y1Seed,
             y2Seed,
             mSeed
@@ -418,7 +429,7 @@ contract WiseTelecomNodesCohortSaturationTest is Test {
             week
         );
 
-        uint256 expected = WRITTEN_BIT | CohortWeeks.packLanes(
+        uint256 expected = WRITTEN_BIT | CohortWeeks._packLanes(
             MASK80,
             y2Seed,
             mSeed
@@ -435,6 +446,11 @@ contract WiseTelecomNodesCohortSaturationTest is Test {
     function test_reduceBook_floorsAtZeroAndEmitsAnomaly()
         external
     {
+        harness.harnessSetLastSettle(
+            referrer,
+            BASE_TIME
+        );
+
         harness.harnessSetBookLanes(
             referrer,
             5,

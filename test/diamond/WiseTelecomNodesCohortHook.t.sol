@@ -88,7 +88,11 @@ contract MockPermit2 is IPermit2 {
  * grace hook and confirming the recorder goes cleanly inert. Mirrors
  * the wiring and helper shapes of
  * {WiseTelecomNodesCohortTouchpointsTest} and the grace-freeze
- * scenarios of {WiseTelecomNodesGraceFreezeHookTest}.
+ * scenarios of {WiseTelecomNodesGraceFreezeHookTest}. The
+ * transfer-hook execute refuses a pending zero hook while the
+ * recorder is armed and executes it after a disarm, while a cohort
+ * hook swap still executes armed and an execute with nothing pending
+ * keeps its own error.
  */
 contract WiseTelecomNodesCohortHookTest is DiamondTestHarness {
 
@@ -144,19 +148,19 @@ contract WiseTelecomNodesCohortHookTest is DiamondTestHarness {
         _wireOne(
             diamond,
             address(new ReferralFacet()),
-            WiseTelecomNodesDiamondSelectors.referralSelectors()
+            WiseTelecomNodesDiamondSelectors._referralSelectors()
         );
 
         _wireOne(
             diamond,
             address(new Permit2ReferralFacet()),
-            WiseTelecomNodesDiamondSelectors.permit2ReferralSelectors()
+            WiseTelecomNodesDiamondSelectors._permit2ReferralSelectors()
         );
 
         _wireOne(
             diamond,
             address(new CohortRecorderFacet()),
-            WiseTelecomNodesDiamondSelectors.cohortRecorderSelectors()
+            WiseTelecomNodesDiamondSelectors._cohortRecorderSelectors()
         );
 
         AdminFacet(address(diamond)).proposeTransferHookFacet(
@@ -308,7 +312,9 @@ contract WiseTelecomNodesCohortHookTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             STAMP_AMOUNT
         );
     }
@@ -368,7 +374,9 @@ contract WiseTelecomNodesCohortHookTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             STAMP_AMOUNT
         );
 
@@ -381,12 +389,16 @@ contract WiseTelecomNodesCohortHookTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             STAMP_AMOUNT - 2_000 * 1e6
         );
 
         assertEq(
-            _recorder().getCohortScore(refA),
+            _recorder().getCohortScore(
+                refA
+            ),
             STAMP_AMOUNT - 2_000 * 1e6
         );
     }
@@ -409,12 +421,16 @@ contract WiseTelecomNodesCohortHookTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.balanceOf(outsider),
+            diamond.balanceOf(
+                outsider
+            ),
             2_000 * 1e6
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             STAMP_AMOUNT
         );
 
@@ -427,7 +443,9 @@ contract WiseTelecomNodesCohortHookTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             STAMP_AMOUNT - 2_000 * 1e6
         );
     }
@@ -468,7 +486,9 @@ contract WiseTelecomNodesCohortHookTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.balanceOf(user1),
+            diamond.balanceOf(
+                user1
+            ),
             DEPOSIT
         );
     }
@@ -512,17 +532,23 @@ contract WiseTelecomNodesCohortHookTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.balanceOf(outsider),
+            diamond.balanceOf(
+                outsider
+            ),
             1_000 * 1e6
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             0
         );
 
         assertEq(
-            _recorder().getCohortScore(refA),
+            _recorder().getCohortScore(
+                refA
+            ),
             0
         );
     }
@@ -595,13 +621,13 @@ contract WiseTelecomNodesCohortHookTest is DiamondTestHarness {
         _wireOne(
             live,
             address(new ReferralFacet()),
-            WiseTelecomNodesDiamondSelectors.referralSelectors()
+            WiseTelecomNodesDiamondSelectors._referralSelectors()
         );
 
         _wireOne(
             live,
             address(new Permit2ReferralFacet()),
-            WiseTelecomNodesDiamondSelectors.permit2ReferralSelectors()
+            WiseTelecomNodesDiamondSelectors._permit2ReferralSelectors()
         );
 
         AdminFacet(address(live)).proposeTransferHookFacet(
@@ -638,7 +664,9 @@ contract WiseTelecomNodesCohortHookTest is DiamondTestHarness {
             DEPOSIT
         );
 
-        uint256 user2BalanceBefore = live.balanceOf(user2);
+        uint256 user2BalanceBefore = live.balanceOf(
+            user2
+        );
 
         usd.mint(
             user1,
@@ -667,7 +695,7 @@ contract WiseTelecomNodesCohortHookTest is DiamondTestHarness {
         address cohortHook = address(new CohortHookFacet());
 
         live.proposeSelectors(
-            WiseTelecomNodesDiamondSelectors.cohortRecorderSelectors(),
+            WiseTelecomNodesDiamondSelectors._cohortRecorderSelectors(),
             cohortRecorder
         );
 
@@ -680,7 +708,7 @@ contract WiseTelecomNodesCohortHookTest is DiamondTestHarness {
         );
 
         live.executeSelectorChanges(
-            WiseTelecomNodesDiamondSelectors.cohortRecorderSelectors()
+            WiseTelecomNodesDiamondSelectors._cohortRecorderSelectors()
         );
 
         vm.expectRevert(
@@ -694,7 +722,7 @@ contract WiseTelecomNodesCohortHookTest is DiamondTestHarness {
         );
 
         live.executeSelectorChanges(
-            WiseTelecomNodesDiamondSelectors.cohortRecorderSelectors()
+            WiseTelecomNodesDiamondSelectors._cohortRecorderSelectors()
         );
 
         AdminFacet(address(live)).executeTransferHookFacetChange();
@@ -702,12 +730,16 @@ contract WiseTelecomNodesCohortHookTest is DiamondTestHarness {
         CohortRecorderFacet liveRecorder = CohortRecorderFacet(address(live));
 
         assertEq(
-            liveRecorder.getTrackedContribution(user1),
+            liveRecorder.getTrackedContribution(
+                user1
+            ),
             0
         );
 
         assertEq(
-            liveRecorder.getCohortScore(refA),
+            liveRecorder.getCohortScore(
+                refA
+            ),
             0
         );
 
@@ -743,12 +775,16 @@ contract WiseTelecomNodesCohortHookTest is DiamondTestHarness {
         );
 
         assertEq(
-            liveRecorder.getTrackedContribution(user1),
+            liveRecorder.getTrackedContribution(
+                user1
+            ),
             0
         );
 
         assertEq(
-            liveRecorder.getCohortScore(refA),
+            liveRecorder.getCohortScore(
+                refA
+            ),
             0
         );
 
@@ -780,12 +816,16 @@ contract WiseTelecomNodesCohortHookTest is DiamondTestHarness {
         );
 
         assertEq(
-            liveRecorder.getTrackedContribution(user1),
+            liveRecorder.getTrackedContribution(
+                user1
+            ),
             DEPOSIT
         );
 
         assertEq(
-            liveRecorder.getCohortScore(refA),
+            liveRecorder.getCohortScore(
+                refA
+            ),
             DEPOSIT
         );
 
@@ -807,22 +847,30 @@ contract WiseTelecomNodesCohortHookTest is DiamondTestHarness {
         );
 
         assertEq(
-            liveRecorder.getTrackedContribution(user1),
+            liveRecorder.getTrackedContribution(
+                user1
+            ),
             4_000 * 1e6
         );
 
         assertEq(
-            liveRecorder.getCohortScore(refA),
+            liveRecorder.getCohortScore(
+                refA
+            ),
             4_000 * 1e6
         );
 
         assertEq(
-            live.balanceOf(user1),
+            live.balanceOf(
+                user1
+            ),
             4_000 * 1e6
         );
 
         assertEq(
-            live.balanceOf(user2),
+            live.balanceOf(
+                user2
+            ),
             user2BalanceBefore
         );
     }
@@ -838,9 +886,13 @@ contract WiseTelecomNodesCohortHookTest is DiamondTestHarness {
             refA
         );
 
-        uint256 trackedBefore = _recorder().getTrackedContribution(user1);
+        uint256 trackedBefore = _recorder().getTrackedContribution(
+            user1
+        );
 
-        uint256 scoreBefore = _recorder().getCohortScore(refA);
+        uint256 scoreBefore = _recorder().getCohortScore(
+            refA
+        );
 
         AdminFacet(address(diamond)).setCohortSyncEnabled(
             false
@@ -863,17 +915,23 @@ contract WiseTelecomNodesCohortHookTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.balanceOf(outsider),
+            diamond.balanceOf(
+                outsider
+            ),
             1_000 * 1e6
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             trackedBefore
         );
 
         assertEq(
-            _recorder().getCohortScore(refA),
+            _recorder().getCohortScore(
+                refA
+            ),
             scoreBefore
         );
 
@@ -886,12 +944,16 @@ contract WiseTelecomNodesCohortHookTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             trackedBefore
         );
 
         assertEq(
-            _recorder().getCohortScore(refA),
+            _recorder().getCohortScore(
+                refA
+            ),
             scoreBefore
         );
     }
@@ -914,5 +976,101 @@ contract WiseTelecomNodesCohortHookTest is DiamondTestHarness {
         AdminFacet(address(diamond)).setCohortSyncEnabled(
             true
         );
+    }
+
+    function test_executeTransferHookFacetChange_zeroHookWhileArmed_reverts()
+        public
+    {
+        _arm();
+
+        address hookBefore = diamond.transferHookFacet();
+
+        AdminFacet(address(diamond)).proposeTransferHookFacet(
+            address(0)
+        );
+
+        vm.warp(
+            block.timestamp + HOOK_DELAY + 1
+        );
+
+        vm.expectRevert(
+            WiseTelecomNodesDiamondErrors.CohortHookNotInstalled.selector
+        );
+
+        AdminFacet(address(diamond)).executeTransferHookFacetChange();
+
+        assertEq(
+            diamond.transferHookFacet(),
+            hookBefore
+        );
+
+        assertGt(
+            diamond.transferHookChangeQueuedAt(),
+            0
+        );
+    }
+
+    function test_executeTransferHookFacetChange_zeroHookAfterDisarm_succeeds()
+        public
+    {
+        _arm();
+
+        AdminFacet(address(diamond)).proposeTransferHookFacet(
+            address(0)
+        );
+
+        vm.warp(
+            block.timestamp + HOOK_DELAY + 1
+        );
+
+        AdminFacet(address(diamond)).setCohortSyncEnabled(
+            false
+        );
+
+        AdminFacet(address(diamond)).executeTransferHookFacetChange();
+
+        assertEq(
+            diamond.transferHookFacet(),
+            address(0)
+        );
+    }
+
+    function test_executeTransferHookFacetChange_cohortHookSwapWhileArmed_succeeds()
+        public
+    {
+        _arm();
+
+        address fresh = address(new CohortHookFacet());
+
+        AdminFacet(address(diamond)).proposeTransferHookFacet(
+            fresh
+        );
+
+        vm.warp(
+            block.timestamp + HOOK_DELAY + 1
+        );
+
+        AdminFacet(address(diamond)).executeTransferHookFacetChange();
+
+        assertEq(
+            diamond.transferHookFacet(),
+            fresh
+        );
+
+        assertTrue(
+            _recorder().getCohortSyncEnabled()
+        );
+    }
+
+    function test_executeTransferHookFacetChange_nothingProposedWhileArmed_reverts()
+        public
+    {
+        _arm();
+
+        vm.expectRevert(
+            WiseTelecomNodesDiamondErrors.NoTransferHookChangeProposed.selector
+        );
+
+        AdminFacet(address(diamond)).executeTransferHookFacetChange();
     }
 }
