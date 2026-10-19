@@ -5,37 +5,15 @@ pragma solidity =0.8.36;
 import {CohortRecorderBase} from "./CohortRecorderBase.sol";
 
 /**
- * @dev CohortBridgeHookFacet: the cross-chain half of the cohort
- * recorder engine: the bridge-carry capture and apply plus the
- * referrer-flip migration. It lives in its OWN deployment because the
- * full engine no longer fits one EIP-170 contract; the compiler's
- * dead-code elimination gives each engine facet only the internals
- * its entrypoints reach, so the transfer-hook facet keeps the hot
- * clamp/credit/settle/move paths and this facet carries the
- * bridge-and-flip closure of the same {CohortRecorderBase} source:
- * one engine source, two compiled slices, byte-identical storage
- * layout.
- *
- * Unlike its slot-45 sibling this facet is reached through the
- * DISPATCHER routing table: the helper-chain stubs look up
- * `selectorToFacet[...]` for the three entrypoint selectors and
- * delegatecall the routed address under the same transient
- * `hookExecuting` bracket. Routing therefore shares the selector
- * timelock discipline every facet upgrade uses, and an unrouted
- * selector degrades exactly like an uninstalled hook: bridge capture
- * returns an empty payload, bridge apply reports failure (attribution
- * lost, mint unaffected), and the flip stub reverts so the registry
- * defers the migration. Although the selectors are routed, direct
- * external calls always revert; the `hookExecuting` bracket only
- * ever closes around the vault's own internal dispatch.
- *
- * All three entrypoints are `payable` for the same reason as the
- * slot-45 engine's: they execute inside `bridgeToVault` /
- * `bridgeToVaultWithReferral`, the diamond's payable functions, and a
- * delegatecall inherits the ambient `msg.value`. The bridge-apply
- * path runs inside `ccipReceive`, where a revert would strand an
- * already-burned bridge; every failure in it degrades to an anomaly
- * event, never a revert.
+ * @dev CohortBridgeHookFacet: the bridge carry and referrer flip slice of
+ * the cohort engine, reached by the helper chain stubs through the
+ * dispatcher under the `hookExecuting` bracket. An unrouted selector
+ * degrades like an uninstalled hook: the capture returns an empty payload,
+ * the apply reports failure and the flip reverts so the registry defers
+ * it. The flip drains a parked third party first; a parked flipping user
+ * is resolved by the migration itself against the old referrer. The
+ * entrypoints are payable for the same reason as the hook slice, and the
+ * apply never reverts inside `ccipReceive`.
  */
 contract CohortBridgeHookFacet is CohortRecorderBase {
 
@@ -47,11 +25,11 @@ contract CohortBridgeHookFacet is CohortRecorderBase {
         external
         payable
         onlyDelegateCall
+        onlyHookExecution
     {
-        require(
-            hookExecuting,
-            NotHookExecution()
-        );
+        if (pendingDivestSync != _user) {
+            _drainPendingDivestCohort();
+        }
 
         _migrateReferrerCohort(
             _user,
@@ -70,13 +48,9 @@ contract CohortBridgeHookFacet is CohortRecorderBase {
         external
         payable
         onlyDelegateCall
+        onlyHookExecution
         returns (bytes memory)
     {
-        require(
-            hookExecuting,
-            NotHookExecution()
-        );
-
         return _captureBridgeOutCohort(
             _user,
             _dstChainSelector,
@@ -95,13 +69,9 @@ contract CohortBridgeHookFacet is CohortRecorderBase {
         external
         payable
         onlyDelegateCall
+        onlyHookExecution
         returns (bool)
     {
-        require(
-            hookExecuting,
-            NotHookExecution()
-        );
-
         return _applyBridgeInCohort(
             _user,
             _srcChainSelector,
