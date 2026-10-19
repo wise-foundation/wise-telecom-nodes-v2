@@ -108,19 +108,19 @@ contract UpgradeCohortFlush is VaultConfig {
 
         _proposeGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.adminSelectors(),
+            WiseTelecomNodesDiamondSelectors._adminSelectors(),
             adminFacet
         );
 
         _proposeGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.cohortFlushSelectors(),
+            WiseTelecomNodesDiamondSelectors._cohortFlushSelectors(),
             cohortFlushFacet
         );
 
         _proposeGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.cohortFlushPolicySelectors(),
+            WiseTelecomNodesDiamondSelectors._cohortFlushPolicySelectors(),
             cohortFlushPolicyFacet
         );
 
@@ -130,12 +130,35 @@ contract UpgradeCohortFlush is VaultConfig {
 
         vm.stopBroadcast();
 
-        console2.log("proposed cohort-flush upgrade on diamond", diamond);
-        console2.log("  AdminFacet             ", adminFacet);
-        console2.log("  CohortFlushFacet       ", cohortFlushFacet);
-        console2.log("  CohortFlushPolicyFacet ", cohortFlushPolicyFacet);
-        console2.log("  CohortHookFacet        ", cohortHookFacet);
-        console2.log("earliest execute()", block.timestamp + 3 days);
+        console2.log(
+            "proposed cohort-flush upgrade on diamond",
+            diamond
+        );
+
+        console2.log(
+            "  AdminFacet             ",
+            adminFacet
+        );
+
+        console2.log(
+            "  CohortFlushFacet       ",
+            cohortFlushFacet
+        );
+
+        console2.log(
+            "  CohortFlushPolicyFacet ",
+            cohortFlushPolicyFacet
+        );
+
+        console2.log(
+            "  CohortHookFacet        ",
+            cohortHookFacet
+        );
+
+        console2.log(
+            "earliest execute()",
+            block.timestamp + 3 days
+        );
     }
 
     function execute()
@@ -157,17 +180,17 @@ contract UpgradeCohortFlush is VaultConfig {
 
         _executeGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.adminSelectors()
+            WiseTelecomNodesDiamondSelectors._adminSelectors()
         );
 
         _executeGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.cohortFlushSelectors()
+            WiseTelecomNodesDiamondSelectors._cohortFlushSelectors()
         );
 
         _executeGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.cohortFlushPolicySelectors()
+            WiseTelecomNodesDiamondSelectors._cohortFlushPolicySelectors()
         );
 
         if (WiseTelecomNodesDiamond(payable(diamond)).transferHookChangeQueuedAt() > 0) {
@@ -176,8 +199,14 @@ contract UpgradeCohortFlush is VaultConfig {
 
         vm.stopBroadcast();
 
-        console2.log("executed cohort-flush selector round on diamond", diamond);
-        console2.log("run proposeFlushHub() now (second 3-day clock)");
+        console2.log(
+            "executed cohort-flush selector round on diamond",
+            diamond
+        );
+
+        console2.log(
+            "run proposeFlushHub() now (second 3-day clock)"
+        );
     }
 
     function proposeFlushHub()
@@ -216,7 +245,11 @@ contract UpgradeCohortFlush is VaultConfig {
         );
 
         if (AdminFacet(diamond).getFlushHubChangeQueuedAt() > 0) {
-            console2.log("flush hub pointer proposal already pending on diamond", diamond);
+            console2.log(
+                "flush hub pointer proposal already pending on diamond",
+                diamond
+            );
+
             return;
         }
 
@@ -231,10 +264,25 @@ contract UpgradeCohortFlush is VaultConfig {
 
         vm.stopBroadcast();
 
-        console2.log("proposed flush hub pointer on diamond", diamond);
-        console2.log("  hub          ", hub);
-        console2.log("  chainSelector", chainSelector);
-        console2.log("earliest executeFlushHub()", block.timestamp + 3 days);
+        console2.log(
+            "proposed flush hub pointer on diamond",
+            diamond
+        );
+
+        console2.log(
+            "  hub          ",
+            hub
+        );
+
+        console2.log(
+            "  chainSelector",
+            chainSelector
+        );
+
+        console2.log(
+            "earliest executeFlushHub()",
+            block.timestamp + 3 days
+        );
     }
 
     function executeFlushHub()
@@ -277,8 +325,14 @@ contract UpgradeCohortFlush is VaultConfig {
             "UpgradeCohortFlush: pointer does not match config hub"
         );
 
-        console2.log("flush hub pointer wired on diamond", diamond);
-        console2.log("run DeployReferralHub.wireFlush() on the hub chain so this vault is accepted");
+        console2.log(
+            "flush hub pointer wired on diamond",
+            diamond
+        );
+
+        console2.log(
+            "run DeployReferralHub.wireFlush() on the hub chain so this vault is accepted"
+        );
     }
 
     function abort()
@@ -300,12 +354,12 @@ contract UpgradeCohortFlush is VaultConfig {
 
         _cancelGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.adminSelectors()
+            WiseTelecomNodesDiamondSelectors._adminSelectors()
         );
 
         _cancelGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.cohortFlushSelectors()
+            WiseTelecomNodesDiamondSelectors._cohortFlushSelectors()
         );
 
         if (WiseTelecomNodesDiamond(payable(diamond)).transferHookChangeQueuedAt() > 0) {
@@ -324,7 +378,10 @@ contract UpgradeCohortFlush is VaultConfig {
 
         vm.stopBroadcast();
 
-        console2.log("aborted pending cohort-flush upgrade on diamond", diamond);
+        console2.log(
+            "aborted pending cohort-flush upgrade on diamond",
+            diamond
+        );
     }
 
     function status()
@@ -341,21 +398,30 @@ contract UpgradeCohortFlush is VaultConfig {
             payable(diamond)
         );
 
-        console2.log("diamond", diamond);
+        console2.log(
+            "diamond",
+            diamond
+        );
 
         console2.log(
             "admin group facet",
-            d.selectorToFacet(WiseTelecomNodesDiamondSelectors.adminSelectors()[0])
+            d.selectorToFacet(
+                WiseTelecomNodesDiamondSelectors._adminSelectors()[0]
+            )
         );
 
         console2.log(
             "cohortFlush group facet",
-            d.selectorToFacet(WiseTelecomNodesDiamondSelectors.cohortFlushSelectors()[0])
+            d.selectorToFacet(
+                WiseTelecomNodesDiamondSelectors._cohortFlushSelectors()[0]
+            )
         );
 
         console2.log(
             "cohortFlushPolicy group facet",
-            d.selectorToFacet(WiseTelecomNodesDiamondSelectors.cohortFlushPolicySelectors()[0])
+            d.selectorToFacet(
+                WiseTelecomNodesDiamondSelectors._cohortFlushPolicySelectors()[0]
+            )
         );
 
         console2.log(
@@ -375,8 +441,15 @@ contract UpgradeCohortFlush is VaultConfig {
                 uint64 chainSelector
             ) = AdminFacet(diamond).getFlushHub();
 
-            console2.log("onchain flush hub", hub);
-            console2.log("onchain flush selector", chainSelector);
+            console2.log(
+                "onchain flush hub",
+                hub
+            );
+
+            console2.log(
+                "onchain flush selector",
+                chainSelector
+            );
 
             console2.log(
                 "pointer queuedAt",

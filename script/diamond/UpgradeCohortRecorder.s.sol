@@ -97,61 +97,61 @@ contract UpgradeCohortRecorder is VaultConfig {
 
         _proposeGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.adminSelectors(),
+            WiseTelecomNodesDiamondSelectors._adminSelectors(),
             adminFacet
         );
 
         _proposeGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.userSelectors(),
+            WiseTelecomNodesDiamondSelectors._userSelectors(),
             userFacet
         );
 
         _proposeGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.permit2Selectors(),
+            WiseTelecomNodesDiamondSelectors._permit2Selectors(),
             permit2UserFacet
         );
 
         _proposeGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.moveSelectors(),
+            WiseTelecomNodesDiamondSelectors._moveSelectors(),
             moveFacet
         );
 
         _proposeGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.bridgeSelectors(),
+            WiseTelecomNodesDiamondSelectors._bridgeSelectors(),
             bridgeFacet
         );
 
         _proposeGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.queueJoinLeaveSelectors(),
+            WiseTelecomNodesDiamondSelectors._queueJoinLeaveSelectors(),
             queueJoinLeaveFacet
         );
 
         _proposeGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.queueFulfillSelectors(),
+            WiseTelecomNodesDiamondSelectors._queueFulfillSelectors(),
             queueFulfillFacet
         );
 
         _proposeGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.referralSelectors(),
+            WiseTelecomNodesDiamondSelectors._referralSelectors(),
             referralFacet
         );
 
         _proposeGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.permit2ReferralSelectors(),
+            WiseTelecomNodesDiamondSelectors._permit2ReferralSelectors(),
             permit2ReferralFacet
         );
 
         _proposeGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.cohortRecorderSelectors(),
+            WiseTelecomNodesDiamondSelectors._cohortRecorderSelectors(),
             cohortRecorderFacet
         );
 
@@ -161,19 +161,70 @@ contract UpgradeCohortRecorder is VaultConfig {
 
         vm.stopBroadcast();
 
-        console2.log("proposed cohort-recorder upgrade on diamond", diamond);
-        console2.log("  AdminFacet          ", adminFacet);
-        console2.log("  UserFacet           ", userFacet);
-        console2.log("  Permit2UserFacet    ", permit2UserFacet);
-        console2.log("  MoveFacet           ", moveFacet);
-        console2.log("  BridgeFacet         ", bridgeFacet);
-        console2.log("  QueueJoinLeaveFacet ", queueJoinLeaveFacet);
-        console2.log("  QueueFulfillFacet   ", queueFulfillFacet);
-        console2.log("  ReferralFacet       ", referralFacet);
-        console2.log("  Permit2ReferralFacet", permit2ReferralFacet);
-        console2.log("  CohortRecorderFacet ", cohortRecorderFacet);
-        console2.log("  CohortHookFacet     ", cohortHookFacet);
-        console2.log("earliest execute()", block.timestamp + 3 days);
+        console2.log(
+            "proposed cohort-recorder upgrade on diamond",
+            diamond
+        );
+
+        console2.log(
+            "  AdminFacet          ",
+            adminFacet
+        );
+
+        console2.log(
+            "  UserFacet           ",
+            userFacet
+        );
+
+        console2.log(
+            "  Permit2UserFacet    ",
+            permit2UserFacet
+        );
+
+        console2.log(
+            "  MoveFacet           ",
+            moveFacet
+        );
+
+        console2.log(
+            "  BridgeFacet         ",
+            bridgeFacet
+        );
+
+        console2.log(
+            "  QueueJoinLeaveFacet ",
+            queueJoinLeaveFacet
+        );
+
+        console2.log(
+            "  QueueFulfillFacet   ",
+            queueFulfillFacet
+        );
+
+        console2.log(
+            "  ReferralFacet       ",
+            referralFacet
+        );
+
+        console2.log(
+            "  Permit2ReferralFacet",
+            permit2ReferralFacet
+        );
+
+        console2.log(
+            "  CohortRecorderFacet ",
+            cohortRecorderFacet
+        );
+
+        console2.log(
+            "  CohortHookFacet     ",
+            cohortHookFacet
+        );
+
+        console2.log(
+            "earliest execute()",
+            block.timestamp + 3 days
+        );
     }
 
     function execute()
@@ -195,52 +246,52 @@ contract UpgradeCohortRecorder is VaultConfig {
 
         _executeGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.adminSelectors()
+            WiseTelecomNodesDiamondSelectors._adminSelectors()
         );
 
         _executeGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.userSelectors()
+            WiseTelecomNodesDiamondSelectors._userSelectors()
         );
 
         _executeGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.permit2Selectors()
+            WiseTelecomNodesDiamondSelectors._permit2Selectors()
         );
 
         _executeGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.moveSelectors()
+            WiseTelecomNodesDiamondSelectors._moveSelectors()
         );
 
         _executeGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.bridgeSelectors()
+            WiseTelecomNodesDiamondSelectors._bridgeSelectors()
         );
 
         _executeGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.queueJoinLeaveSelectors()
+            WiseTelecomNodesDiamondSelectors._queueJoinLeaveSelectors()
         );
 
         _executeGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.queueFulfillSelectors()
+            WiseTelecomNodesDiamondSelectors._queueFulfillSelectors()
         );
 
         _executeGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.referralSelectors()
+            WiseTelecomNodesDiamondSelectors._referralSelectors()
         );
 
         _executeGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.permit2ReferralSelectors()
+            WiseTelecomNodesDiamondSelectors._permit2ReferralSelectors()
         );
 
         _executeGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.cohortRecorderSelectors()
+            WiseTelecomNodesDiamondSelectors._cohortRecorderSelectors()
         );
 
         if (WiseTelecomNodesDiamond(payable(diamond)).transferHookChangeQueuedAt() > 0) {
@@ -249,8 +300,14 @@ contract UpgradeCohortRecorder is VaultConfig {
 
         vm.stopBroadcast();
 
-        console2.log("executed cohort-recorder upgrade on diamond", diamond);
-        console2.log("run arm() to enable recording (separate go-live step)");
+        console2.log(
+            "executed cohort-recorder upgrade on diamond",
+            diamond
+        );
+
+        console2.log(
+            "run arm() to enable recording (separate go-live step)"
+        );
     }
 
     function arm()
@@ -280,7 +337,10 @@ contract UpgradeCohortRecorder is VaultConfig {
 
         vm.stopBroadcast();
 
-        console2.log("armed cohort recorder on diamond", diamond);
+        console2.log(
+            "armed cohort recorder on diamond",
+            diamond
+        );
     }
 
     function abort()
@@ -302,52 +362,52 @@ contract UpgradeCohortRecorder is VaultConfig {
 
         _cancelGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.adminSelectors()
+            WiseTelecomNodesDiamondSelectors._adminSelectors()
         );
 
         _cancelGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.userSelectors()
+            WiseTelecomNodesDiamondSelectors._userSelectors()
         );
 
         _cancelGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.permit2Selectors()
+            WiseTelecomNodesDiamondSelectors._permit2Selectors()
         );
 
         _cancelGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.moveSelectors()
+            WiseTelecomNodesDiamondSelectors._moveSelectors()
         );
 
         _cancelGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.bridgeSelectors()
+            WiseTelecomNodesDiamondSelectors._bridgeSelectors()
         );
 
         _cancelGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.queueJoinLeaveSelectors()
+            WiseTelecomNodesDiamondSelectors._queueJoinLeaveSelectors()
         );
 
         _cancelGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.queueFulfillSelectors()
+            WiseTelecomNodesDiamondSelectors._queueFulfillSelectors()
         );
 
         _cancelGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.referralSelectors()
+            WiseTelecomNodesDiamondSelectors._referralSelectors()
         );
 
         _cancelGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.permit2ReferralSelectors()
+            WiseTelecomNodesDiamondSelectors._permit2ReferralSelectors()
         );
 
         _cancelGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.cohortRecorderSelectors()
+            WiseTelecomNodesDiamondSelectors._cohortRecorderSelectors()
         );
 
         if (WiseTelecomNodesDiamond(payable(diamond)).transferHookChangeQueuedAt() > 0) {
@@ -356,7 +416,10 @@ contract UpgradeCohortRecorder is VaultConfig {
 
         vm.stopBroadcast();
 
-        console2.log("aborted pending cohort-recorder upgrade on diamond", diamond);
+        console2.log(
+            "aborted pending cohort-recorder upgrade on diamond",
+            diamond
+        );
     }
 
     function status()
@@ -373,26 +436,37 @@ contract UpgradeCohortRecorder is VaultConfig {
             payable(diamond)
         );
 
-        console2.log("diamond", diamond);
+        console2.log(
+            "diamond",
+            diamond
+        );
 
         console2.log(
             "admin group facet",
-            d.selectorToFacet(WiseTelecomNodesDiamondSelectors.adminSelectors()[0])
+            d.selectorToFacet(
+                WiseTelecomNodesDiamondSelectors._adminSelectors()[0]
+            )
         );
 
         console2.log(
             "user group facet",
-            d.selectorToFacet(WiseTelecomNodesDiamondSelectors.userSelectors()[0])
+            d.selectorToFacet(
+                WiseTelecomNodesDiamondSelectors._userSelectors()[0]
+            )
         );
 
         console2.log(
             "cohort group facet",
-            d.selectorToFacet(WiseTelecomNodesDiamondSelectors.cohortRecorderSelectors()[0])
+            d.selectorToFacet(
+                WiseTelecomNodesDiamondSelectors._cohortRecorderSelectors()[0]
+            )
         );
 
         console2.log(
             "referral group facet",
-            d.selectorToFacet(WiseTelecomNodesDiamondSelectors.referralSelectors()[0])
+            d.selectorToFacet(
+                WiseTelecomNodesDiamondSelectors._referralSelectors()[0]
+            )
         );
 
         console2.log(
@@ -405,7 +479,7 @@ contract UpgradeCohortRecorder is VaultConfig {
             d.proposedTransferHookFacet()
         );
 
-        if (d.selectorToFacet(WiseTelecomNodesDiamondSelectors.cohortRecorderSelectors()[0]) != address(0)) {
+        if (d.selectorToFacet(WiseTelecomNodesDiamondSelectors._cohortRecorderSelectors()[0]) != address(0)) {
             console2.log(
                 "cohortSyncEnabled",
                 CohortRecorderFacet(diamond).getCohortSyncEnabled()

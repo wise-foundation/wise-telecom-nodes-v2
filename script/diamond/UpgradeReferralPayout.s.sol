@@ -122,30 +122,53 @@ contract UpgradeReferralPayout is VaultConfig {
 
         _proposeGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.adminSelectors(),
+            WiseTelecomNodesDiamondSelectors._adminSelectors(),
             adminFacet
         );
 
         _proposeGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.sweepSelectors(),
+            WiseTelecomNodesDiamondSelectors._sweepSelectors(),
             sweepFacet
         );
 
         _proposeGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.referralPayoutSelectors(),
+            WiseTelecomNodesDiamondSelectors._referralPayoutSelectors(),
             referralPayoutFacet
         );
 
         vm.stopBroadcast();
 
-        console2.log("proposed referral-payout upgrade on diamond", diamond);
-        console2.log("  hub (payout vault only)", hub);
-        console2.log("  AdminFacet          ", adminFacet);
-        console2.log("  SweepFacet          ", sweepFacet);
-        console2.log("  ReferralPayoutFacet ", referralPayoutFacet);
-        console2.log("earliest execute()", block.timestamp + 3 days);
+        console2.log(
+            "proposed referral-payout upgrade on diamond",
+            diamond
+        );
+
+        console2.log(
+            "  hub (payout vault only)",
+            hub
+        );
+
+        console2.log(
+            "  AdminFacet          ",
+            adminFacet
+        );
+
+        console2.log(
+            "  SweepFacet          ",
+            sweepFacet
+        );
+
+        console2.log(
+            "  ReferralPayoutFacet ",
+            referralPayoutFacet
+        );
+
+        console2.log(
+            "earliest execute()",
+            block.timestamp + 3 days
+        );
     }
 
     function execute()
@@ -167,27 +190,34 @@ contract UpgradeReferralPayout is VaultConfig {
 
         _executeGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.adminSelectors()
+            WiseTelecomNodesDiamondSelectors._adminSelectors()
         );
 
         _executeGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.sweepSelectors()
+            WiseTelecomNodesDiamondSelectors._sweepSelectors()
         );
 
         _executeGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.referralPayoutSelectors()
+            WiseTelecomNodesDiamondSelectors._referralPayoutSelectors()
         );
 
         vm.stopBroadcast();
 
-        console2.log("executed referral-payout selector round on diamond", diamond);
+        console2.log(
+            "executed referral-payout selector round on diamond",
+            diamond
+        );
 
         if (_isPayoutVault()) {
-            console2.log("run proposeHub() now (second 3-day clock)");
+            console2.log(
+                "run proposeHub() now (second 3-day clock)"
+            );
         } else {
-            console2.log("non-payout vault: no pointer to wire, round complete");
+            console2.log(
+                "non-payout vault: no pointer to wire, round complete"
+            );
         }
     }
 
@@ -223,7 +253,11 @@ contract UpgradeReferralPayout is VaultConfig {
         );
 
         if (AdminFacet(diamond).getPayoutHubChangeQueuedAt() > 0) {
-            console2.log("hub pointer proposal already pending on diamond", diamond);
+            console2.log(
+                "hub pointer proposal already pending on diamond",
+                diamond
+            );
+
             return;
         }
 
@@ -237,9 +271,20 @@ contract UpgradeReferralPayout is VaultConfig {
 
         vm.stopBroadcast();
 
-        console2.log("proposed payout hub pointer on diamond", diamond);
-        console2.log("  hub", hub);
-        console2.log("earliest executeHub()", block.timestamp + 3 days);
+        console2.log(
+            "proposed payout hub pointer on diamond",
+            diamond
+        );
+
+        console2.log(
+            "  hub",
+            hub
+        );
+
+        console2.log(
+            "earliest executeHub()",
+            block.timestamp + 3 days
+        );
     }
 
     function executeHub()
@@ -279,8 +324,14 @@ contract UpgradeReferralPayout is VaultConfig {
             "UpgradeReferralPayout: pointer does not match config hub"
         );
 
-        console2.log("payout hub pointer wired on diamond", diamond);
-        console2.log("run DeployReferralHub.wire() so the hub books against this vault");
+        console2.log(
+            "payout hub pointer wired on diamond",
+            diamond
+        );
+
+        console2.log(
+            "run DeployReferralHub.wire() so the hub books against this vault"
+        );
     }
 
     function abort()
@@ -302,17 +353,17 @@ contract UpgradeReferralPayout is VaultConfig {
 
         _cancelGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.adminSelectors()
+            WiseTelecomNodesDiamondSelectors._adminSelectors()
         );
 
         _cancelGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.sweepSelectors()
+            WiseTelecomNodesDiamondSelectors._sweepSelectors()
         );
 
         _cancelGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.referralPayoutSelectors()
+            WiseTelecomNodesDiamondSelectors._referralPayoutSelectors()
         );
 
         WiseTelecomNodesDiamond d = WiseTelecomNodesDiamond(
@@ -327,7 +378,10 @@ contract UpgradeReferralPayout is VaultConfig {
 
         vm.stopBroadcast();
 
-        console2.log("aborted pending referral-payout upgrade on diamond", diamond);
+        console2.log(
+            "aborted pending referral-payout upgrade on diamond",
+            diamond
+        );
     }
 
     function status()
@@ -344,21 +398,30 @@ contract UpgradeReferralPayout is VaultConfig {
             payable(diamond)
         );
 
-        console2.log("diamond", diamond);
+        console2.log(
+            "diamond",
+            diamond
+        );
 
         console2.log(
             "admin group facet",
-            d.selectorToFacet(WiseTelecomNodesDiamondSelectors.adminSelectors()[0])
+            d.selectorToFacet(
+                WiseTelecomNodesDiamondSelectors._adminSelectors()[0]
+            )
         );
 
         console2.log(
             "sweep group facet",
-            d.selectorToFacet(WiseTelecomNodesDiamondSelectors.sweepSelectors()[0])
+            d.selectorToFacet(
+                WiseTelecomNodesDiamondSelectors._sweepSelectors()[0]
+            )
         );
 
         console2.log(
             "referralPayout group facet",
-            d.selectorToFacet(WiseTelecomNodesDiamondSelectors.referralPayoutSelectors()[0])
+            d.selectorToFacet(
+                WiseTelecomNodesDiamondSelectors._referralPayoutSelectors()[0]
+            )
         );
 
         if (d.selectorToFacet(AdminFacet.getPayoutHub.selector) != address(0)) {

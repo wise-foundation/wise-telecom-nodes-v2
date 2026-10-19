@@ -52,21 +52,35 @@ contract UpgradeReferral is VaultConfig {
         Permit2ReferralFacet permit2Referral = new Permit2ReferralFacet();
 
         WiseTelecomNodesDiamond(payable(diamond)).proposeSelectors(
-            WiseTelecomNodesDiamondSelectors.referralSelectors(),
+            WiseTelecomNodesDiamondSelectors._referralSelectors(),
             address(referral)
         );
 
         WiseTelecomNodesDiamond(payable(diamond)).proposeSelectors(
-            WiseTelecomNodesDiamondSelectors.permit2ReferralSelectors(),
+            WiseTelecomNodesDiamondSelectors._permit2ReferralSelectors(),
             address(permit2Referral)
         );
 
         vm.stopBroadcast();
 
-        console2.log("proposed referral upgrade on diamond", diamond);
-        console2.log("  ReferralFacet       ", address(referral));
-        console2.log("  Permit2ReferralFacet", address(permit2Referral));
-        console2.log("run execute() after the 3-day timelock");
+        console2.log(
+            "proposed referral upgrade on diamond",
+            diamond
+        );
+
+        console2.log(
+            "  ReferralFacet       ",
+            address(referral)
+        );
+
+        console2.log(
+            "  Permit2ReferralFacet",
+            address(permit2Referral)
+        );
+
+        console2.log(
+            "run execute() after the 3-day timelock"
+        );
     }
 
     function execute()
@@ -87,15 +101,18 @@ contract UpgradeReferral is VaultConfig {
         );
 
         WiseTelecomNodesDiamond(payable(diamond)).executeSelectorChanges(
-            WiseTelecomNodesDiamondSelectors.referralSelectors()
+            WiseTelecomNodesDiamondSelectors._referralSelectors()
         );
 
         WiseTelecomNodesDiamond(payable(diamond)).executeSelectorChanges(
-            WiseTelecomNodesDiamondSelectors.permit2ReferralSelectors()
+            WiseTelecomNodesDiamondSelectors._permit2ReferralSelectors()
         );
 
         vm.stopBroadcast();
 
-        console2.log("executed referral upgrade on diamond", diamond);
+        console2.log(
+            "executed referral upgrade on diamond",
+            diamond
+        );
     }
 }
