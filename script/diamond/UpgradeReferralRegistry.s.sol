@@ -13,6 +13,7 @@ import {MoveFacet} from "../../src/diamond/vault/facets/MoveFacet.sol";
 import {BridgeFacet} from "../../src/diamond/vault/facets/BridgeFacet.sol";
 import {QueueJoinLeaveFacet} from "../../src/diamond/vault/facets/QueueJoinLeaveFacet.sol";
 import {QueueFulfillFacet} from "../../src/diamond/vault/facets/QueueFulfillFacet.sol";
+import {AutoCompoundFacet} from "../../src/diamond/vault/facets/AutoCompoundFacet.sol";
 import {ReferralFacet} from "../../src/diamond/vault/facets/pending/ReferralFacet.sol";
 import {Permit2ReferralFacet} from "../../src/diamond/vault/facets/pending/Permit2ReferralFacet.sol";
 import {CohortRecorderFacet} from "../../src/diamond/vault/facets/pending/CohortRecorderFacet.sol";
@@ -21,6 +22,7 @@ import {CohortBridgeHookFacet} from "../../src/diamond/vault/facets/pending/Coho
 import {CohortMoveHookFacet} from "../../src/diamond/vault/facets/pending/CohortMoveHookFacet.sol";
 import {ReferralRegistry} from "../../src/registry/pending/ReferralRegistry.sol";
 import {IReferralRegistry} from "../../src/diamond/vault/interfaces/pending/IReferralRegistry.sol";
+import {CohortFlushCodec} from "../../src/diamond/shared/pending/CohortFlushCodec.sol";
 import {CohortWeeks} from "../../src/diamond/shared/pending/CohortWeeks.sol";
 
 import {WiseTelecomNodesDiamondSelectors} from "./WiseTelecomNodesDiamondSelectors.sol";
@@ -41,7 +43,7 @@ import {WiseTelecomNodesDiamondSelectors} from "./WiseTelecomNodesDiamondSelecto
 /// TWO chained 3-day clocks per vault; the pointer trio selectors are NEW (not
 /// genesis-routed), so `proposeReferralRegistry` only exists on the diamond after the
 /// selector round executes:
-///   `propose()`        : deploys the 13 manifest facets, proposes all 12 selector batches
+///   `propose()`        : deploys the 14 manifest facets, proposes all 13 selector batches
 ///                        AND the transfer-hook swap to {CohortHookFacet}. Clock 1 starts.
 ///                        The routed move slice {CohortMoveHookFacet} ships in this round
 ///                        beside the routed bridge slice and the pointer swap, because the
@@ -49,7 +51,7 @@ import {WiseTelecomNodesDiamondSelectors} from "./WiseTelecomNodesDiamondSelecto
 ///   `execute()`        : after 3 days: flips every batch, hook last. Idempotent
 ///                        (queuedAt-guarded), re-runnable after partial mining. Then
 ///                        asserts, in simulation and before anything is sent, that every
-///                        selector of the twelve batches routes to a facet and has no
+///                        selector of the thirteen batches routes to a facet and has no
 ///                        proposal left queued (the legacy pair excepted, whose optional
 ///                        retirement routes it to zero). A batch that carries a selector
 ///                        the genesis dispatcher never routed (the admin batch's
@@ -58,7 +60,8 @@ import {WiseTelecomNodesDiamondSelectors} from "./WiseTelecomNodesDiamondSelecto
 ///                        its proposal was missing or cancelled, and a batch skipped
 ///                        because its first selector was cancelled fails it too. The user,
 ///                        permit2, move, bridge and both queue batches hold only genesis
-///                        selectors and keep their genesis facet when their proposal is
+///                        selectors and the auto compound batch only selectors an earlier
+///                        round routed; each keeps its live facet when its proposal is
 ///                        missing, so compare the per-batch facets `status()` prints with
 ///                        the ones `propose()` logged.
 ///   `proposePointer()` : same day as execute(): first runs the registry seam probe that
@@ -90,7 +93,7 @@ import {WiseTelecomNodesDiamondSelectors} from "./WiseTelecomNodesDiamondSelecto
 ///                        config for this network; a product with no config here, or a
 ///                        recorded address without code, is skipped) routing the round's
 ///                        recorder, bridge hook and move hook batches. It then raises
-///                        `bridgeGasLimit` to 4M (headroom for the atomic cross-chain carry
+///                        `bridgeGasLimit` to 5M (headroom for the atomic cross-chain carry
 ///                        apply on `ccipReceive`) BEFORE `setCohortSyncEnabled(true)` (which
 ///                        itself requires the pointer onchain), so no bridge ever leaves an
 ///                        armed vault under the 200k genesis budget, and post-asserts both
@@ -122,7 +125,7 @@ import {WiseTelecomNodesDiamondSelectors} from "./WiseTelecomNodesDiamondSelecto
 ///                        pointer proposal is cancelled in both cases (pre-execute only); the
 ///                        log names the branch taken.
 ///   `status()`         : read-only sanity print for the runbook (no broadcast), including
-///                        `bridgeGasLimit` and the facet each of the twelve batches routes to
+///                        `bridgeGasLimit` and the facet each of the thirteen batches routes to
 ///                        (batch order of `propose()`).
 ///
 /// Ordering law the steps encode: registry deployed → diamond
@@ -158,7 +161,7 @@ contract UpgradeReferralRegistry is VaultConfig {
         address moveHookFacet;
     }
 
-    uint256 internal constant ARMED_BRIDGE_GAS_LIMIT = 4_000_000;
+    uint256 internal constant ARMED_BRIDGE_GAS_LIMIT = 5_000_000;
 
     function propose()
         external
@@ -185,7 +188,9 @@ contract UpgradeReferralRegistry is VaultConfig {
         );
 
         require(
-            registry.allowedVault(diamond),
+            registry.allowedVault(
+                diamond
+            ),
             "UpgradeReferralRegistry: diamond not allowlisted on the registry (run allow())"
         );
 
@@ -202,6 +207,7 @@ contract UpgradeReferralRegistry is VaultConfig {
         address queueFulfillFacet = address(new QueueFulfillFacet());
         address referralFacet = address(new ReferralFacet());
         address permit2ReferralFacet = address(new Permit2ReferralFacet());
+        address autoCompoundFacet = address(new AutoCompoundFacet());
 
         CohortEngineFacets memory cohort;
         cohort.recorderFacet = address(new CohortRecorderFacet());
@@ -211,74 +217,80 @@ contract UpgradeReferralRegistry is VaultConfig {
 
         _proposeGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.adminSelectors(),
+            WiseTelecomNodesDiamondSelectors._adminSelectors(),
             adminFacet
         );
 
         _proposeGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.userSelectors(),
+            WiseTelecomNodesDiamondSelectors._userSelectors(),
             userFacet
         );
 
         _proposeGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.permit2Selectors(),
+            WiseTelecomNodesDiamondSelectors._permit2Selectors(),
             permit2UserFacet
         );
 
         _proposeGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.moveSelectors(),
+            WiseTelecomNodesDiamondSelectors._moveSelectors(),
             moveFacet
         );
 
         _proposeGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.bridgeSelectors(),
+            WiseTelecomNodesDiamondSelectors._bridgeSelectors(),
             bridgeFacet
         );
 
         _proposeGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.queueJoinLeaveSelectors(),
+            WiseTelecomNodesDiamondSelectors._queueJoinLeaveSelectors(),
             queueJoinLeaveFacet
         );
 
         _proposeGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.queueFulfillSelectors(),
+            WiseTelecomNodesDiamondSelectors._queueFulfillSelectors(),
             queueFulfillFacet
         );
 
         _proposeGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.referralSelectors(),
+            WiseTelecomNodesDiamondSelectors._referralSelectors(),
             referralFacet
         );
 
         _proposeGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.permit2ReferralSelectors(),
+            WiseTelecomNodesDiamondSelectors._permit2ReferralSelectors(),
             permit2ReferralFacet
         );
 
         _proposeGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.cohortRecorderSelectors(),
+            WiseTelecomNodesDiamondSelectors._cohortRecorderSelectors(),
             cohort.recorderFacet
         );
 
         _proposeGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.cohortBridgeHookSelectors(),
+            WiseTelecomNodesDiamondSelectors._cohortBridgeHookSelectors(),
             cohort.bridgeHookFacet
         );
 
         _proposeGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.cohortMoveHookSelectors(),
+            WiseTelecomNodesDiamondSelectors._cohortMoveHookSelectors(),
             cohort.moveHookFacet
+        );
+
+        _proposeGroup(
+            diamond,
+            WiseTelecomNodesDiamondSelectors._autoCompoundSelectors(),
+            autoCompoundFacet
         );
 
         AdminFacet(diamond).proposeTransferHookFacet(
@@ -287,22 +299,90 @@ contract UpgradeReferralRegistry is VaultConfig {
 
         vm.stopBroadcast();
 
-        console2.log("proposed referral-registry upgrade on diamond", diamond);
-        console2.log("  registry (per chain)", address(registry));
-        console2.log("  AdminFacet          ", adminFacet);
-        console2.log("  UserFacet           ", userFacet);
-        console2.log("  Permit2UserFacet    ", permit2UserFacet);
-        console2.log("  MoveFacet           ", moveFacet);
-        console2.log("  BridgeFacet         ", bridgeFacet);
-        console2.log("  QueueJoinLeaveFacet ", queueJoinLeaveFacet);
-        console2.log("  QueueFulfillFacet   ", queueFulfillFacet);
-        console2.log("  ReferralFacet       ", referralFacet);
-        console2.log("  Permit2ReferralFacet", permit2ReferralFacet);
-        console2.log("  CohortRecorderFacet ", cohort.recorderFacet);
-        console2.log("  CohortHookFacet     ", cohort.hookFacet);
-        console2.log("  CohortBridgeHookFacet", cohort.bridgeHookFacet);
-        console2.log("  CohortMoveHookFacet ", cohort.moveHookFacet);
-        console2.log("earliest execute()", block.timestamp + 3 days);
+        console2.log(
+            "proposed referral-registry upgrade on diamond",
+            diamond
+        );
+
+        console2.log(
+            "  registry (per chain)",
+            address(registry)
+        );
+
+        console2.log(
+            "  AdminFacet          ",
+            adminFacet
+        );
+
+        console2.log(
+            "  UserFacet           ",
+            userFacet
+        );
+
+        console2.log(
+            "  Permit2UserFacet    ",
+            permit2UserFacet
+        );
+
+        console2.log(
+            "  MoveFacet           ",
+            moveFacet
+        );
+
+        console2.log(
+            "  BridgeFacet         ",
+            bridgeFacet
+        );
+
+        console2.log(
+            "  QueueJoinLeaveFacet ",
+            queueJoinLeaveFacet
+        );
+
+        console2.log(
+            "  QueueFulfillFacet   ",
+            queueFulfillFacet
+        );
+
+        console2.log(
+            "  ReferralFacet       ",
+            referralFacet
+        );
+
+        console2.log(
+            "  Permit2ReferralFacet",
+            permit2ReferralFacet
+        );
+
+        console2.log(
+            "  CohortRecorderFacet ",
+            cohort.recorderFacet
+        );
+
+        console2.log(
+            "  CohortHookFacet     ",
+            cohort.hookFacet
+        );
+
+        console2.log(
+            "  CohortBridgeHookFacet",
+            cohort.bridgeHookFacet
+        );
+
+        console2.log(
+            "  CohortMoveHookFacet ",
+            cohort.moveHookFacet
+        );
+
+        console2.log(
+            "  AutoCompoundFacet   ",
+            autoCompoundFacet
+        );
+
+        console2.log(
+            "earliest execute()",
+            block.timestamp + 3 days
+        );
     }
 
     function execute()
@@ -324,62 +404,67 @@ contract UpgradeReferralRegistry is VaultConfig {
 
         _executeGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.adminSelectors()
+            WiseTelecomNodesDiamondSelectors._adminSelectors()
         );
 
         _executeGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.userSelectors()
+            WiseTelecomNodesDiamondSelectors._userSelectors()
         );
 
         _executeGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.permit2Selectors()
+            WiseTelecomNodesDiamondSelectors._permit2Selectors()
         );
 
         _executeGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.moveSelectors()
+            WiseTelecomNodesDiamondSelectors._moveSelectors()
         );
 
         _executeGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.bridgeSelectors()
+            WiseTelecomNodesDiamondSelectors._bridgeSelectors()
         );
 
         _executeGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.queueJoinLeaveSelectors()
+            WiseTelecomNodesDiamondSelectors._queueJoinLeaveSelectors()
         );
 
         _executeGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.queueFulfillSelectors()
+            WiseTelecomNodesDiamondSelectors._queueFulfillSelectors()
         );
 
         _executeGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.referralSelectors()
+            WiseTelecomNodesDiamondSelectors._referralSelectors()
         );
 
         _executeGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.permit2ReferralSelectors()
+            WiseTelecomNodesDiamondSelectors._permit2ReferralSelectors()
         );
 
         _executeGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.cohortRecorderSelectors()
+            WiseTelecomNodesDiamondSelectors._cohortRecorderSelectors()
         );
 
         _executeGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.cohortBridgeHookSelectors()
+            WiseTelecomNodesDiamondSelectors._cohortBridgeHookSelectors()
         );
 
         _executeGroup(
             diamond,
-            WiseTelecomNodesDiamondSelectors.cohortMoveHookSelectors()
+            WiseTelecomNodesDiamondSelectors._cohortMoveHookSelectors()
+        );
+
+        _executeGroup(
+            diamond,
+            WiseTelecomNodesDiamondSelectors._autoCompoundSelectors()
         );
 
         if (WiseTelecomNodesDiamond(payable(diamond)).transferHookChangeQueuedAt() > 0) {
@@ -397,8 +482,14 @@ contract UpgradeReferralRegistry is VaultConfig {
             );
         }
 
-        console2.log("executed referral-registry selector round on diamond", diamond);
-        console2.log("run proposePointer() now (second 3-day clock)");
+        console2.log(
+            "executed referral-registry selector round on diamond",
+            diamond
+        );
+
+        console2.log(
+            "run proposePointer() now (second 3-day clock)"
+        );
     }
 
     function proposePointer()
@@ -438,19 +529,30 @@ contract UpgradeReferralRegistry is VaultConfig {
         address proposed = AdminFacet(diamond).getProposedReferralRegistry();
 
         if (pending && proposed == registry) {
-            console2.log("pointer proposal for the config registry already pending on diamond", diamond);
+            console2.log(
+                "pointer proposal for the config registry already pending on diamond",
+                diamond
+            );
+
             return;
         }
 
         bool wired = AdminFacet(diamond).getReferralRegistry() == registry;
 
         if (wired && pending == false) {
-            console2.log("pointer already wired to the config registry on diamond", diamond);
+            console2.log(
+                "pointer already wired to the config registry on diamond",
+                diamond
+            );
+
             return;
         }
 
         if (pending) {
-            console2.log("cancelling mismatched pending pointer proposal", proposed);
+            console2.log(
+                "cancelling mismatched pending pointer proposal",
+                proposed
+            );
         }
 
         vm.startBroadcast(
@@ -464,7 +566,11 @@ contract UpgradeReferralRegistry is VaultConfig {
         if (wired) {
             vm.stopBroadcast();
 
-            console2.log("pointer already wired to the config registry; cancelled the mismatched proposal only on diamond", diamond);
+            console2.log(
+                "pointer already wired to the config registry; cancelled the mismatched proposal only on diamond",
+                diamond
+            );
+
             return;
         }
 
@@ -474,9 +580,20 @@ contract UpgradeReferralRegistry is VaultConfig {
 
         vm.stopBroadcast();
 
-        console2.log("proposed registry pointer on diamond", diamond);
-        console2.log("  registry", registry);
-        console2.log("earliest executePointer()", block.timestamp + 3 days);
+        console2.log(
+            "proposed registry pointer on diamond",
+            diamond
+        );
+
+        console2.log(
+            "  registry",
+            registry
+        );
+
+        console2.log(
+            "earliest executePointer()",
+            block.timestamp + 3 days
+        );
     }
 
     function executePointer()
@@ -522,8 +639,14 @@ contract UpgradeReferralRegistry is VaultConfig {
             "UpgradeReferralRegistry: pointer does not match config registry"
         );
 
-        console2.log("registry pointer wired on diamond", diamond);
-        console2.log("run arm() to enable recording (separate go-live step)");
+        console2.log(
+            "registry pointer wired on diamond",
+            diamond
+        );
+
+        console2.log(
+            "run arm() to enable recording (separate go-live step)"
+        );
     }
 
     function arm()
@@ -551,7 +674,9 @@ contract UpgradeReferralRegistry is VaultConfig {
         );
 
         require(
-            registry.allowedVault(diamond),
+            registry.allowedVault(
+                diamond
+            ),
             "UpgradeReferralRegistry: diamond not allowlisted on the registry"
         );
 
@@ -588,8 +713,15 @@ contract UpgradeReferralRegistry is VaultConfig {
             "UpgradeReferralRegistry: cohortSyncEnabled is not true after arm()"
         );
 
-        console2.log("armed cohort recorder on diamond", diamond);
-        console2.log("  bridgeGasLimit", uint256(BridgeFacet(diamond).bridgeGasLimit()));
+        console2.log(
+            "armed cohort recorder on diamond",
+            diamond
+        );
+
+        console2.log(
+            "  bridgeGasLimit",
+            uint256(BridgeFacet(diamond).bridgeGasLimit())
+        );
     }
 
     function proposeRetireLegacyReferralBridge()
@@ -609,10 +741,10 @@ contract UpgradeReferralRegistry is VaultConfig {
             payable(diamond)
         );
 
-        bytes4[] memory pair = WiseTelecomNodesDiamondSelectors.legacyReferralBridgeSelectors();
+        bytes4[] memory pair = WiseTelecomNodesDiamondSelectors._legacyReferralBridgeSelectors();
 
         require(
-            d.selectorToFacet(WiseTelecomNodesDiamondSelectors.cohortRecorderSelectors()[0]) != address(0),
+            d.selectorToFacet(WiseTelecomNodesDiamondSelectors._cohortRecorderSelectors()[0]) != address(0),
             "UpgradeReferralRegistry: registry round not executed yet (run execute() first)"
         );
 
@@ -641,13 +773,28 @@ contract UpgradeReferralRegistry is VaultConfig {
             && d.proposedSelectorFacet(pair[1]) == address(0);
 
         if (pendingMatches) {
-            console2.log("legacy referral bridge retirement already pending on diamond", diamond);
+            console2.log(
+                "legacy referral bridge retirement already pending on diamond",
+                diamond
+            );
+
             return;
         }
 
         if (pending) {
-            console2.log("cancelling mismatched pending proposal of the legacy pair, bridge selector facet", d.proposedSelectorFacet(pair[0]));
-            console2.log("  quote selector facet", d.proposedSelectorFacet(pair[1]));
+            console2.log(
+                "cancelling mismatched pending proposal of the legacy pair, bridge selector facet",
+                d.proposedSelectorFacet(
+                    pair[0]
+                )
+            );
+
+            console2.log(
+                "  quote selector facet",
+                d.proposedSelectorFacet(
+                    pair[1]
+                )
+            );
         }
 
         vm.startBroadcast(
@@ -669,8 +816,15 @@ contract UpgradeReferralRegistry is VaultConfig {
 
         vm.stopBroadcast();
 
-        console2.log("proposed legacy referral bridge retirement on diamond", diamond);
-        console2.log("earliest executeRetireLegacyReferralBridge()", block.timestamp + 3 days);
+        console2.log(
+            "proposed legacy referral bridge retirement on diamond",
+            diamond
+        );
+
+        console2.log(
+            "earliest executeRetireLegacyReferralBridge()",
+            block.timestamp + 3 days
+        );
     }
 
     function executeRetireLegacyReferralBridge()
@@ -690,7 +844,7 @@ contract UpgradeReferralRegistry is VaultConfig {
             payable(diamond)
         );
 
-        bytes4[] memory pair = WiseTelecomNodesDiamondSelectors.legacyReferralBridgeSelectors();
+        bytes4[] memory pair = WiseTelecomNodesDiamondSelectors._legacyReferralBridgeSelectors();
 
         vm.startBroadcast(
             privKey
@@ -719,7 +873,10 @@ contract UpgradeReferralRegistry is VaultConfig {
             "UpgradeReferralRegistry: quoteBridgeFee lost its route"
         );
 
-        console2.log("retired legacy referral bridge on diamond", diamond);
+        console2.log(
+            "retired legacy referral bridge on diamond",
+            diamond
+        );
     }
 
     function abort()
@@ -739,7 +896,7 @@ contract UpgradeReferralRegistry is VaultConfig {
             payable(diamond)
         );
 
-        bool roundExecuted = d.selectorToFacet(WiseTelecomNodesDiamondSelectors.cohortRecorderSelectors()[0]) != address(0);
+        bool roundExecuted = d.selectorToFacet(WiseTelecomNodesDiamondSelectors._cohortRecorderSelectors()[0]) != address(0);
 
         vm.startBroadcast(
             privKey
@@ -770,9 +927,15 @@ contract UpgradeReferralRegistry is VaultConfig {
         vm.stopBroadcast();
 
         if (roundExecuted == false) {
-            console2.log("round unexecuted: cancelled every selector batch, the hook proposal and any pointer proposal on diamond", diamond);
+            console2.log(
+                "round unexecuted: cancelled every selector batch, the hook proposal and any pointer proposal on diamond",
+                diamond
+            );
         } else {
-            console2.log("round executed: left every selector batch, the hook and any legacy retirement alone, cancelled any pending pointer proposal on diamond", diamond);
+            console2.log(
+                "round executed: left every selector batch, the hook and any legacy retirement alone, cancelled any pending pointer proposal on diamond",
+                diamond
+            );
         }
     }
 
@@ -794,27 +957,42 @@ contract UpgradeReferralRegistry is VaultConfig {
             payable(diamond)
         );
 
-        console2.log("diamond", diamond);
-        console2.log("config registry", registry);
+        console2.log(
+            "diamond",
+            diamond
+        );
+
+        console2.log(
+            "config registry",
+            registry
+        );
 
         console2.log(
             "admin group facet",
-            d.selectorToFacet(WiseTelecomNodesDiamondSelectors.adminSelectors()[0])
+            d.selectorToFacet(
+                WiseTelecomNodesDiamondSelectors._adminSelectors()[0]
+            )
         );
 
         console2.log(
             "referral group facet",
-            d.selectorToFacet(WiseTelecomNodesDiamondSelectors.referralSelectors()[0])
+            d.selectorToFacet(
+                WiseTelecomNodesDiamondSelectors._referralSelectors()[0]
+            )
         );
 
         console2.log(
             "cohort group facet",
-            d.selectorToFacet(WiseTelecomNodesDiamondSelectors.cohortRecorderSelectors()[0])
+            d.selectorToFacet(
+                WiseTelecomNodesDiamondSelectors._cohortRecorderSelectors()[0]
+            )
         );
 
         console2.log(
             "cohort move hook facet",
-            d.selectorToFacet(WiseTelecomNodesDiamondSelectors.cohortMoveHookSelectors()[0])
+            d.selectorToFacet(
+                WiseTelecomNodesDiamondSelectors._cohortMoveHookSelectors()[0]
+            )
         );
 
         console2.log(
@@ -848,11 +1026,13 @@ contract UpgradeReferralRegistry is VaultConfig {
         if (registry.code.length > 0) {
             console2.log(
                 "diamond allowlisted on registry",
-                ReferralRegistry(registry).allowedVault(diamond)
+                ReferralRegistry(registry).allowedVault(
+                    diamond
+                )
             );
         }
 
-        if (d.selectorToFacet(WiseTelecomNodesDiamondSelectors.cohortRecorderSelectors()[0]) != address(0)) {
+        if (d.selectorToFacet(WiseTelecomNodesDiamondSelectors._cohortRecorderSelectors()[0]) != address(0)) {
             console2.log(
                 "cohortSyncEnabled",
                 CohortRecorderFacet(diamond).getCohortSyncEnabled()
@@ -867,19 +1047,29 @@ contract UpgradeReferralRegistry is VaultConfig {
         bytes4[][] memory groups = _roundGroups();
 
         for (uint256 i; i < groups.length; ++i) {
-            console2.log("round batch facet", i, d.selectorToFacet(groups[i][0]));
+            console2.log(
+                "round batch facet",
+                i,
+                d.selectorToFacet(
+                    groups[i][0]
+                )
+            );
         }
 
-        bytes4[] memory pair = WiseTelecomNodesDiamondSelectors.legacyReferralBridgeSelectors();
+        bytes4[] memory pair = WiseTelecomNodesDiamondSelectors._legacyReferralBridgeSelectors();
 
         console2.log(
             "legacy bridgeToVaultWithReferral facet",
-            d.selectorToFacet(pair[0])
+            d.selectorToFacet(
+                pair[0]
+            )
         );
 
         console2.log(
             "legacy retirement queuedAt",
-            d.selectorChangeQueuedAt(pair[0])
+            d.selectorChangeQueuedAt(
+                pair[0]
+            )
         );
     }
 
@@ -959,7 +1149,7 @@ contract UpgradeReferralRegistry is VaultConfig {
 
         require(
             words[0] <= type(uint160).max
-                && (words[1] >> CohortWeeks.DESIGNATION_STAMP_SHIFT) <= CohortWeeks.RING_LANE_MAX,
+                && (words[1] >> CohortFlushCodec.DESIGNATION_STAMP_SHIFT) <= CohortWeeks.RING_LANE_MAX,
             "UpgradeReferralRegistry: getPayoutDesignation answer outside the vault's decode bounds"
         );
 
@@ -992,16 +1182,28 @@ contract UpgradeReferralRegistry is VaultConfig {
                 "UpgradeReferralRegistry: syncPeerQuarantined answer is not a clean bool"
             );
 
-            console2.log("  lane selector", uint256(_laneSelectors[i]));
-            console2.log("    quarantined", words[0] == 1);
+            console2.log(
+                "  lane selector",
+                uint256(_laneSelectors[i])
+            );
+
+            console2.log(
+                "    quarantined",
+                words[0] == 1
+            );
         }
 
         require(
-            ReferralRegistry(_registry).allowedVault(_diamond),
+            ReferralRegistry(_registry).allowedVault(
+                _diamond
+            ),
             "UpgradeReferralRegistry: diamond not allowlisted on the registry, so assignReferrer, mergeReferrer, stageCarry and consumeCarry would refuse it"
         );
 
-        console2.log("registry seam probes clean", _registry);
+        console2.log(
+            "registry seam probes clean",
+            _registry
+        );
     }
 
     function _probeRegistry(
@@ -1100,7 +1302,7 @@ contract UpgradeReferralRegistry is VaultConfig {
         }
     }
 
-    /// @dev The twelve selector batches this round proposes and executes, in the order
+    /// @dev The thirteen selector batches this round proposes and executes, in the order
     /// `propose()` and `execute()` handle them; `execute()` asserts them routed, `status()`
     /// prints their facets and `abort()` cancels them while the round is unexecuted.
     function _roundGroups()
@@ -1109,21 +1311,22 @@ contract UpgradeReferralRegistry is VaultConfig {
         returns (bytes4[][] memory groups)
     {
         groups = new bytes4[][](
-            12
+            13
         );
 
-        groups[0] = WiseTelecomNodesDiamondSelectors.adminSelectors();
-        groups[1] = WiseTelecomNodesDiamondSelectors.userSelectors();
-        groups[2] = WiseTelecomNodesDiamondSelectors.permit2Selectors();
-        groups[3] = WiseTelecomNodesDiamondSelectors.moveSelectors();
-        groups[4] = WiseTelecomNodesDiamondSelectors.bridgeSelectors();
-        groups[5] = WiseTelecomNodesDiamondSelectors.queueJoinLeaveSelectors();
-        groups[6] = WiseTelecomNodesDiamondSelectors.queueFulfillSelectors();
-        groups[7] = WiseTelecomNodesDiamondSelectors.referralSelectors();
-        groups[8] = WiseTelecomNodesDiamondSelectors.permit2ReferralSelectors();
-        groups[9] = WiseTelecomNodesDiamondSelectors.cohortRecorderSelectors();
-        groups[10] = WiseTelecomNodesDiamondSelectors.cohortBridgeHookSelectors();
-        groups[11] = WiseTelecomNodesDiamondSelectors.cohortMoveHookSelectors();
+        groups[0] = WiseTelecomNodesDiamondSelectors._adminSelectors();
+        groups[1] = WiseTelecomNodesDiamondSelectors._userSelectors();
+        groups[2] = WiseTelecomNodesDiamondSelectors._permit2Selectors();
+        groups[3] = WiseTelecomNodesDiamondSelectors._moveSelectors();
+        groups[4] = WiseTelecomNodesDiamondSelectors._bridgeSelectors();
+        groups[5] = WiseTelecomNodesDiamondSelectors._queueJoinLeaveSelectors();
+        groups[6] = WiseTelecomNodesDiamondSelectors._queueFulfillSelectors();
+        groups[7] = WiseTelecomNodesDiamondSelectors._referralSelectors();
+        groups[8] = WiseTelecomNodesDiamondSelectors._permit2ReferralSelectors();
+        groups[9] = WiseTelecomNodesDiamondSelectors._cohortRecorderSelectors();
+        groups[10] = WiseTelecomNodesDiamondSelectors._cohortBridgeHookSelectors();
+        groups[11] = WiseTelecomNodesDiamondSelectors._cohortMoveHookSelectors();
+        groups[12] = WiseTelecomNodesDiamondSelectors._autoCompoundSelectors();
     }
 
     /// @dev Asserts that every selector of `_sels` routes to a facet on `_diamond` and has
@@ -1132,8 +1335,9 @@ contract UpgradeReferralRegistry is VaultConfig {
     /// `_executeGroup` skipped because only its first selector was cancelled fails the queue
     /// check. A selector the genesis dispatcher already routed passes the route check with
     /// its genesis facet, so the user, permit2, move, bridge and both queue batches, which
-    /// hold only genesis selectors, are checked by comparing the batch facets `status()`
-    /// prints with the ones `propose()` logged. The legacy referral bridge pair is exempt:
+    /// hold only genesis selectors, and the auto compound batch, whose selectors an earlier
+    /// round routed, are checked by comparing the batch facets `status()` prints with the
+    /// ones `propose()` logged. The legacy referral bridge pair is exempt:
     /// its optional retirement queues it and routes it to zero on purpose, and `execute()`
     /// stays re-runnable after that retirement.
     function _assertGroupRouted(
@@ -1147,7 +1351,7 @@ contract UpgradeReferralRegistry is VaultConfig {
             payable(_diamond)
         );
 
-        bytes4[] memory pair = WiseTelecomNodesDiamondSelectors.legacyReferralBridgeSelectors();
+        bytes4[] memory pair = WiseTelecomNodesDiamondSelectors._legacyReferralBridgeSelectors();
 
         for (uint256 i; i < _sels.length; ++i) {
 
@@ -1205,9 +1409,9 @@ contract UpgradeReferralRegistry is VaultConfig {
             );
 
             require(
-                v.selectorToFacet(WiseTelecomNodesDiamondSelectors.cohortRecorderSelectors()[0]) != address(0)
-                    && v.selectorToFacet(WiseTelecomNodesDiamondSelectors.cohortBridgeHookSelectors()[0]) != address(0)
-                    && v.selectorToFacet(WiseTelecomNodesDiamondSelectors.cohortMoveHookSelectors()[0]) != address(0),
+                v.selectorToFacet(WiseTelecomNodesDiamondSelectors._cohortRecorderSelectors()[0]) != address(0)
+                    && v.selectorToFacet(WiseTelecomNodesDiamondSelectors._cohortBridgeHookSelectors()[0]) != address(0)
+                    && v.selectorToFacet(WiseTelecomNodesDiamondSelectors._cohortMoveHookSelectors()[0]) != address(0),
                 string.concat(
                     "UpgradeReferralRegistry: the ",
                     products[i],
@@ -1215,7 +1419,11 @@ contract UpgradeReferralRegistry is VaultConfig {
                 )
             );
 
-            console2.log("  same-chain vault round executed", products[i], vault);
+            console2.log(
+                "  same-chain vault round executed",
+                products[i],
+                vault
+            );
         }
     }
 }

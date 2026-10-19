@@ -15,7 +15,9 @@ import {ReferralFacet} from "../../src/diamond/vault/facets/pending/ReferralFace
 import {Permit2ReferralFacet} from "../../src/diamond/vault/facets/pending/Permit2ReferralFacet.sol";
 import {CohortRecorderFacet} from "../../src/diamond/vault/facets/pending/CohortRecorderFacet.sol";
 import {CohortBridgeHookFacet} from "../../src/diamond/vault/facets/pending/CohortBridgeHookFacet.sol";
+import {CohortMoveHookFacet} from "../../src/diamond/vault/facets/pending/CohortMoveHookFacet.sol";
 import {CohortFlushFacet} from "../../src/diamond/vault/facets/pending/CohortFlushFacet.sol";
+import {CohortFlushPolicyFacet} from "../../src/diamond/vault/facets/pending/CohortFlushPolicyFacet.sol";
 import {ReferralPayoutFacet} from "../../src/diamond/vault/facets/pending/ReferralPayoutFacet.sol";
 import {MulticallFacet} from "../../src/diamond/vault/facets/MulticallFacet.sol";
 import {QueueAdminFacet} from "../../src/diamond/vault/facets/QueueAdminFacet.sol";
@@ -63,15 +65,16 @@ interface IAutoCompoundGetters {
  *
  * Counts: admin=46, proxy=3, user=8, sweep=2, cashedInterest=1,
  * burnWise=3, move=7, bridge=14, permit2=3, referral=4,
- * permit2Referral=3, cohortRecorder=14, cohortBridgeHook=3,
- * cohortFlush=13, multicall=1, queueAdmin=2,
+ * permit2Referral=3, cohortRecorder=15, cohortBridgeHook=3,
+ * cohortMoveHook=2, cohortFlush=4, cohortFlushPolicy=9, multicall=1, queueAdmin=2,
  * queueJoinLeave=5, queueFulfill=4, queueView=10, queueForecast=1,
  * interestAdmin=1, rescue=1, autoCompound=7 (4 functions + the 3
  * shard getters, which the frozen live dispatchers cannot serve),
  * referralPayout=3 (cohortRecorder grew 11→12 with the master-only
- * retroactive seed, to 13 with the batched crumb reader and to 14
- * with the attributed-contribution getter, shipping wholesale inside
- * the registry round's recorder group); total 159,
+ * retroactive seed, to 13 with the batched crumb reader, to 14
+ * with the attributed-contribution getter and to 15 with the
+ * self-crumb getter, shipping wholesale inside the registry round's
+ * recorder group); total 162,
  * of which
  * 90 are wired at genesis (the genesis-era admin group had 27;
  * `setCohortSyncEnabled` ships with the cohort upgrade's AdminFacet
@@ -97,23 +100,34 @@ interface IAutoCompoundGetters {
  * (`raisePendingReferralPayout`, `fundReferralPayout`) behind the
  * timelocked payout-hub pointer. The cohortFlush group is likewise
  * post-launch and not yet installed: the flush transport's two
- * payable entrypoints, the fee quote, the envelope preview, the
- * batched cursor reader, the three policy setters
- * behind master, and the five routed views backing the slot-83
- * shard's `internal` fields, shipped by {UpgradeCohortFlush}
+ * payable entrypoints, the fee quote and the envelope preview,
+ * shipped by {UpgradeCohortFlush}
  * together with the grown AdminFacet and the settle-aware
- * {CohortHookFacet}. `applyTransferHook`
- * and the slot-45 `applyCohort*` entrypoints are deliberately absent
- * from every group: {CohortHookFacet} is reached only through the
- * `transferHookFacet` pointer, never the dispatcher. That pointer-only
+ * {CohortHookFacet}; the group's former policy and read half (the
+ * three policy setters behind master, the batched cursor reader
+ * and the five routed views backing the slot-83 shard's `internal`
+ * fields) rides its own facet ({CohortFlushPolicyFacet}, the
+ * cohortFlushPolicy group, same upgrade, no selector changed) so
+ * the transport facet stays inside the EIP-170 runtime budget.
+ * `applyTransferHook`
+ * and the slot-45 `applyCohort*` entrypoints other than the forwarded
+ * move pair are deliberately absent from every group: {CohortHookFacet}
+ * is reached only through the `transferHookFacet` pointer, never the
+ * dispatcher. That pointer-only
  * register grew to six entrypoints with the same-chain move-carry pair
  * (`applyCohortMoveOut` / `applyCohortMoveIn`) and to seven with the
- * flush transport's `applyCohortSettle`. The cross-chain
+ * flush transport's `applyCohortSettle`. The pointer facet keeps
+ * forwarders for the move pair whose bodies live in the
+ * dispatcher-routed {CohortMoveHookFacet}, so the two move selectors
+ * now also appear in a routed group (cohortMoveHook) while
+ * `applyTransferHook` and the other four pointer entrypoints stay
+ * absent from every group. The cross-chain
  * engine slice ({CohortBridgeHookFacet}: `applyCohortFlip` and the
  * bridge-carry pair) is DISPATCHER-routed instead (the engine
  * outgrew one EIP-170 deployment, and routing the second slice
  * through `selectorToFacet` reuses the selector timelock rather than
- * adding a second pointer slot), but its three selectors still revert
+ * adding a second pointer slot), but its three selectors, like the
+ * two routed move selectors, still revert
  * on any direct external call (the transient `hookExecuting` bracket
  * only closes around the vault's own internal dispatch), so the
  * externally-REACHABLE surface grew only by `receiveReferrerFlip`
@@ -136,7 +150,7 @@ interface IAutoCompoundGetters {
  */
 library WiseTelecomNodesDiamondSelectors {
 
-    function adminSelectors()
+    function _adminSelectors()
         internal
         pure
         returns (bytes4[] memory sels)
@@ -190,12 +204,12 @@ library WiseTelecomNodesDiamondSelectors {
         sels[45] = AdminFacet.getFlushHubChangeQueuedAt.selector;
     }
 
-    function cohortRecorderSelectors()
+    function _cohortRecorderSelectors()
         internal
         pure
         returns (bytes4[] memory sels)
     {
-        sels = new bytes4[](14);
+        sels = new bytes4[](15);
         sels[0] = CohortRecorderFacet.syncReferee.selector;
         sels[1] = CohortRecorderFacet.advanceBook.selector;
         sels[2] = CohortRecorderFacet.getTrackedContribution.selector;
@@ -210,9 +224,10 @@ library WiseTelecomNodesDiamondSelectors {
         sels[11] = CohortRecorderFacet.seedCohortContribution.selector;
         sels[12] = CohortRecorderFacet.getCohortWeekCrumbs.selector;
         sels[13] = CohortRecorderFacet.getAttributedContribution.selector;
+        sels[14] = CohortRecorderFacet.getCohortSelfCrumb.selector;
     }
 
-    function cohortBridgeHookSelectors()
+    function _cohortBridgeHookSelectors()
         internal
         pure
         returns (bytes4[] memory sels)
@@ -223,28 +238,46 @@ library WiseTelecomNodesDiamondSelectors {
         sels[2] = CohortBridgeHookFacet.applyCohortBridgeIn.selector;
     }
 
-    function cohortFlushSelectors()
+    function _cohortMoveHookSelectors()
         internal
         pure
         returns (bytes4[] memory sels)
     {
-        sels = new bytes4[](13);
+        sels = new bytes4[](2);
+        sels[0] = CohortMoveHookFacet.applyCohortMoveOut.selector;
+        sels[1] = CohortMoveHookFacet.applyCohortMoveIn.selector;
+    }
+
+    function _cohortFlushSelectors()
+        internal
+        pure
+        returns (bytes4[] memory sels)
+    {
+        sels = new bytes4[](4);
         sels[0] = CohortFlushFacet.flushReferrals.selector;
         sels[1] = CohortFlushFacet.flushReferralWindow.selector;
         sels[2] = CohortFlushFacet.quoteFlushFee.selector;
-        sels[3] = CohortFlushFacet.setAllowedFlushBot.selector;
-        sels[4] = CohortFlushFacet.setPublicFlushEnabled.selector;
-        sels[5] = CohortFlushFacet.setFlushGasLimit.selector;
-        sels[6] = CohortFlushFacet.getFlushedThroughWeek.selector;
-        sels[7] = CohortFlushFacet.getFlushGapCursor.selector;
-        sels[8] = CohortFlushFacet.getAllowedFlushBot.selector;
-        sels[9] = CohortFlushFacet.getPublicFlushEnabled.selector;
-        sels[10] = CohortFlushFacet.getFlushGasLimit.selector;
-        sels[11] = CohortFlushFacet.previewFlushEnvelope.selector;
-        sels[12] = CohortFlushFacet.getFlushCursors.selector;
+        sels[3] = CohortFlushFacet.previewFlushEnvelope.selector;
     }
 
-    function proxySelectors()
+    function _cohortFlushPolicySelectors()
+        internal
+        pure
+        returns (bytes4[] memory sels)
+    {
+        sels = new bytes4[](9);
+        sels[0] = CohortFlushPolicyFacet.setAllowedFlushBot.selector;
+        sels[1] = CohortFlushPolicyFacet.setPublicFlushEnabled.selector;
+        sels[2] = CohortFlushPolicyFacet.setFlushGasLimit.selector;
+        sels[3] = CohortFlushPolicyFacet.getFlushedThroughWeek.selector;
+        sels[4] = CohortFlushPolicyFacet.getFlushGapCursor.selector;
+        sels[5] = CohortFlushPolicyFacet.getAllowedFlushBot.selector;
+        sels[6] = CohortFlushPolicyFacet.getPublicFlushEnabled.selector;
+        sels[7] = CohortFlushPolicyFacet.getFlushGasLimit.selector;
+        sels[8] = CohortFlushPolicyFacet.getFlushCursors.selector;
+    }
+
+    function _proxySelectors()
         internal
         pure
         returns (bytes4[] memory sels)
@@ -255,7 +288,7 @@ library WiseTelecomNodesDiamondSelectors {
         sels[2] = ProxyFacet.decreaseProxyBalance.selector;
     }
 
-    function userSelectors()
+    function _userSelectors()
         internal
         pure
         returns (bytes4[] memory sels)
@@ -271,7 +304,7 @@ library WiseTelecomNodesDiamondSelectors {
         sels[7] = UserFacet.moveMyInterestTo.selector;
     }
 
-    function sweepSelectors()
+    function _sweepSelectors()
         internal
         pure
         returns (bytes4[] memory sels)
@@ -281,7 +314,7 @@ library WiseTelecomNodesDiamondSelectors {
         sels[1] = SweepFacet.getOverhang.selector;
     }
 
-    function cashedInterestSelectors()
+    function _cashedInterestSelectors()
         internal
         pure
         returns (bytes4[] memory sels)
@@ -290,7 +323,7 @@ library WiseTelecomNodesDiamondSelectors {
         sels[0] = CashedInterestFacet.getTotalCashedInterest.selector;
     }
 
-    function referralPayoutSelectors()
+    function _referralPayoutSelectors()
         internal
         pure
         returns (bytes4[] memory sels)
@@ -301,7 +334,7 @@ library WiseTelecomNodesDiamondSelectors {
         sels[2] = ReferralPayoutFacet.fundReferralPayout.selector;
     }
 
-    function queueForecastSelectors()
+    function _queueForecastSelectors()
         internal
         pure
         returns (bytes4[] memory sels)
@@ -310,7 +343,7 @@ library WiseTelecomNodesDiamondSelectors {
         sels[0] = QueueForecastFacet.solveForAmountAfterFulfill.selector;
     }
 
-    function interestAdminSelectors()
+    function _interestAdminSelectors()
         internal
         pure
         returns (bytes4[] memory sels)
@@ -319,7 +352,7 @@ library WiseTelecomNodesDiamondSelectors {
         sels[0] = InterestAdminFacet.setCashedInterest.selector;
     }
 
-    function rescueSelectors()
+    function _rescueSelectors()
         internal
         pure
         returns (bytes4[] memory sels)
@@ -328,7 +361,7 @@ library WiseTelecomNodesDiamondSelectors {
         sels[0] = RescueFacet.rescueToken.selector;
     }
 
-    function autoCompoundSelectors()
+    function _autoCompoundSelectors()
         internal
         pure
         returns (bytes4[] memory sels)
@@ -343,7 +376,7 @@ library WiseTelecomNodesDiamondSelectors {
         sels[6] = IAutoCompoundGetters.autoCompoundFeeBps.selector;
     }
 
-    function burnWiseSelectors()
+    function _burnWiseSelectors()
         internal
         pure
         returns (bytes4[] memory sels)
@@ -354,7 +387,7 @@ library WiseTelecomNodesDiamondSelectors {
         sels[2] = BurnWiseFacet.getNextBurnPercentage.selector;
     }
 
-    function moveSelectors()
+    function _moveSelectors()
         internal
         pure
         returns (bytes4[] memory sels)
@@ -369,7 +402,7 @@ library WiseTelecomNodesDiamondSelectors {
         sels[6] = MoveFacet.getMoveableBalance.selector;
     }
 
-    function bridgeSelectors()
+    function _bridgeSelectors()
         internal
         pure
         returns (bytes4[] memory sels)
@@ -391,7 +424,7 @@ library WiseTelecomNodesDiamondSelectors {
         sels[13] = BridgeFacet.setBridgeGasLimit.selector;
     }
 
-    function legacyReferralBridgeSelectors()
+    function _legacyReferralBridgeSelectors()
         internal
         pure
         returns (bytes4[] memory sels)
@@ -401,7 +434,7 @@ library WiseTelecomNodesDiamondSelectors {
         sels[1] = BridgeFacet.quoteBridgeFeeWithReferral.selector;
     }
 
-    function permit2Selectors()
+    function _permit2Selectors()
         internal
         pure
         returns (bytes4[] memory sels)
@@ -412,7 +445,7 @@ library WiseTelecomNodesDiamondSelectors {
         sels[2] = Permit2UserFacet.depositAndCompoundInterestWithPermit2.selector;
     }
 
-    function referralSelectors()
+    function _referralSelectors()
         internal
         pure
         returns (bytes4[] memory sels)
@@ -424,7 +457,7 @@ library WiseTelecomNodesDiamondSelectors {
         sels[3] = ReferralFacet.getReferrerOf.selector;
     }
 
-    function permit2ReferralSelectors()
+    function _permit2ReferralSelectors()
         internal
         pure
         returns (bytes4[] memory sels)
@@ -435,7 +468,7 @@ library WiseTelecomNodesDiamondSelectors {
         sels[2] = Permit2ReferralFacet.depositAndCompoundInterestWithPermit2WithReferral.selector;
     }
 
-    function multicallSelectors()
+    function _multicallSelectors()
         internal
         pure
         returns (bytes4[] memory sels)
@@ -444,7 +477,7 @@ library WiseTelecomNodesDiamondSelectors {
         sels[0] = MulticallFacet.multicall.selector;
     }
 
-    function queueAdminSelectors()
+    function _queueAdminSelectors()
         internal
         pure
         returns (bytes4[] memory sels)
@@ -454,7 +487,7 @@ library WiseTelecomNodesDiamondSelectors {
         sels[1] = QueueAdminFacet.setNegativeIncentivesNotAllowed.selector;
     }
 
-    function queueJoinLeaveSelectors()
+    function _queueJoinLeaveSelectors()
         internal
         pure
         returns (bytes4[] memory sels)
@@ -467,7 +500,7 @@ library WiseTelecomNodesDiamondSelectors {
         sels[4] = QueueJoinLeaveFacet.switchQueIncentivePartial.selector;
     }
 
-    function queueFulfillSelectors()
+    function _queueFulfillSelectors()
         internal
         pure
         returns (bytes4[] memory sels)
@@ -479,7 +512,7 @@ library WiseTelecomNodesDiamondSelectors {
         sels[3] = QueueFulfillFacet.compoundInterestViaFulfillBulk.selector;
     }
 
-    function queueViewSelectors()
+    function _queueViewSelectors()
         internal
         pure
         returns (bytes4[] memory sels)

@@ -132,85 +132,85 @@ contract WiseTelecomNodesBootstrap {
         _wireOne(
             _diamond,
             _facets.admin,
-            WiseTelecomNodesDiamondSelectors.adminSelectors()
+            WiseTelecomNodesDiamondSelectors._adminSelectors()
         );
 
         _wireOne(
             _diamond,
             _facets.proxy,
-            WiseTelecomNodesDiamondSelectors.proxySelectors()
+            WiseTelecomNodesDiamondSelectors._proxySelectors()
         );
 
         _wireOne(
             _diamond,
             _facets.user,
-            WiseTelecomNodesDiamondSelectors.userSelectors()
+            WiseTelecomNodesDiamondSelectors._userSelectors()
         );
 
         _wireOne(
             _diamond,
             _facets.sweep,
-            WiseTelecomNodesDiamondSelectors.sweepSelectors()
+            WiseTelecomNodesDiamondSelectors._sweepSelectors()
         );
 
         _wireOne(
             _diamond,
             _facets.cashedInterest,
-            WiseTelecomNodesDiamondSelectors.cashedInterestSelectors()
+            WiseTelecomNodesDiamondSelectors._cashedInterestSelectors()
         );
 
         _wireOne(
             _diamond,
             _facets.burnWise,
-            WiseTelecomNodesDiamondSelectors.burnWiseSelectors()
+            WiseTelecomNodesDiamondSelectors._burnWiseSelectors()
         );
 
         _wireOne(
             _diamond,
             _facets.move,
-            WiseTelecomNodesDiamondSelectors.moveSelectors()
+            WiseTelecomNodesDiamondSelectors._moveSelectors()
         );
 
         _wireOne(
             _diamond,
             _facets.bridge,
-            WiseTelecomNodesDiamondSelectors.bridgeSelectors()
+            WiseTelecomNodesDiamondSelectors._bridgeSelectors()
         );
 
         _wireOne(
             _diamond,
             _facets.permit2,
-            WiseTelecomNodesDiamondSelectors.permit2Selectors()
+            WiseTelecomNodesDiamondSelectors._permit2Selectors()
         );
 
         _wireOne(
             _diamond,
             _facets.multicall,
-            WiseTelecomNodesDiamondSelectors.multicallSelectors()
+            WiseTelecomNodesDiamondSelectors._multicallSelectors()
         );
 
         _wireOne(
             _diamond,
             _facets.queueAdmin,
-            WiseTelecomNodesDiamondSelectors.queueAdminSelectors()
+            WiseTelecomNodesDiamondSelectors._queueAdminSelectors()
         );
 
         _wireOne(
             _diamond,
             _facets.queueJoinLeave,
-            WiseTelecomNodesDiamondSelectors.queueJoinLeaveSelectors()
+            WiseTelecomNodesDiamondSelectors._queueJoinLeaveSelectors()
         );
 
         _wireOne(
             _diamond,
             _facets.queueFulfill,
-            WiseTelecomNodesDiamondSelectors.queueFulfillSelectors()
+            WiseTelecomNodesDiamondSelectors._queueFulfillSelectors()
         );
 
         _wireOne(
             _diamond,
             _facets.queueView,
-            WiseTelecomNodesDiamondSelectors.queueViewSelectors()
+            WiseTelecomNodesDiamondSelectors._queueViewSelectors()
         );
     }
 
