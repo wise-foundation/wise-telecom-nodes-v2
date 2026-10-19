@@ -103,8 +103,14 @@ contract SwitchPropertiesTest is Test {
         );
 
         uint256 supplyBefore = vault.totalSupply();
-        uint256 balanceBefore = vault.balanceOf(address(this));
-        uint256 proxyBefore = vault.proxyBalance(address(this));
+
+        uint256 balanceBefore = vault.balanceOf(
+            address(this)
+        );
+
+        uint256 proxyBefore = vault.proxyBalance(
+            address(this)
+        );
 
         vault.exposedSwitchCore(
             id,
@@ -158,7 +164,9 @@ contract SwitchPropertiesTest is Test {
         );
 
         assert(
-            vault.activeOrderCountByIncentive(SRC)
+            vault.activeOrderCountByIncentive(
+                SRC
+            )
                 + vault.activeOrderCountByIncentive(DST) == totalBefore
         );
 
