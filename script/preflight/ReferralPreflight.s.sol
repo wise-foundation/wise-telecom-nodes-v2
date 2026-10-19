@@ -10,6 +10,7 @@ import {ReferralHub} from "../../src/hub/pending/ReferralHub.sol";
 import {ReferralHubRatesFacet} from "../../src/hub/pending/ReferralHubRatesFacet.sol";
 
 import {ReferralHubSelectors} from "../hub/ReferralHubSelectors.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /// @notice Read-only preflight of the referral rollout. It never broadcasts and never writes a
 /// file: every check reads a config record and compares it with the live contract it names,
@@ -35,8 +36,7 @@ import {ReferralHubSelectors} from "../hub/ReferralHubSelectors.sol";
 /// or with two records naming one diamond. The registry, the hub entry contract and the reader
 /// are compared with the shipped build like every facet (the registry with its chain rank and
 /// the reader with its hub written into their immutables). The seed latch fails when it fired
-/// before phase 3 (it would cut the seed window short) and the hub payout vault fails when it
-/// is wired while the hub chain registry has not latched (law 7). A spoke registry is never
+/// before phase 3 (it would cut the seed window short). A spoke registry is never
 /// also a flush source and a spoke vault never also a designation source, since the hub
 /// dispatches a delivery by the role of its sender. Neither the deploy key nor the shared
 /// Multicall3 forwarder is ever a hub reporter, live or queued as a lever, and neither of them
@@ -60,14 +60,14 @@ import {ReferralHubSelectors} from "../hub/ReferralHubSelectors.sol";
 /// lane quarantined, the spoke payout route with any queued change (none, live or queued, on
 /// the hub chain), the seed latch and the open correction lane.
 /// Hub checks: the config hub has code, its master and pending owner proposal,
-/// `finalizeSetup` done, the USD token of the payout vault, a courier share of 500 bps in
+/// `finalizeSetup` done, the USD token of the usdc mainnet vault, a courier share of 500 bps in
 /// every rate table and the courier share cap 0, the reader, the CCIP router, every hub
 /// selector group routed to the shipped build of its facet with no change queued, every
 /// mainnet vault a local reporter, every spoke vault a flush source and every spoke registry
 /// a designation source at its chain id, the system tag of every source (0 for a World
 /// Mobile vault, 1 for the Sovren vault; a source that delivered under a wrong tag fails at
-/// once, since the tag freezes at the first delivery), and the payout
-/// vault. The vault checks are listed on {ReferralPreflightVault}.
+/// once, since the tag freezes at the first delivery), and the pot (the hub holds USD, due
+/// from phase 4; the hub is its own payout pot and never draws on a vault). The vault checks are listed on {ReferralPreflightVault}.
 ///
 ///   PREFLIGHT_PHASE=0 forge script script/preflight/ReferralPreflight.s.sol:ReferralPreflight --sig "chain()" --rpc-url mainnet
 ///   PREFLIGHT_PHASE=0 VAULT_PRODUCT=usdg forge script script/preflight/ReferralPreflight.s.sol:ReferralPreflight --sig "vault()" --rpc-url robinhood
@@ -243,7 +243,7 @@ contract ReferralPreflight is ReferralPreflightVault {
             latched,
             scope,
             "seeds latched",
-            PAYOUT_ROUND_PHASE
+            HUB_HANDOFF_PHASE
         );
 
         _verdict(
@@ -649,7 +649,7 @@ contract ReferralPreflight is ReferralPreflightVault {
             );
         }
 
-        _checkHubPayoutVault(
+        _checkHubPot(
             referralHub,
             scope
         );
@@ -692,7 +692,7 @@ contract ReferralPreflight is ReferralPreflightVault {
         _verdict(
             address(_hub.USD_TOKEN()) == usd,
             _scope,
-            "USD token of the payout vault"
+            "USD token of the usdc mainnet vault"
         );
 
         uint256 tableCount = _hub.rateTableCount();
@@ -1041,39 +1041,39 @@ contract ReferralPreflight is ReferralPreflightVault {
         );
     }
 
-    function _checkHubPayoutVault(
+    function _checkHubPot(
         IReferralHub _hub,
         string memory _scope
     )
         internal
     {
-        address payoutVault = _hub.payoutVault();
-
-        _verdict(
-            payoutVault == address(0) || _everyRegistryLatched(),
-            _scope,
-            "payout vault wired only after every registry latched its seeds (law 7)"
+        uint256 pot = IERC20(
+            address(
+                _hub.USD_TOKEN()
+            )
+        ).balanceOf(
+            address(_hub)
         );
 
-        if (payoutVault == address(0)) {
+        if (pot == 0) {
             _due(
-                4,
+                HUB_HANDOFF_PHASE,
                 _scope,
-                "payout vault wired"
+                "pot funded (the hub holds USD)"
             );
 
             return;
         }
 
-        address expectedVault = _loadVaultDiamond(
-            "usdc",
-            HUB_NETWORK
-        );
-
-        _verdict(
-            payoutVault == expectedVault,
+        _pass(
             _scope,
-            "payout vault is the usdc mainnet vault"
+            string.concat(
+                "pot funded, the hub holds ",
+                vm.toString(
+                    pot
+                ),
+                " USD units"
+            )
         );
     }
 
