@@ -308,7 +308,7 @@ abstract contract WiseTelecomNodesCrossChainHelper is WiseTelecomNodesMoveHelper
             );
         } else {
             require(
-                CohortWeeks.bridgeCarryValid(
+                CohortWeeks._bridgeCarryValid(
                     _referralData,
                     type(uint256).max
                 ) == false,

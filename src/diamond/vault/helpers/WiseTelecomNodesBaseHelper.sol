@@ -999,6 +999,8 @@ abstract contract WiseTelecomNodesBaseHelper is WiseTelecomNodesDeclarations {
 
         hookExecuting = true;
 
+        uint256 gasForwarded = gasleft();
+
         (
             bool success,
             bytes memory returnData
@@ -1015,6 +1017,13 @@ abstract contract WiseTelecomNodesBaseHelper is WiseTelecomNodesDeclarations {
         hookExecuting = false;
 
         if (success == false || returnData.length != 32) {
+
+            if (gasleft() <= gasForwarded / 64) {
+                revert CohortBridgeInOutOfGas(
+                    _user,
+                    _srcChainSelector
+                );
+            }
 
             emit CohortBridgeHookFailed(
                 _user,
