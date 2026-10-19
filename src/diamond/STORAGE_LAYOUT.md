@@ -95,13 +95,13 @@ Six dead fields that were previously "retained as storage gaps" were deleted and
 | 73 | `cohortRingYear2` | mapping(address ⇒ uint64[52]) | CohortBookDeclaration |
 | 74 | `cohortWeekLog` | mapping(address ⇒ mapping(uint256 ⇒ uint256)) | CohortBookDeclaration |
 | 75 | `cohortGapLog` | mapping(address ⇒ uint256[]) | CohortBookDeclaration |
-| 76 | `pendingReferralPayout` | uint256 | ReferralPayoutDeclaration |
+| 76 | `pendingReferralPayout` (retired, never written) | uint256 | ReferralPayoutDeclaration |
 | 77 | `referralRegistry` | address | ReferralRegistryPointerDeclaration |
 | 78 | `proposedReferralRegistry` | address | ReferralRegistryPointerDeclaration |
 | 79 | `referralRegistryChangeQueuedAt` | uint256 | ReferralRegistryPointerDeclaration |
-| 80 | `payoutHub` | address | PayoutHubPointerDeclaration |
-| 81 | `proposedPayoutHub` | address | PayoutHubPointerDeclaration |
-| 82 | `payoutHubChangeQueuedAt` | uint256 | PayoutHubPointerDeclaration |
+| 80 | `payoutHub` (retired, never written) | address | PayoutHubPointerDeclaration |
+| 81 | `proposedPayoutHub` (retired, never written) | address | PayoutHubPointerDeclaration |
+| 82 | `payoutHubChangeQueuedAt` (retired, never written) | uint256 | PayoutHubPointerDeclaration |
 | 83 (0..19) | `flushHub` | address | CohortFlushDeclaration |
 | 83 (20..27) | `flushHubChainSelector` | uint64 | CohortFlushDeclaration |
 | 84 (0..19) | `proposedFlushHub` | address | CohortFlushDeclaration |
@@ -597,6 +597,24 @@ Beyond that one-slot shift, the 2026-07 compaction removed six legacy-mirrored f
 ## QueContractDiamond (historical)
 
 The standalone `QueContractDiamond` was removed from the tree; the queue lives inside the vault diamond as the `VaultQueue*` facets sharing the single vault layout above (queue state at slots 27 to 33). The `QueContractDiamond*.t.sol` tests target the vault diamond's queue facets. The legacy `QueContract` remains under `src/legacy/` as the read-only migration oracle.
+
+### 2026-10-19 payout rail retired (the hub is its own pot)
+
+The vault half of the referral payout rail was removed before it shipped: the hub pays every
+claim from the USD it holds itself (funded by plain transfers) and never books liability on, or
+pulls USD from, a vault. On the vault side that removed `ReferralPayoutFacet` (its three
+selectors), the AdminFacet payout-hub pointer six (the admin group is 40 selectors again), the
+helper's pointer functions and the `pendingReferralPayout` term of `_calculateNeededBuffer`
+(SweepFacet needs no behavioral redeploy any more). The two shards stay in the chain so no
+later slot moves: `ReferralPayoutDeclaration` (slot 76) and `PayoutHubPointerDeclaration`
+(slots 80 to 82) are retired words, declared, never written and marked so in the table above;
+the vault snapshot is unchanged (111 entries) and `check_storage_layout.sh` lists 21 full chain
+facets. On the hub side `payoutVault` and `totalBooked` are deleted outright (the hub is pending,
+never broadcast), so every field after `totalClaimed` moves up one slot and every field after
+`dwellMinLog` another one: `USD_TOKEN` now sits at slot 24, the selector tables at 25 to 27 and
+`initialized` at 28; the hub snapshot is regenerated (37 entries). `PotClosed`,
+`InvalidPayoutVault`, `PayoutVaultSet`, `PayoutLiabilityBooked` and `PotClaimBooked` are gone;
+`PotDry` is the one funding revert.
 
 ## Snapshot & layout guard
 
