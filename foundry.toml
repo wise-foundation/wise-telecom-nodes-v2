@@ -18,6 +18,8 @@ evm_version = "cancun"
 skip = ["test/diamond/equivalence/LegacyVsDiamondParity.t.sol"]
 ffi = true
 extra_output = ["storageLayout"]
+# Kontrol (KEVM) needs the AST in the build artifacts; forge >= 1.7 defaults it off.
+ast = true
 fs_permissions = [
     { access = "read", path = "./data" },
     { access = "read", path = "./out" },
