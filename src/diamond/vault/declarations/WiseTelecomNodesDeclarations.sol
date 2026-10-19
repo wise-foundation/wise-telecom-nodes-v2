@@ -47,6 +47,9 @@ import {PayoutHubPointerDeclaration} from "./pending/PayoutHubPointerDeclaration
 import {CohortFlushDeclaration} from "./pending/CohortFlushDeclaration.sol";
 import {CohortAttributionDeclaration} from "./pending/CohortAttributionDeclaration.sol";
 import {CohortDivestDeclaration} from "./pending/CohortDivestDeclaration.sol";
+import {CohortSelfDeclaration} from "./pending/CohortSelfDeclaration.sol";
+import {CohortDisarmDeclaration} from "./pending/CohortDisarmDeclaration.sol";
+import {CohortSelfLogDeclaration} from "./pending/CohortSelfLogDeclaration.sol";
 
 /**
  * @title WiseTelecomNodesDeclarations
@@ -96,7 +99,10 @@ abstract contract WiseTelecomNodesDeclarations is
     PayoutHubPointerDeclaration,
     CohortFlushDeclaration,
     CohortAttributionDeclaration,
-    CohortDivestDeclaration
+    CohortDivestDeclaration,
+    CohortSelfDeclaration,
+    CohortDisarmDeclaration,
+    CohortSelfLogDeclaration
 {
 
     constructor(
