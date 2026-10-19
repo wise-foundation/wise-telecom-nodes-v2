@@ -8,89 +8,16 @@ import {IReferralRegistry} from "../../interfaces/pending/IReferralRegistry.sol"
 
 /**
  * @dev CohortRecorderFacet: the routed public surface of the cohort
- * recorder: two permissionless mutations, the registry-only flip
- * entrance, the master-only retroactive seed, and the view set the
- * cohort test suites, keepers and
- * offchain monitoring read. The mutations do NOT carry engine code:
- * they bounce through the helper-chain stubs into an engine slice
- * ({CohortHookFacet} via the `transferHookFacet` pointer for
- * `syncReferee`/`advanceBook`, the dispatcher-routed
- * {CohortBridgeHookFacet} for `receiveReferrerFlip`), so routed path
- * and hook path can never diverge. The two permissionless mutations
- * are gated no-ops while `cohortSyncEnabled` is false: on a live
- * diamond with virgin tail storage this facet reads zeros and mutates
- * nothing; the flip entrance instead reverts while disarmed, see
- * below.
- *
- * `syncReferee` is the permissionless clamp poke (grief-safe: the
- * clamp is one-way and idempotent, a no-op unless the user's balance
- * is below their tracked contribution). `advanceBook` lets anyone
- * pre-walk a dormant referrer book in bounded chunks so the transfer
- * hook path stays cheap in practice. The walk writes one crumb per
- * crossed boundary for any non-empty book, so a book whose settle
- * cursor the poke keeps within MAX_SETTLE_BOUNDARIES of the present
- * (chunks large enough to keep up) never forms a gap record: a poker
- * can only trade the span's single record for one crumb word per
- * week. The flush work budget charges one unit per crumb week or per
- * gap week alike and the hub prices both the same, so the trade
- * changes the envelope size and the hub's per-week logging (one
- * `CrumbPriced` per crumb week instead of one `GapPriced` per span)
- * and nothing else: the poke cannot inflate a referrer's presence,
- * only the calldata, decode and log gas the flusher pays. Views
- * decode the packed lanes via {CohortWeeks}; the referrer score is
- * definitionally the book lane sum, so `getCohortScore` cannot desync
- * from `getCohortBook`. Installed post-launch only, via the
- * `cohortRecorderSelectors()` group in the upgrade script, never by
- * the frozen genesis deploys.
- *
- * `receiveReferrerFlip` is the registry's one entrance for the
- * cross-chain referrer-flip migration: only the slot-77 registry may
- * call it, and it deliberately REVERTS while the recorder is disarmed:
- * the registry's poke machinery treats a revert as "defer and
- * retry", restoring the pending-flip marker, so a flip ordered before
- * arming is never silently dropped. The migration relocates the
- * user's local book credit from the old to the new referrer at
- * identical ring coordinates in one transaction, clamping against the
- * OLD referrer first so a lazy deficit is destroyed sale-like and can
- * never launder into new-referrer credit.
- *
- * `seedCohortContribution` is the master-only retroactive
- * attribution entrance: it credits a user's pre-existing,
- * not-yet-tracked balance exactly as if that amount were deposited
- * in this instant (the SAME engine slice through the SAME credit
- * stub), so the credit lands in the current-week ring slot, ages from
- * now, and earns no retroactive crumb time. The clamp stub runs
- * FIRST and the credit is bounded by `min(amount, balance -
- * tracked)`, so a seed can never push tracked contribution above the
- * held balance and every recorder invariant survives structurally
- * (`type(uint256).max` means "seed the full headroom"). A degraded
- * clamp (the registry lookup failing inside the sync while a lazy
- * deficit stands) leaves tracked above held and the seed reverts
- * {NothingToSeed} instead of mis-crediting. There is deliberately NO
- * assignment carve-out: the referrer is resolved through the normal
- * flip-aware seam inside the engine credit, write-once assignment
- * stays with the deposit entrypoints, and seeding an unreferred user
- * backfills only their own self-stake ladder input (assign first via
- * a normal referred deposit, then seed, to credit a referrer). The
- * whole entrance dies with the registry's one-way correction latch
- * (a single per-chain switch ends every master attribution power,
- * corrections AND seeds, the moment payouts arm) and reverts,
- * never a silent no-op: named guard errors cover the disarmed
- * state and the zeroed slot-45 hook pointer (the armed-but-hookless
- * state the timelock permits; the stubs would silently skip there),
- * and a plain call failure covers an unset or codeless registry
- * pointer. Headroom is ANY untracked balance:
- * the recorder cannot distinguish a pre-arming deposit from a
- * balance received by transfer after a sender's one-way credit
- * destroy, so which headroom deserves seeding is master POLICY;
- * the permissionless flows keep the destroy-never-recredit rule
- * intact, and the latch bounds the discretion window.
- * `getCohortWeekCrumbs` reads a window of frozen crumb words in one
- * call for offchain readers; it is a plain range read over the same
- * per-week log the single getter serves. `getAttributedContribution`
- * exposes the slice of a user's tracked contribution that was
- * credited to a referrer, the only quantity a clamp charges a book
- * with, next to the wider self-stake ledger `getTrackedContribution`.
+ * recorder. Its mutations carry no engine code; they reach an engine slice
+ * through the helper chain stubs, so the routed path and the hook path
+ * cannot diverge. `syncReferee` (the one-way clamp poke) and `advanceBook`
+ * (a bounded pre-walk of a dormant book) are permissionless no-ops while
+ * the recorder is disarmed. `receiveReferrerFlip` is callable by the
+ * registry only; while disarmed it returns when the user holds no
+ * attributed contribution here and otherwise reverts, so the registry
+ * defers the flip. `seedCohortContribution` is the master-only retroactive
+ * credit of untracked balance, bounded by min(amount, held minus tracked),
+ * and dies with the registry's one-way seed latch.
  */
 contract CohortRecorderFacet is FacetBase {
 
@@ -119,6 +46,10 @@ contract CohortRecorderFacet is FacetBase {
             msg.sender == referralRegistry,
             NotReferralRegistry()
         );
+
+        if (cohortSyncEnabled == false && attributedContribution[_user] == 0) {
+            return;
+        }
 
         require(
             cohortSyncEnabled,
@@ -166,7 +97,7 @@ contract CohortRecorderFacet is FacetBase {
         );
 
         require(
-            IReferralRegistry(referralRegistry).correctionsLatched() == false,
+            IReferralRegistry(referralRegistry).seedsLatched() == false,
             SeedingLatched()
         );
 
@@ -235,6 +166,32 @@ contract CohortRecorderFacet is FacetBase {
         return attributedContribution[_user];
     }
 
+    function getCohortSelfCrumb(
+        address _user
+    )
+        external
+        view
+        returns (
+            uint256 settledAt,
+            uint256 currentWeekSeconds,
+            uint256 previousWeekSeconds
+        )
+    {
+        uint256 word = cohortSelfCrumb[_user];
+
+        return (
+            CohortWeeks._selfCrumbSettledAt(
+                word
+            ),
+            CohortWeeks._selfCrumbCurrent(
+                word
+            ),
+            CohortWeeks._selfCrumbPrevious(
+                word
+            )
+        );
+    }
+
     function getCohortBook(
         address _referrer
     )
@@ -250,9 +207,15 @@ contract CohortRecorderFacet is FacetBase {
         uint256 book = cohortBook[_referrer];
 
         return (
-            CohortWeeks.laneY1(book),
-            CohortWeeks.laneY2(book),
-            CohortWeeks.laneM(book),
+            CohortWeeks._laneY1(
+                book
+            ),
+            CohortWeeks._laneY2(
+                book
+            ),
+            CohortWeeks._laneM(
+                book
+            ),
             cohortLastSettle[_referrer]
         );
     }
@@ -266,9 +229,15 @@ contract CohortRecorderFacet is FacetBase {
     {
         uint256 book = cohortBook[_referrer];
 
-        return CohortWeeks.laneY1(book)
-            + CohortWeeks.laneY2(book)
-            + CohortWeeks.laneM(book);
+        return CohortWeeks._laneY1(
+            book
+        )
+            + CohortWeeks._laneY2(
+                book
+            )
+            + CohortWeeks._laneM(
+                book
+            );
     }
 
     function getCohortRings(
