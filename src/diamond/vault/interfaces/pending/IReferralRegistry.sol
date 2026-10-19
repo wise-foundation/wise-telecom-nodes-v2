@@ -3,39 +3,12 @@
 pragma solidity =0.8.36;
 
 /**
- * @dev Subset of the per-chain standalone {ReferralRegistry} surface
- * the vault reaches through the slot-77 `referralRegistry` pointer:
- * `assignReferrer` from the write-once referral deposit path
- * ({ReferralFacetBase}, plain CALL; registry reverts bubble into
- * the deposit) and `referrerOf` from the routed {ReferralFacet}
- * view getter and the pointer shape probe. The cohort recorder's
- * guarded staticcall seam resolves `effectiveReferrerOf` instead:
- * the flip-aware read that answers the OLD referrer for this vault
- * while a cross-chain referrer flip awaits its book migration, so
- * every clamp keeps reducing the book that actually holds the cover.
- * The same-chain move-carry mailbox pair: `stageCarry` from the
- * source vault's move-out capture and `consumeCarry` from the
- * destination's move-in replant, both reached ONLY through
- * failure-tolerant guarded CALLs ({CohortRecorderBase}), so registry
- * reverts degrade to attribution loss and never block the move. The
- * cross-chain bridge carry adds `getReferrerPair` (the origin sync
- * key packed into the outbound bridge payload) and `mergeReferrer`
- * (the earliest-assignment merge applied on arrival); the merge is
- * a guarded CALL too, and a failed merge only means the local answer
- * stands. The flush transport adds `getPayoutDesignation`: the
- * {CohortFlushFacet} reads a referrer's own-chain payout designation
- * through a guarded staticcall at envelope build time (the
- * designation piggyback word), and a failed or unset read only means
- * the envelope carries no designation. The retroactive seed adds
- * `correctionsLatched`: {CohortRecorderFacet}'s master-only
- * `seedCohortContribution` reverts once the registry's one-way
- * correction latch has fired, so a single per-chain latch ends every
- * master attribution power (corrections AND seeds) the moment payouts
- * arm; this read is a plain interface call on purpose: an unset or
- * unreachable registry makes seeding loudly impossible rather than
- * silently permitted. The registry's master/allowlist
- * admin surface is deliberately absent; it is operated directly on
- * the registry, never through the diamonds.
+ * @dev The ReferralRegistry surface a vault calls: the write-once assign,
+ * the plain and flip-aware referrer reads, the same-chain carry mailbox,
+ * the bridge pair read and merge, the payout designation read, the seed
+ * latch and the sync quarantine flag. The engine reaches the mutating and
+ * cohort reads through guarded calls; the admin surface is operated on the
+ * registry directly.
  */
 interface IReferralRegistry {
 
@@ -106,7 +79,14 @@ interface IReferralRegistry {
             uint256 stamp
         );
 
-    function correctionsLatched()
+    function seedsLatched()
+        external
+        view
+        returns (bool);
+
+    function syncPeerQuarantined(
+        uint64 _chainSelector
+    )
         external
         view
         returns (bool);

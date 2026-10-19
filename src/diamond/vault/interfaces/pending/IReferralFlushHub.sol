@@ -3,29 +3,21 @@
 pragma solidity =0.8.36;
 
 /**
- * @dev Reporter subset of the mainnet referral hub, used only by the
- * {CohortFlushFacet}'s LOCAL delivery mode: when the flush-hub
- * pointer carries a zero chain selector the hub lives on this chain,
- * and the facet delivers scores, crumb words and gap records by
- * direct call instead of a CCIP envelope: the vault itself is the
- * allowed reporter, so the hub keys the data under the local
- * address-derived source key and no envelope, deliverer stamp or
- * designation word exists on this path (on the hub's own chain
- * referrers designate at the hub directly). Reverts bubble into the
- * flushing transaction on purpose: a local delivery that cannot land
- * must never be silently dropped.
+ * @dev The reporter surface of the referral hub used by a flush on the hub
+ * chain itself, where the vault is the allowed reporter and delivers by
+ * direct call. Reverts bubble so a local delivery is never dropped.
  */
 interface IReferralFlushHub {
 
-    function reportScores(
+    function reportSelf(
         address _referrer,
-        uint256 _referredScore,
-        uint256 _selfScore
+        uint256[] calldata _selfRuns
     )
         external;
 
     function deliverCrumbs(
         address _referrer,
+        address _deliverer,
         uint256[] calldata _weeks,
         uint256[] calldata _words
     )
@@ -33,6 +25,7 @@ interface IReferralFlushHub {
 
     function deliverGap(
         address _referrer,
+        address _deliverer,
         uint256 _record,
         uint256 _fromWeek,
         uint256 _maxWeeks
