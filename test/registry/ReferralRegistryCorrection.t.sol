@@ -623,16 +623,166 @@ contract ReferralRegistryCorrectionTest is Test {
         );
     }
 
-    function test_proposeCorrectReferrer_revertsWhenUserUnassigned()
+    function test_proposeCorrectReferrer_assignsUnassignedUser()
         public
     {
-        vm.expectRevert(
-            ReferralRegistryDeclarations.NothingToCorrect.selector
+        vm.expectEmit(
+            true,
+            true,
+            true,
+            true,
+            address(registry)
+        );
+
+        emit ReferralCorrectionProposed(
+            user1,
+            address(0),
+            refB,
+            block.timestamp
         );
 
         registry.proposeCorrectReferrer(
             user1,
             refB
+        );
+
+        assertEq(
+            registry.proposedCorrection(
+                user1
+            ),
+            refB
+        );
+
+        assertEq(
+            registry.proposedCorrectionKey(
+                user1
+            ),
+            0
+        );
+    }
+
+    function test_executeCorrectReferrer_assignsUnassignedUserWithMirroredKey()
+        public
+    {
+        _proposeAndElapse(
+            user1,
+            refB
+        );
+
+        uint256 mintedKey = _key(
+            _correctedAt(
+                block.timestamp
+            ),
+            0
+        );
+
+        vm.expectEmit(
+            true,
+            true,
+            true,
+            true,
+            address(registry)
+        );
+
+        emit ReferralCorrectionExecuted(
+            user1,
+            address(0),
+            refB,
+            mintedKey
+        );
+
+        registry.executeCorrectReferrer(
+            user1
+        );
+
+        assertEq(
+            registry.referrerOf(
+                user1
+            ),
+            refB
+        );
+
+        assertEq(
+            registry.referrerKey(
+                user1
+            ),
+            mintedKey
+        );
+
+        assertEq(
+            registry.pendingFlip(
+                vaultA,
+                user1
+            ),
+            address(0)
+        );
+
+        assertEq(
+            registry.correctionQueuedAt(
+                user1
+            ),
+            0
+        );
+    }
+
+    function test_executeCorrectReferrer_unassignedUserVetoCancels()
+        public
+    {
+        registry.proposeCorrectReferrer(
+            user1,
+            refB
+        );
+
+        vm.prank(
+            user1
+        );
+        registry.cancelCorrectReferrer(
+            user1
+        );
+
+        vm.warp(
+            block.timestamp + CORRECTION_DELAY
+        );
+
+        vm.expectRevert(
+            ReferralRegistryDeclarations.NoCorrectionProposed.selector
+        );
+
+        registry.executeCorrectReferrer(
+            user1
+        );
+
+        assertEq(
+            registry.referrerOf(
+                user1
+            ),
+            address(0)
+        );
+    }
+
+    function test_executeCorrectReferrer_unassignedUserSelfAssignedDuringWindowReverts()
+        public
+    {
+        registry.proposeCorrectReferrer(
+            user1,
+            refB
+        );
+
+        _assign(
+            user1,
+            refA
+        );
+
+        vm.warp(
+            block.timestamp + CORRECTION_DELAY
+        );
+
+        vm.expectRevert(
+            ReferralRegistryDeclarations.NothingToCorrect.selector
+        );
+
+        registry.executeCorrectReferrer(
+            user1
         );
     }
 
@@ -764,7 +914,7 @@ contract ReferralRegistryCorrectionTest is Test {
         );
     }
 
-    function test_proposeCorrectReferrer_revertsWhenUserUnassignedOnNonZeroRank()
+    function test_executeCorrectReferrer_assignsUnassignedUserOnNonZeroRank()
         public
     {
         ReferralRegistry rankTwo = new ReferralRegistry(
@@ -772,13 +922,36 @@ contract ReferralRegistryCorrectionTest is Test {
             2
         );
 
-        vm.expectRevert(
-            ReferralRegistryDeclarations.NothingToCorrect.selector
-        );
-
         rankTwo.proposeCorrectReferrer(
             user1,
             refB
+        );
+
+        vm.warp(
+            block.timestamp + CORRECTION_DELAY
+        );
+
+        rankTwo.executeCorrectReferrer(
+            user1
+        );
+
+        assertEq(
+            rankTwo.referrerOf(
+                user1
+            ),
+            refB
+        );
+
+        assertEq(
+            rankTwo.referrerKey(
+                user1
+            ),
+            _key(
+                _correctedAt(
+                    block.timestamp
+                ),
+                2
+            )
         );
     }
 

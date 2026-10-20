@@ -14,7 +14,12 @@ import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
  * @dev ReferralRegistry: the write-once referrer registry of one chain.
  * An allowed vault assigns a user's referrer once; afterwards only the
  * strictly decreasing cross-chain min-merge and the dual consent
- * correction lane can change it. Sync keys travel over CCIP to the peer
+ * correction lane can change it. The correction lane also assigns a
+ * referrer to a user who has none: master proposes on any chain of the
+ * mesh, the user may cancel for three days, and the execute mints the
+ * same mirrored key a correction mints, so a master assignment wins
+ * every later merge and marks no flip (there is no old book to move).
+ * Sync keys travel over CCIP to the peer
  * registries, a flip is marked per tracked vault and delivered by a
  * permissionless poke, payout designations are set by the referrer and
  * pushed to the hub, and the same-chain carry mailbox is keyed by the
@@ -518,13 +523,13 @@ contract ReferralRegistry is
         address current = referrerOf[_user];
 
         require(
-            current != ZERO_ADDRESS
-                && _newReferrer != current,
+            _newReferrer != current,
             NothingToCorrect()
         );
 
         require(
-            (referrerKey[_user] & KEY_RANK_MASK) == LOCAL_CHAIN_RANK,
+            current == ZERO_ADDRESS
+                || (referrerKey[_user] & KEY_RANK_MASK) == LOCAL_CHAIN_RANK,
             WrongCorrectionChain()
         );
 
@@ -621,7 +626,8 @@ contract ReferralRegistry is
             : 0;
 
         require(
-            correctedKey != 0 && correctedKey < currentKey,
+            correctedKey != 0
+                && (currentKey == 0 || correctedKey < currentKey),
             CorrectionKeyNotLower()
         );
 
@@ -637,10 +643,12 @@ contract ReferralRegistry is
 
         referrerKey[_user] = correctedKey;
 
-        _markPendingFlips(
-            _user,
-            oldReferrer
-        );
+        if (oldReferrer != ZERO_ADDRESS) {
+            _markPendingFlips(
+                _user,
+                oldReferrer
+            );
+        }
 
         emit ReferralCorrectionExecuted(
             _user,
