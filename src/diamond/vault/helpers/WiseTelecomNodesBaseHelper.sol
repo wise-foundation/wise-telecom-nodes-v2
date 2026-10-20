@@ -4,7 +4,6 @@ pragma solidity =0.8.36;
 
 import {WiseTelecomNodesDeclarations} from "../declarations/WiseTelecomNodesDeclarations.sol";
 import {IReferralRegistry} from "../interfaces/pending/IReferralRegistry.sol";
-import {IReferralPayoutHub} from "../interfaces/pending/IReferralPayoutHub.sol";
 
 /**
  * @dev Base helper layer: access modifiers (`supplyChangeAllowed`),
@@ -375,104 +374,6 @@ abstract contract WiseTelecomNodesBaseHelper is WiseTelecomNodesDeclarations {
 
         return success
             && returnData.length == 32;
-    }
-
-    function _updatePayoutHub(
-        address _hub
-    )
-        internal
-    {
-        payoutHub = _hub;
-
-        emit PayoutHubSet(
-            _hub
-        );
-    }
-
-    function _proposePayoutHub(
-        address _hub
-    )
-        internal
-    {
-        proposedPayoutHub = _hub;
-        payoutHubChangeQueuedAt = block.timestamp;
-
-        emit PayoutHubProposed(
-            _hub,
-            block.timestamp + PAYOUT_HUB_CHANGE_DELAY
-        );
-    }
-
-    function _applyPayoutHubChange()
-        internal
-    {
-        require(
-            payoutHubChangeQueuedAt > 0,
-            NoPayoutHubChangeProposed()
-        );
-
-        if (initialized) {
-            require(
-                block.timestamp >= payoutHubChangeQueuedAt + PAYOUT_HUB_CHANGE_DELAY,
-                PayoutHubTimelockNotElapsed()
-            );
-        }
-
-        address newHub = proposedPayoutHub;
-
-        require(
-            newHub == ZERO_ADDRESS
-                || _probePayoutHub(newHub),
-            InvalidValue()
-        );
-
-        proposedPayoutHub = ZERO_ADDRESS;
-        payoutHubChangeQueuedAt = 0;
-
-        _updatePayoutHub(
-            newHub
-        );
-    }
-
-    function _cancelPayoutHubChange()
-        internal
-    {
-        address cancelled = proposedPayoutHub;
-
-        proposedPayoutHub = ZERO_ADDRESS;
-        payoutHubChangeQueuedAt = 0;
-
-        emit PayoutHubProposalCancelled(
-            cancelled
-        );
-    }
-
-    function _probePayoutHub(
-        address _hub
-    )
-        internal
-        view
-        returns (bool)
-    {
-        if (_hub.code.length == 0) {
-            return false;
-        }
-
-        (
-            bool success,
-            bytes memory returnData
-        ) = _hub.staticcall(
-            abi.encodeWithSelector(
-                IReferralPayoutHub.USD_TOKEN.selector
-            )
-        );
-
-        return success
-            && returnData.length == 32
-            && abi.decode(
-                returnData,
-                (address)
-            ) == address(USD_TOKEN);
     }
 
     function _updateFlushHub(
