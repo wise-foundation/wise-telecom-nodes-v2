@@ -131,8 +131,8 @@ forge test --match-path "test/diamond/fork/ReferralHubClaimFork.t.sol"
 
 # flush-transport rehearsal: installs the full flush round on a live spoke fork and the
 # hub (its own payout pot, funded by a plain transfer) on a mainnet fork, then proves the
-# whole pipeline over the real CCIP lane — deposit, flush envelope, mailbox commit, lazy
-# apply, the owed amount and a real-USD claim out of the pot — per spoke lane, plus a
+# whole pipeline over the real CCIP lane (deposit, flush envelope, mailbox commit, lazy
+# apply, the owed amount and a real-USD claim out of the pot) per spoke lane, plus a
 # three-fork mesh proof that the CREATE3
 # same-address vaults stay keyed apart per source chain
 forge test --match-path "test/diamond/fork/CohortFlushUpgradeFork.t.sol" --match-contract CohortFlushUsdcBaseMainnetFork
