@@ -104,6 +104,11 @@ contract DeployReferralHub is VaultConfig {
             network
         );
 
+        _requireDeployerIsVaultMaster(
+            privKey,
+            network
+        );
+
         vm.startBroadcast(
             privKey
         );
@@ -562,9 +567,18 @@ contract DeployReferralHub is VaultConfig {
         internal
     {
         if (_propose) {
+            if (_hub.leverChangeQueuedAt(keccak256(_call)) != 0) {
+                console2.log(
+                    "  lever already queued, its clock is kept"
+                );
+
+                return;
+            }
+
             _hub.proposeLeverChange(
                 _call
             );
+
             return;
         }
 
@@ -890,6 +904,24 @@ contract DeployReferralHub is VaultConfig {
 
         revert(
             "DeployReferralHub: unknown spoke network"
+        );
+    }
+
+    function _requireDeployerIsVaultMaster(
+        uint256 _privKey,
+        string memory _network
+    )
+        internal
+        view
+    {
+        address vault = _loadVaultDiamond(
+            "usdc",
+            _network
+        );
+
+        require(
+            vm.addr(_privKey) == WiseTelecomNodesDiamond(payable(vault)).master(),
+            "DeployReferralHub: PRIVATE_KEY is not the master of the usdc vault on this chain (the deploy key must be the mesh deployer)"
         );
     }
 }
