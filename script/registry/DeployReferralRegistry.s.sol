@@ -99,6 +99,11 @@ contract DeployReferralRegistry is VaultConfig {
             );
         }
 
+        _requireDeployerIsVaultMaster(
+            privKey,
+            network
+        );
+
         vm.startBroadcast(
             privKey
         );
@@ -349,6 +354,15 @@ contract DeployReferralRegistry is VaultConfig {
 
             return;
         }
+
+        require(
+            keccak256(bytes(vm.envOr("LATCH_CONFIRM", string("")))) == keccak256(bytes(network)),
+            "DeployReferralRegistry: set LATCH_CONFIRM=<this network> to latch the seeds for good (there is no unlatch)"
+        );
+
+        _assertRecordedVaultsArmed(
+            network
+        );
 
         vm.startBroadcast(
             privKey
@@ -685,5 +699,86 @@ contract DeployReferralRegistry is VaultConfig {
         revert(
             "DeployReferralRegistry: unknown network rank"
         );
+    }
+
+    function _requireDeployerIsVaultMaster(
+        uint256 _privKey,
+        string memory _network
+    )
+        internal
+        view
+    {
+        string[3] memory products = _products();
+
+        for (uint256 i; i < products.length; ++i) {
+            if (vm.exists(_vaultConfigPath(products[i], _network)) == false) {
+                continue;
+            }
+
+            address vault = _loadVaultDiamond(
+                products[i],
+                _network
+            );
+
+            (
+                bool ok,
+                bytes memory answer
+            ) = vault.staticcall(
+                abi.encodeWithSignature(
+                    "master()"
+                )
+            );
+
+            require(
+                ok && answer.length == 32 && abi.decode(answer, (address)) == vm.addr(_privKey),
+                "DeployReferralRegistry: PRIVATE_KEY is not the master of this chain's vaults (the deploy key must be the mesh deployer)"
+            );
+
+            return;
+        }
+
+        revert("DeployReferralRegistry: no vault record on this chain to check the deploy key against");
+    }
+
+    function _assertRecordedVaultsArmed(
+        string memory _network
+    )
+        internal
+        view
+    {
+        string[3] memory products = _products();
+
+        for (uint256 i; i < products.length; ++i) {
+            if (vm.exists(_vaultConfigPath(products[i], _network)) == false) {
+                continue;
+            }
+
+            address vault = _loadVaultDiamond(
+                products[i],
+                _network
+            );
+
+            if (vault.code.length == 0) {
+                continue;
+            }
+
+            (
+                bool ok,
+                bytes memory answer
+            ) = vault.staticcall(
+                abi.encodeWithSignature(
+                    "getCohortSyncEnabled()"
+                )
+            );
+
+            require(
+                ok && answer.length == 32 && abi.decode(answer, (bool)),
+                string.concat(
+                    "DeployReferralRegistry: the ",
+                    products[i],
+                    " vault of this chain is not armed (seeds are placed only on armed vaults; latch after every planned seed)"
+                )
+            );
+        }
     }
 }

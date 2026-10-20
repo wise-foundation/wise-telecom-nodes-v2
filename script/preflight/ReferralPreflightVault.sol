@@ -114,6 +114,13 @@ abstract contract ReferralPreflightVault is ReferralPreflightRecords {
             _network
         );
 
+        if (d.paused()) {
+            _skip(
+                scope,
+                "paused: both flush entrypoints revert until the vault is unpaused"
+            );
+        }
+
         _checkBuild(
             d,
             scope,
@@ -125,33 +132,40 @@ abstract contract ReferralPreflightVault is ReferralPreflightRecords {
             scope
         );
 
-        _checkRegistryPointer(
-            d,
-            scope,
-            _network
-        );
-
         bool homeSystem = _expectedSystem(_product) == 0;
 
-        if (homeSystem) {
-            _checkArming(
+        if (_deferredRecord(_product, _network)) {
+            _skip(
+                scope,
+                "rollout items deferred with this record (allow lane, pointers, reporter grant and tag follow its own rollout)"
+            );
+        } else {
+            _checkRegistryPointer(
+                d,
+                scope,
+                _network
+            );
+
+            if (homeSystem) {
+                _checkArming(
+                    d,
+                    scope,
+                    _network
+                );
+            }
+
+            _checkFlushPointer(
+                d,
+                scope,
+                _network
+            );
+
+            _checkAllowLane(
                 d,
                 scope,
                 _network
             );
         }
-
-        _checkFlushPointer(
-            d,
-            scope,
-            _network
-        );
-
-        _checkAllowLane(
-            d,
-            scope,
-            _network
-        );
 
         _checkNoCrossSystemPeer(
             d,
@@ -1038,6 +1052,15 @@ abstract contract ReferralPreflightVault is ReferralPreflightRecords {
             _scope,
             "every live or queued bridge peer is zero or the same product's recorded vault, at the mesh decimals"
         );
+
+        if (twoWay == false && _oneWayLanesAccepted(_product, _network)) {
+            _skip(
+                _scope,
+                "one way bridge lanes accepted by the owner with this record (the vault is deactivated; re-check before any reactivation)"
+            );
+
+            return;
+        }
 
         _verdict(
             twoWay,

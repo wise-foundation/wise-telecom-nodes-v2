@@ -46,11 +46,11 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 /// such a reference hub inside its own simulation, which never broadcasts), since the
 /// constructor writes the ladder and the runtime code does not carry it.
 /// A master handoff in flight (the deployer is still master and the expected Safe is the
-/// pending owner) passes until its own phase (the hub hands over at 4.7b, so from phase 4 the
-/// hub master is the Safe; the registries at 5.2, so from phase 5): from that phase on the
-/// deploy key may no longer be master, which also catches a forgotten master override. The
-/// seed latch is due from phase 4 (law 7: every registry latches before 4.6), and the sync
-/// rank bound reads 3 for the four-chain mesh.
+/// pending owner) passes until phase 7 (every master handoff, hub, registries and vaults, is the
+/// last step of the program): from that phase on the deploy key may no longer be master, which
+/// also catches a forgotten master override. The seed latch is due from phase 5 (every registry
+/// latches at 5.1, after the seeds and before the first claim), the hub pot from phase 4, and
+/// the sync rank bound reads 3 for the four-chain mesh.
 /// Registry checks: the config registry has code, its master and pending owner proposal,
 /// chain rank and CCIP router with any queued router change, the sync setup finalized, the
 /// allow lane of every recorded vault, the tracked vault count equal to the allowed config
@@ -243,7 +243,7 @@ contract ReferralPreflight is ReferralPreflightVault {
             latched,
             scope,
             "seeds latched",
-            HUB_HANDOFF_PHASE
+            SEED_LATCH_PHASE
         );
 
         _verdict(
@@ -275,7 +275,7 @@ contract ReferralPreflight is ReferralPreflightVault {
             master,
             _registry.proposedMaster(),
             expectedMaster,
-            REGISTRY_HANDOFF_PHASE
+            MASTER_HANDOFF_PHASE
         );
 
         bytes32 rankWord = bytes32(_rankOf(_network));
@@ -370,6 +370,19 @@ contract ReferralPreflight is ReferralPreflightVault {
 
             if (allowed) {
                 ++allowedRecorded;
+            }
+
+            if (allowed == false && _deferredRecord(products[i], _network)) {
+                _skip(
+                    _scope,
+                    string.concat(
+                        "allow lane of ",
+                        products[i],
+                        " deferred with its record"
+                    )
+                );
+
+                continue;
             }
 
             _checkFlag(
@@ -654,6 +667,13 @@ contract ReferralPreflight is ReferralPreflightVault {
             scope
         );
 
+        _checkFlag(
+            _everyRegistryLatched(),
+            scope,
+            "every registry latched (seedsLatched read on the four chains)",
+            SEED_LATCH_PHASE
+        );
+
         _checkHubStrays(
             referralHub,
             scope
@@ -675,7 +695,7 @@ contract ReferralPreflight is ReferralPreflightVault {
             master,
             _hub.proposedMaster(),
             expectedMaster,
-            HUB_HANDOFF_PHASE
+            MASTER_HANDOFF_PHASE
         );
 
         _verdict(
@@ -880,6 +900,19 @@ contract ReferralPreflight is ReferralPreflightVault {
                 diamond
             );
 
+            if (reporter == false && _deferredRecord(_product, _network)) {
+                _skip(
+                    _scope,
+                    string.concat(
+                        "local reporter ",
+                        source,
+                        " deferred with its record"
+                    )
+                );
+
+                return;
+            }
+
             wired = reporter;
 
             _checkFlag(
@@ -1057,7 +1090,7 @@ contract ReferralPreflight is ReferralPreflightVault {
 
         if (pot == 0) {
             _due(
-                HUB_HANDOFF_PHASE,
+                HUB_POT_PHASE,
                 _scope,
                 "pot funded (the hub holds USD)"
             );

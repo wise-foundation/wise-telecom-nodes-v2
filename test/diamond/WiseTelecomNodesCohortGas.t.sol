@@ -121,9 +121,9 @@ contract RecordingCcipRouter {
  * full 104-boundary cap before landing the carry. Its ceiling is
  * derived from the 5,000,000 CCIP delivery gas that the `arm()` of
  * `UpgradeReferralRegistry.s.sol` commits via `setBridgeGasLimit`,
- * the sanctioned arming entry (the `arm()` of
- * `UpgradeCohortRecorder.s.sol` sets 1,000,000, which would strand
- * such a delivery, so it never arms a vault); a delivery that
+ * the only arming entry (the earlier recorder upgrade script set
+ * 1,000,000 there, which would strand such a delivery, and was
+ * deleted for that reason); a delivery that
  * outgrows the budget strands the whole message, the mint with it,
  * until a manual re-execution with more gas. The ceiling is
  * 4,400,000, 88 percent of the budget, the other 600,000 being the

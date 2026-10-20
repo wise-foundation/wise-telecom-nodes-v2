@@ -31,8 +31,9 @@ import {ReferralHubMailboxFacet} from "../../src/hub/pending/ReferralHubMailboxF
 import {ReferralHubPayoutFacet} from "../../src/hub/pending/ReferralHubPayoutFacet.sol";
 
 /// @notice Explorer verification rehearsal on Sepolia: deploys one copy of every contract the
-/// referral rollout deploys on the live chains (the eighteen vault facets of the registry,
-/// flush and payout rounds, the registry, the five hub facets, the hub and its reader), from
+/// referral rollout deploys on the live chains (the sixteen vault facets of the registry and
+/// flush rounds plus the SweepFacet as a spare, the registry, the five hub facets, the hub and
+/// its reader: 25 contracts), from
 /// the same sources and compiler profile, so `--verify` proves before Phase 1 that each one
 /// verifies on Etherscan V2. Nothing is wired: the contracts stay standalone, no config file
 /// is written, and the copies are never used after the rehearsal. The run refuses any chain

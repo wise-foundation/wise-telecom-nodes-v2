@@ -24,9 +24,13 @@ import {WiseTelecomNodesDiamondSelectors} from "../diamond/WiseTelecomNodesDiamo
 /// table covers every selector group of the diamond. Each round batch names its round's
 /// phase (registry 2, flush 3) and the build artifact of its facet: the thirteen
 /// batches of the registry round in `propose()` order (the admin batch once, since the flush
-/// round re-proposes the same build) and the two flush batches. Phase 4 is the hub funding
-/// and the hub master handoff, phase 5 the seed latch and the registry master handoff. The bridge batch leaves out the legacy referral bridge pair, which the vault
-/// layer judges alone because its retirement queues only those two selectors. The nine
+/// round re-proposes the same build) and the two flush batches. Phase 4 is the hub funding,
+/// phase 5 the seed latch and phase 7 every master handoff (hub, registries, vaults). A vault
+/// record carrying `"deferred": true` keeps its identity, pause, deposit hook and peer reads on
+/// every run while its rollout items (allow lane, pointers, reporter grant, system tag) are
+/// skipped until its own rollout runs; one carrying `"oneWayLanesAccepted": true` (the usdt vault
+/// on base, deactivated with its lanes as they are) turns the two way lane line into a SKIP. The bridge batch leaves out the legacy referral bridge pair, which the vault
+/// layer judges alone because its retirement queues only those two selectors. The ten
 /// groups no rollout step proposes (proxy, cashed interest, queue forecast, interest admin,
 /// rescue, burn wise, multicall, queue admin, queue view, sweep) carry no round. `_matchesBuild`
 /// compares deployed code with the artifact byte for byte, except where the artifact holds
@@ -62,9 +66,11 @@ abstract contract ReferralPreflightRecords is VaultConfig {
 
     uint256 internal constant FLUSH_ROUND_PHASE = 3;
 
-    uint256 internal constant HUB_HANDOFF_PHASE = 4;
+    uint256 internal constant HUB_POT_PHASE = 4;
 
-    uint256 internal constant REGISTRY_HANDOFF_PHASE = 5;
+    uint256 internal constant SEED_LATCH_PHASE = 5;
+
+    uint256 internal constant MASTER_HANDOFF_PHASE = 7;
 
     uint256 internal constant NO_HANDOFF = type(uint256).max;
 
@@ -408,7 +414,7 @@ abstract contract ReferralPreflightRecords is VaultConfig {
         returns (Batch[] memory batches)
     {
         batches = new Batch[](
-            24
+            25
         );
 
         batches[0] = _batch(
@@ -577,6 +583,12 @@ abstract contract ReferralPreflightRecords is VaultConfig {
         batches[23] = _batch(
             "queue view",
             WiseTelecomNodesDiamondSelectors._queueViewSelectors(),
+            "",
+            NOT_A_ROLLOUT_BATCH
+        );
+        batches[24] = _batch(
+            "sweep",
+            WiseTelecomNodesDiamondSelectors._sweepSelectors(),
             "",
             NOT_A_ROLLOUT_BATCH
         );
@@ -1024,6 +1036,62 @@ abstract contract ReferralPreflightRecords is VaultConfig {
                 _product,
                 _network
             )
+        );
+    }
+
+    function _deferredRecord(
+        string memory _product,
+        string memory _network
+    )
+        internal
+        view
+        returns (bool)
+    {
+        return _recordFlag(
+            _product,
+            _network,
+            ".deferred"
+        );
+    }
+
+    function _oneWayLanesAccepted(
+        string memory _product,
+        string memory _network
+    )
+        internal
+        view
+        returns (bool)
+    {
+        return _recordFlag(
+            _product,
+            _network,
+            ".oneWayLanesAccepted"
+        );
+    }
+
+    function _recordFlag(
+        string memory _product,
+        string memory _network,
+        string memory _key
+    )
+        internal
+        view
+        returns (bool)
+    {
+        string memory json = vm.readFile(
+            _vaultConfigPath(
+                _product,
+                _network
+            )
+        );
+
+        if (vm.keyExistsJson(json, _key) == false) {
+            return false;
+        }
+
+        return vm.parseJsonBool(
+            json,
+            _key
         );
     }
 
