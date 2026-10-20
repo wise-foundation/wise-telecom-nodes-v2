@@ -521,8 +521,8 @@ the `95` row. The next free tail slot is **96**.
 The hub declarations append the week buckets after `sourceSystemOf`: `sourceWeekOf`
 (per source, referrer and week, the referred average in the low half and the paid units in
 the high half), `weekInputsOf` (per referrer and week, the referred sum low and the self
-sum high), `sourceSelfOf` (per source, referrer and week, the source's largest self average; owner
-card (g) sums it over the sources),
+sum high), `sourceSelfOf` (per source, referrer and week, the source's largest self average; the
+ladder input sums it over the sources),
 `sourceChainIdOf` (the chain a source credits, written once at its first delivery and
 public) and `sourceListedFor` (whether a source is already in a referrer's source list).
 The state the buckets retired (the score aggregates, checkpoints, freshness words and the
@@ -614,7 +614,9 @@ never broadcast), so every field after `totalClaimed` moves up one slot and ever
 `dwellMinLog` another one: `USD_TOKEN` now sits at slot 24, the selector tables at 25 to 27 and
 `initialized` at 28; the hub snapshot is regenerated (37 entries). `PotClosed`,
 `InvalidPayoutVault`, `PayoutVaultSet`, `PayoutLiabilityBooked` and `PotClaimBooked` are gone;
-`PotDry` is the one funding revert.
+`PotDry` is the one funding revert. The same day the elevation whitelist appended two mappings at
+the hub tail (`elevatedFromWeek`, `elevatedUntilWeek`, after `leverChangeQueuedAt`), so the hub
+snapshot is 39 entries; no vault change.
 
 ## Snapshot & layout guard
 
