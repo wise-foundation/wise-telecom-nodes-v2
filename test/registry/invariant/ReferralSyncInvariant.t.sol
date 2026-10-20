@@ -14,13 +14,31 @@ import {MockFlipVault} from "../ReferralRegistrySync.t.sol";
  * local assignments, honest pair relays (`deliverPair` reads a source
  * registry's stored origin pair and merges it into a destination via
  * `mergeReferrer`), stale re-deliveries from a bounded journal of
- * previously observed pairs, permissionless `pokeMigration` pokes and
- * time warps. The handler itself is the allowlisted driver on every
+ * previously observed pairs, permissionless `pokeMigration` pokes,
+ * master corrections and time warps. The `correct` action picks a
+ * registry and a user; when the user holds no key there, it first
+ * assigns the user through the handler with a seed-chosen referrer,
+ * exactly as `localAssign` does, so the fresh key carries that
+ * registry's own rank (registry i was deployed with rank i). It then
+ * skips unless the held key carries that rank and no proposal is
+ * queued, proposes one of the three other referrers as master, waits
+ * out the three day timelock and executes; the minted key is recorded
+ * in `ghostCorrectionKey`, the flip-marker checks run exactly as after
+ * a merge flip, and the corrected pair joins the journal. The handler
+ * relays corrected pairs through `deliverPair` and `deliverStale` like
+ * any other pair; it never calls `broadcastSync`. The master is read
+ * once from registry zero at construction (the test contract deploys every
+ * registry with itself as master). The handler itself is the
+ * allowlisted driver on every
  * registry (so `mergeReferrer` needs no pranks) and implements a
  * success no-op `receiveReferrerFlip`, making it a healthy tracked
  * vault whose markers always clear on poke; registry zero additionally
  * tracks two {MockFlipVault} recorders, one of them toggled reverting
- * to exercise the defer-and-restore arm.
+ * to exercise the defer-and-restore arm, and one codeless address
+ * allowed in setUp (the suite never finalizes the sync setup). A
+ * master `toggleAllowed` action revokes and re-allows those three
+ * entries (never the handler, the driver every action needs), and a
+ * `pokeAt` action pokes one of them alone through `pokeMigrationAt`.
  *
  * Ghost machinery: after every action a journal sweep compares each
  * (registry, user) pair against its previous snapshot: a nonzero
@@ -28,11 +46,18 @@ import {MockFlipVault} from "../ReferralRegistrySync.t.sol";
  * a referrer change without a strictly lower key (or to zero)
  * increments `ghostFlipViolations`. Step-level checks inside the
  * actions feed two more sticky counters: `ghostMarkViolations` (a
- * merge that flipped the stored referrer must leave a pending-flip
- * marker on every tracked vault of that registry) and
+ * merge that flipped the stored referrer, or an executed correction,
+ * must leave a pending-flip marker on every tracked vault of that
+ * registry) and
  * `ghostPokeViolations` (after a poke, a marker either clears with the
  * recorded relocation call, clears silently when old equals current,
- * or is restored untouched when the vault reverts). Violation
+ * or is restored untouched when the vault reverts). A mark or poke
+ * violation observed on a revoked vault, or a toggle that changes the
+ * tracked set, also counts in `ghostToggleViolations`; every poke runs
+ * inside a try/catch, so a reverting poke counts in
+ * `ghostPokeRevertViolations` instead of being dropped by the runner,
+ * and a poke that leaves the codeless entry marked counts in
+ * `ghostCodelessViolations`. Violation
  * counters instead of reverts, because the invariant runner tolerates
  * handler-call reverts; the invariants then require all counters to
  * stay zero.
@@ -45,11 +70,15 @@ contract ReferralSyncHandler is Test {
 
     MockFlipVault internal immutable flipVaultB;
 
+    address internal immutable master;
+
     address[4] internal users;
 
     address[4] internal referrers;
 
     uint256 internal constant OBSERVED_CAP = 128;
+
+    address public constant CODELESS_VAULT = address(0xC0DE);
 
     uint256 public ghostKeyViolations;
 
@@ -58,6 +87,16 @@ contract ReferralSyncHandler is Test {
     uint256 public ghostMarkViolations;
 
     uint256 public ghostPokeViolations;
+
+    uint256 public ghostToggleViolations;
+
+    uint256 public ghostPokeRevertViolations;
+
+    uint256 public ghostCodelessViolations;
+
+    uint256 public ghostCorrectionCount;
+
+    mapping(uint256 => bool) public ghostCorrectionKey;
 
     mapping(uint256 => mapping(address => uint256)) public ghostKey;
 
@@ -68,6 +107,14 @@ contract ReferralSyncHandler is Test {
         address referrer;
         uint256 assignedAt;
         uint256 rank;
+    }
+
+    struct PokeSnapshot {
+        address oldMarkerA;
+        address oldMarkerB;
+        uint256 callsBeforeA;
+        uint256 callsBeforeB;
+        bool revertingB;
     }
 
     ObservedPair[] internal observedPairs;
@@ -86,6 +133,8 @@ contract ReferralSyncHandler is Test {
         flipVaultA = _flipVaultA;
 
         flipVaultB = _flipVaultB;
+
+        master = _registries[0].master();
 
         users = _users;
 
@@ -199,6 +248,94 @@ contract ReferralSyncHandler is Test {
         );
     }
 
+    function correct(
+        uint256 _regSeed,
+        uint256 _userSeed
+    )
+        external
+        journal
+    {
+        uint256 index = _regSeed % registries.length;
+
+        ReferralRegistry reg = registries[index];
+
+        address user = users[_userSeed % 4];
+
+        uint256 key = reg.referrerKey(
+            user
+        );
+
+        if (key == 0) {
+
+            reg.assignReferrer(
+                user,
+                referrers[(_regSeed / registries.length) % 4]
+            );
+
+            key = reg.referrerKey(
+                user
+            );
+        }
+
+        if ((key & 0xff) != index) {
+            return;
+        }
+
+        if (reg.correctionQueuedAt(user) != 0) {
+            return;
+        }
+
+        address current = reg.referrerOf(
+            user
+        );
+
+        uint256 currentIndex;
+
+        for (uint256 i; i < 4; ++i) {
+
+            if (referrers[i] == current) {
+                currentIndex = i;
+            }
+        }
+
+        address newReferrer = referrers[(currentIndex + 1 + (_userSeed / 4) % 3) % 4];
+
+        vm.prank(
+            master
+        );
+
+        reg.proposeCorrectReferrer(
+            user,
+            newReferrer
+        );
+
+        vm.warp(
+            block.timestamp + 3 days
+        );
+
+        vm.prank(
+            master
+        );
+
+        reg.executeCorrectReferrer(
+            user
+        );
+
+        ghostCorrectionKey[reg.referrerKey(user)] = true;
+
+        ++ghostCorrectionCount;
+
+        _checkFlipMarkers(
+            reg,
+            user
+        );
+
+        _recordObserved(
+            reg,
+            user
+        );
+    }
+
     function pokeFlips(
         uint256 _regSeed,
         uint256 _userSeed
@@ -218,38 +355,23 @@ contract ReferralSyncHandler is Test {
 
         bool primary = address(reg) == address(registries[0]);
 
-        address oldMarkerA;
-
-        address oldMarkerB;
-
-        uint256 callsBeforeA;
-
-        uint256 callsBeforeB;
-
-        bool revertingB;
+        PokeSnapshot memory snap;
 
         if (primary) {
-
-            oldMarkerA = reg.pendingFlip(
-                address(flipVaultA),
+            snap = _snapshotPrimary(
+                reg,
                 user
             );
-
-            oldMarkerB = reg.pendingFlip(
-                address(flipVaultB),
-                user
-            );
-
-            callsBeforeA = flipVaultA.flipCallCount();
-
-            callsBeforeB = flipVaultB.flipCallCount();
-
-            revertingB = flipVaultB.shouldRevert();
         }
 
-        reg.pokeMigration(
+        try reg.pokeMigration(
             user
-        );
+        ) {} catch {
+
+            ++ghostPokeRevertViolations;
+
+            return;
+        }
 
         if (reg.pendingFlip(address(this), user) != address(0)) {
             ++ghostPokeViolations;
@@ -259,24 +381,11 @@ contract ReferralSyncHandler is Test {
             return;
         }
 
-        _checkPokeOutcome(
+        _checkPrimaryPoke(
             reg,
-            flipVaultA,
             user,
             current,
-            oldMarkerA,
-            callsBeforeA,
-            false
-        );
-
-        _checkPokeOutcome(
-            reg,
-            flipVaultB,
-            user,
-            current,
-            oldMarkerB,
-            callsBeforeB,
-            revertingB
+            snap
         );
     }
 
@@ -288,6 +397,114 @@ contract ReferralSyncHandler is Test {
     {
         flipVaultB.setShouldRevert(
             _seed % 2 == 0
+        );
+    }
+
+    function toggleAllowed(
+        uint256 _vaultSeed,
+        uint256 _allowSeed
+    )
+        external
+        journal
+    {
+        ReferralRegistry reg = registries[0];
+
+        address vault = _flipVaultAt(
+            _vaultSeed
+        );
+
+        bool allowed = _allowSeed % 2 == 0;
+
+        uint256 trackedBefore = reg.trackedVaultCount();
+
+        vm.prank(
+            master
+        );
+
+        reg.setAllowedVault(
+            vault,
+            allowed
+        );
+
+        if (reg.allowedVault(vault) != allowed) {
+            ++ghostToggleViolations;
+        }
+
+        if (reg.trackedVaultCount() != trackedBefore || reg.everAllowedVault(vault) == false) {
+            ++ghostToggleViolations;
+        }
+    }
+
+    function pokeAt(
+        uint256 _userSeed,
+        uint256 _vaultSeed
+    )
+        external
+        journal
+    {
+        ReferralRegistry reg = registries[0];
+
+        address user = users[_userSeed % 4];
+
+        address vault = _flipVaultAt(
+            _vaultSeed
+        );
+
+        address current = reg.referrerOf(
+            user
+        );
+
+        address markerBefore = reg.pendingFlip(
+            vault,
+            user
+        );
+
+        uint256 callsBefore;
+
+        bool reverting;
+
+        if (vault != CODELESS_VAULT) {
+
+            callsBefore = MockFlipVault(vault).flipCallCount();
+
+            reverting = MockFlipVault(vault).shouldRevert();
+        }
+
+        try reg.pokeMigrationAt(
+            user,
+            vault
+        ) {} catch {
+
+            ++ghostPokeRevertViolations;
+
+            return;
+        }
+
+        if (vault == CODELESS_VAULT) {
+
+            if (reg.pendingFlip(vault, user) != address(0)) {
+                ++ghostCodelessViolations;
+            }
+
+            return;
+        }
+
+        uint256 violationsBefore = ghostPokeViolations;
+
+        _checkPokeOutcome(
+            reg,
+            MockFlipVault(vault),
+            user,
+            current,
+            markerBefore,
+            callsBefore,
+            reverting
+        );
+
+        _attributeRevoked(
+            reg,
+            vault,
+            violationsBefore
         );
     }
 
@@ -314,6 +531,26 @@ contract ReferralSyncHandler is Test {
         returns (ReferralRegistry)
     {
         return registries[_seed % registries.length];
+    }
+
+    function _flipVaultAt(
+        uint256 _seed
+    )
+        internal
+        view
+        returns (address)
+    {
+        uint256 index = _seed % 3;
+
+        if (index == 0) {
+            return address(flipVaultA);
+        }
+
+        if (index == 1) {
+            return address(flipVaultB);
+        }
+
+        return CODELESS_VAULT;
     }
 
     function _mergeChecked(
@@ -344,6 +581,18 @@ contract ReferralSyncHandler is Test {
             return;
         }
 
+        _checkFlipMarkers(
+            _dst,
+            _user
+        );
+    }
+
+    function _checkFlipMarkers(
+        ReferralRegistry _dst,
+        address _user
+    )
+        internal
+    {
         if (_dst.pendingFlip(address(this), _user) == address(0)) {
             ++ghostMarkViolations;
         }
@@ -352,12 +601,21 @@ contract ReferralSyncHandler is Test {
             return;
         }
 
-        if (_dst.pendingFlip(address(flipVaultA), _user) == address(0)) {
-            ++ghostMarkViolations;
-        }
+        for (uint256 i; i < 3; ++i) {
 
-        if (_dst.pendingFlip(address(flipVaultB), _user) == address(0)) {
+            address vault = _flipVaultAt(
+                i
+            );
+
+            if (_dst.pendingFlip(vault, _user) != address(0)) {
+                continue;
+            }
+
             ++ghostMarkViolations;
+
+            if (_dst.allowedVault(vault) == false) {
+                ++ghostToggleViolations;
+            }
         }
     }
 
@@ -412,6 +670,98 @@ contract ReferralSyncHandler is Test {
         ) {
             ++ghostPokeViolations;
         }
+    }
+
+    function _snapshotPrimary(
+        ReferralRegistry _reg,
+        address _user
+    )
+        internal
+        view
+        returns (PokeSnapshot memory snap)
+    {
+        snap.oldMarkerA = _reg.pendingFlip(
+            address(flipVaultA),
+            _user
+        );
+
+        snap.oldMarkerB = _reg.pendingFlip(
+            address(flipVaultB),
+            _user
+        );
+
+        snap.callsBeforeA = flipVaultA.flipCallCount();
+
+        snap.callsBeforeB = flipVaultB.flipCallCount();
+
+        snap.revertingB = flipVaultB.shouldRevert();
+    }
+
+    function _checkPrimaryPoke(
+        ReferralRegistry _reg,
+        address _user,
+        address _current,
+        PokeSnapshot memory _snap
+    )
+        internal
+    {
+        uint256 violationsBefore = ghostPokeViolations;
+
+        _checkPokeOutcome(
+            _reg,
+            flipVaultA,
+            _user,
+            _current,
+            _snap.oldMarkerA,
+            _snap.callsBeforeA,
+            false
+        );
+
+        _attributeRevoked(
+            _reg,
+            address(flipVaultA),
+            violationsBefore
+        );
+
+        violationsBefore = ghostPokeViolations;
+
+        _checkPokeOutcome(
+            _reg,
+            flipVaultB,
+            _user,
+            _current,
+            _snap.oldMarkerB,
+            _snap.callsBeforeB,
+            _snap.revertingB
+        );
+
+        _attributeRevoked(
+            _reg,
+            address(flipVaultB),
+            violationsBefore
+        );
+
+        if (_reg.pendingFlip(CODELESS_VAULT, _user) != address(0)) {
+            ++ghostCodelessViolations;
+        }
+    }
+
+    function _attributeRevoked(
+        ReferralRegistry _reg,
+        address _vault,
+        uint256 _violationsBefore
+    )
+        internal
+    {
+        if (ghostPokeViolations == _violationsBefore) {
+            return;
+        }
+
+        if (_reg.allowedVault(_vault) == true) {
+            return;
+        }
+
+        ++ghostToggleViolations;
     }
 
     function _recordObserved(
@@ -511,8 +861,23 @@ contract ReferralSyncHandler is Test {
  * must bind the same referrer; honest relays can never fork a key);
  * RS5 is well-formedness (key zero exactly when unassigned, stored
  * rank within the deployed rank set, stored timestamp nonzero and
- * never in the future); RS6 and RS7 assert the step-level flip-marker
- * and poke-migration counters stayed zero.
+ * never in the future, which still holds for corrected keys because
+ * their mirrored timestamp field sits below the floor); RS6 and RS7
+ * assert the step-level flip-marker and poke-migration counters stayed
+ * zero; RS8: every stored key whose timestamp field lies below the
+ * floor 1_700_000_000 was minted by a handler correction, so no relay,
+ * stale delivery or merge can bring a sub-floor key into existence on
+ * its own; RS9: a master allowlist toggle never removes a vault from
+ * the flip loop (registry zero keeps its four tracked entries, and a
+ * revoked vault is still marked by every flip and migrated by every
+ * poke); RS10: a poke, over every tracked vault or one vault, never
+ * reverts and clears the marker of the codeless tracked entry, which
+ * holds no book. A
+ * deterministic pin drives one `correct` call from the setUp state and
+ * checks it reaches execute and records the minted key, so RS8 is
+ * known to face real corrected keys; a second pin revokes a flip vault
+ * before a correction and a poke, so RS9 and RS10 are known to face a
+ * revoked vault and the codeless entry.
  */
 contract ReferralSyncInvariantTest is Test {
 
@@ -523,6 +888,8 @@ contract ReferralSyncInvariantTest is Test {
     uint256 internal constant KEY_RANK_MASK = 0xff;
 
     uint256 internal constant KEY_RANK_SHIFT = 8;
+
+    uint256 internal constant SYNC_KEY_FLOOR = 1_700_000_000;
 
     ReferralRegistry[] internal registries;
 
@@ -593,8 +960,152 @@ contract ReferralSyncInvariantTest is Test {
             true
         );
 
+        registries[0].setAllowedVault(
+            handler.CODELESS_VAULT(),
+            true
+        );
+
         targetContract(
             address(handler)
+        );
+    }
+
+    // ---- pins ----
+
+    function test_correctAction_reachesExecuteAndRecordsGhost()
+        public
+    {
+        handler.correct(
+            0,
+            0
+        );
+
+        uint256 key = registries[0].referrerKey(
+            users[0]
+        );
+
+        assertEq(
+            handler.ghostCorrectionCount(),
+            1,
+            "correct did not reach execute"
+        );
+
+        assertLt(
+            key >> KEY_RANK_SHIFT,
+            SYNC_KEY_FLOOR,
+            "corrected key timestamp is not below the floor"
+        );
+
+        assertTrue(
+            handler.ghostCorrectionKey(
+                key
+            ),
+            "corrected key was not recorded by the handler"
+        );
+    }
+
+    function test_toggleAllowed_revokedVaultStillMarksAndMigrates()
+        public
+    {
+        handler.toggleAllowed(
+            0,
+            1
+        );
+
+        assertFalse(
+            registries[0].allowedVault(
+                address(flipVaultA)
+            ),
+            "flip vault A was not revoked"
+        );
+
+        handler.correct(
+            0,
+            0
+        );
+
+        address oldReferrer = registries[0].pendingFlip(
+            address(flipVaultA),
+            users[0]
+        );
+
+        assertTrue(
+            oldReferrer != address(0),
+            "the correction did not mark the revoked vault"
+        );
+
+        assertEq(
+            registries[0].pendingFlip(
+                handler.CODELESS_VAULT(),
+                users[0]
+            ),
+            oldReferrer,
+            "the correction did not mark the codeless entry"
+        );
+
+        handler.pokeFlips(
+            0,
+            0
+        );
+
+        assertEq(
+            flipVaultA.flipCallCount(),
+            1,
+            "the poke did not migrate the revoked vault"
+        );
+
+        assertEq(
+            registries[0].pendingFlip(
+                address(flipVaultA),
+                users[0]
+            ),
+            address(0),
+            "the poke left the revoked vault marked"
+        );
+
+        assertEq(
+            registries[0].pendingFlip(
+                handler.CODELESS_VAULT(),
+                users[0]
+            ),
+            address(0),
+            "the poke left the codeless entry marked"
+        );
+
+        assertEq(
+            registries[0].trackedVaultCount(),
+            4,
+            "a toggle changed the tracked set"
+        );
+
+        assertEq(
+            handler.ghostToggleViolations(),
+            0,
+            "RS9 counter moved on the scripted sequence"
+        );
+
+        assertEq(
+            handler.ghostPokeRevertViolations(),
+            0,
+            "RS10 revert counter moved on the scripted sequence"
+        );
+
+        assertEq(
+            handler.ghostCodelessViolations(),
+            0,
+            "RS10 codeless counter moved on the scripted sequence"
+        );
+
+        assertEq(
+            handler.ghostMarkViolations(),
+            0,
+            "RS6 counter moved on the scripted sequence"
+        );
+
+        assertEq(
+            handler.ghostPokeViolations(),
+            0,
+            "RS7 counter moved on the scripted sequence"
         );
     }
 
@@ -708,8 +1219,12 @@ contract ReferralSyncInvariantTest is Test {
                     }
 
                     assertEq(
-                        registries[i].referrerOf(user),
-                        registries[j].referrerOf(user),
+                        registries[i].referrerOf(
+                            user
+                        ),
+                        registries[j].referrerOf(
+                            user
+                        ),
                         "RS4: equal sync keys bind different referrers"
                     );
                 }
@@ -791,6 +1306,72 @@ contract ReferralSyncInvariantTest is Test {
             handler.ghostPokeViolations(),
             0,
             "RS7: a poke cleared, kept or relayed a marker incorrectly"
+        );
+    }
+
+    /// forge-config: default.invariant.runs = 128
+    /// forge-config: default.invariant.depth = 64
+    function invariant_RS8_subFloorKeysAreMintedCorrections()
+        public
+        view
+    {
+        for (uint256 r; r < REGISTRY_COUNT; ++r) {
+
+            for (uint256 u; u < 4; ++u) {
+
+                uint256 key = registries[r].referrerKey(
+                    users[u]
+                );
+
+                if (key == 0 || (key >> KEY_RANK_SHIFT) >= SYNC_KEY_FLOOR) {
+                    continue;
+                }
+
+                assertTrue(
+                    handler.ghostCorrectionKey(
+                        key
+                    ),
+                    "RS8: a sub-floor sync key was not minted by a correction"
+                );
+            }
+        }
+    }
+
+    /// forge-config: default.invariant.runs = 128
+    /// forge-config: default.invariant.depth = 64
+    function invariant_RS9_allowlistToggleKeepsFlipLoop()
+        public
+        view
+    {
+        assertEq(
+            handler.ghostToggleViolations(),
+            0,
+            "RS9: an allowlist toggle removed a vault from the flip loop"
+        );
+
+        assertEq(
+            registries[0].trackedVaultCount(),
+            4,
+            "RS9: the tracked vault set of registry zero changed"
+        );
+    }
+
+    /// forge-config: default.invariant.runs = 128
+    /// forge-config: default.invariant.depth = 64
+    function invariant_RS10_pokeNeverRevertsAndClearsCodeless()
+        public
+        view
+    {
+        assertEq(
+            handler.ghostPokeRevertViolations(),
+            0,
+            "RS10: a poke reverted"
+        );
+
+        assertEq(
+            handler.ghostCodelessViolations(),
+            0,
+            "RS10: a poke left the codeless tracked entry marked"
         );
     }
 }
