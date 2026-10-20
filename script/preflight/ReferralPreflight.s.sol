@@ -48,9 +48,9 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 /// A master handoff in flight (the deployer is still master and the expected Safe is the
 /// pending owner) passes until phase 7 (every master handoff, hub, registries and vaults, is the
 /// last step of the program): from that phase on the deploy key may no longer be master, which
-/// also catches a forgotten master override. The seed latch is due from phase 5 (every registry
-/// latches at 5.1, after the seeds and before the first claim), the hub pot from phase 4, and
-/// the sync rank bound reads 3 for the four-chain mesh.
+/// also catches a forgotten master override. The seed latch is informational (the rollout never
+/// fires it: a latched chain reads PASS, an open one SKIP), the hub pot is due from phase 4,
+/// and the sync rank bound reads 3 for the four-chain mesh.
 /// Registry checks: the config registry has code, its master and pending owner proposal,
 /// chain rank and CCIP router with any queued router change, the sync setup finalized, the
 /// allow lane of every recorded vault, the tracked vault count equal to the allowed config
@@ -239,12 +239,17 @@ contract ReferralPreflight is ReferralPreflightVault {
 
         bool latched = registry.seedsLatched();
 
-        _checkFlag(
-            latched,
-            scope,
-            "seeds latched",
-            SEED_LATCH_PHASE
-        );
+        if (latched) {
+            _pass(
+                scope,
+                "seeds latched (the owner closed the seed lane on this chain)"
+            );
+        } else {
+            _skip(
+                scope,
+                "seeds not latched (the rollout never fires the latch; the seed lane stays open)"
+            );
+        }
 
         _verdict(
             latched == false || phase >= FLUSH_ROUND_PHASE,
@@ -667,12 +672,17 @@ contract ReferralPreflight is ReferralPreflightVault {
             scope
         );
 
-        _checkFlag(
-            _everyRegistryLatched(),
-            scope,
-            "every registry latched (seedsLatched read on the four chains)",
-            SEED_LATCH_PHASE
-        );
+        if (_everyRegistryLatched()) {
+            _pass(
+                scope,
+                "every registry latched (seedsLatched read on the four chains)"
+            );
+        } else {
+            _skip(
+                scope,
+                "not every registry latched (seedsLatched read on the four chains; the rollout never fires the latch)"
+            );
+        }
 
         _checkHubStrays(
             referralHub,

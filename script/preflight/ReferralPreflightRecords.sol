@@ -25,7 +25,8 @@ import {WiseTelecomNodesDiamondSelectors} from "../diamond/WiseTelecomNodesDiamo
 /// phase (registry 2, flush 3) and the build artifact of its facet: the thirteen
 /// batches of the registry round in `propose()` order (the admin batch once, since the flush
 /// round re-proposes the same build) and the two flush batches. Phase 4 is the hub funding,
-/// phase 5 the seed latch and phase 7 every master handoff (hub, registries, vaults). A vault
+/// phase 5 adds no check of its own (the seed latch is informational, the rollout never fires
+/// it) and phase 7 every master handoff (hub, registries, vaults). A vault
 /// record carrying `"deferred": true` keeps its identity, pause, deposit hook and peer reads on
 /// every run while its rollout items (allow lane, pointers, reporter grant, system tag) are
 /// skipped until its own rollout runs; one carrying `"oneWayLanesAccepted": true` (the usdt vault
@@ -67,8 +68,6 @@ abstract contract ReferralPreflightRecords is VaultConfig {
     uint256 internal constant FLUSH_ROUND_PHASE = 3;
 
     uint256 internal constant HUB_POT_PHASE = 4;
-
-    uint256 internal constant SEED_LATCH_PHASE = 5;
 
     uint256 internal constant MASTER_HANDOFF_PHASE = 7;
 
