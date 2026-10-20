@@ -194,10 +194,6 @@ abstract contract WiseTelecomNodesDiamondEvents {
         uint256 totalCashedInterest
     );
 
-    event PendingReferralPayoutChanged(
-        uint256 pendingReferralPayout
-    );
-
     event CashedInterestSet(
         address indexed user,
         uint256 previousAmount,
@@ -636,21 +632,6 @@ abstract contract WiseTelecomNodesDiamondEvents {
 
     event AutoCompoundFeeBpsSet(
         uint256 autoCompoundFeeBps
-    );
-
-    // ---- Referral payout hub ----
-
-    event PayoutHubSet(
-        address payoutHub
-    );
-
-    event PayoutHubProposed(
-        address indexed proposedPayoutHub,
-        uint256 executableAt
-    );
-
-    event PayoutHubProposalCancelled(
-        address indexed cancelledPayoutHub
     );
 
     // ---- Cohort flush ----

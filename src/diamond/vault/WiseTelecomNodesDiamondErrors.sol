@@ -184,14 +184,6 @@ abstract contract WiseTelecomNodesDiamondErrors {
 
     error AutoCompoundFeeTooHigh();
 
-    // ---- Referral payout hub ----
-
-    error NoPayoutHubChangeProposed();
-
-    error PayoutHubTimelockNotElapsed();
-
-    error NotPayoutHub();
-
     error ExceedsPendingPayout();
 
     // ---- Cohort flush ----
