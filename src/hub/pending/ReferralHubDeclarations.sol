@@ -112,8 +112,6 @@ abstract contract ReferralHubDeclarations is OwnableMaster {
 
     uint256 public totalClaimed;
 
-    uint256 public totalBooked;
-
     uint256 public totalPayable;
 
     // ---- Access + policy knobs ----
@@ -122,8 +120,6 @@ abstract contract ReferralHubDeclarations is OwnableMaster {
 
     // Retired with the dwell-min schedule.
     uint256[] internal dwellMinLog;
-
-    address public payoutVault;
 
     mapping(uint256 => mapping(address => address)) internal payoutAddress;
 
@@ -182,6 +178,12 @@ abstract contract ReferralHubDeclarations is OwnableMaster {
 
     mapping(bytes32 => uint256) public leverChangeQueuedAt;
 
+    // ---- Elevation (a referrer priced as at the cap for a week window) ----
+
+    mapping(address => uint256) public elevatedFromWeek;
+
+    mapping(address => uint256) public elevatedUntilWeek;
+
     // ---- Events ----
 
     event RateTableScheduled(
@@ -227,18 +229,6 @@ abstract contract ReferralHubDeclarations is OwnableMaster {
         uint256 indexed chainId,
         address indexed owner,
         address indexed payout
-    );
-
-    event PayoutVaultSet(
-        address payoutVault
-    );
-
-    event PayoutLiabilityBooked(
-        uint256 amount
-    );
-
-    event PotClaimBooked(
-        uint256 amount
     );
 
     event PayoutBacklogReleased(
@@ -305,6 +295,16 @@ abstract contract ReferralHubDeclarations is OwnableMaster {
     );
 
     event SetupFinalized();
+
+    event ReferrerElevated(
+        address indexed referrer,
+        uint256 fromWeek
+    );
+
+    event ReferrerElevationEnded(
+        address indexed referrer,
+        uint256 untilWeek
+    );
 
     event SelectorProposed(
         bytes4 indexed selector,
@@ -428,11 +428,7 @@ abstract contract ReferralHubDeclarations is OwnableMaster {
 
     error SourceOnHubChain();
 
-    error InvalidPayoutVault();
-
     error WeekOutOfRange();
-
-    error PotClosed();
 
     error SourceAlreadySet();
 
@@ -443,6 +439,12 @@ abstract contract ReferralHubDeclarations is OwnableMaster {
     error LeverTimelockNotElapsed();
 
     error SetupNotFinalized();
+
+    error ElevationNotFuture();
+
+    error AlreadyElevated();
+
+    error NotElevated();
 
     function _consumeLeverChange(
         bytes32 _changeHash

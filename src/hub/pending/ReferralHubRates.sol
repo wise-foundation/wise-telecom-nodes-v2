@@ -14,7 +14,11 @@ import {CohortWeeks} from "../../diamond/shared/pending/CohortWeeks.sol";
  * within MAX_BOT_SHARE_BPS, and applies to future weeks only. Every bps
  * field is a rate per 52-week year (`CohortWeeks.YEAR`, 364 days): a
  * cohort's year one runs from its credit to the 52nd week boundary after
- * its credit week starts, year two the 52 weeks after that.
+ * its credit week starts, year two the 52 weeks after that. An elevated
+ * referrer (master whitelist, `elevatedFromWeek` to `elevatedUntilWeek`,
+ * zero meaning open) is priced as at the cap for every week inside its
+ * window, whatever its inputs; the inputs are recorded all the same, so
+ * the natural rate stays derivable from `ladderInputsAt` and the table.
  */
 abstract contract ReferralHubRates is ReferralHubCheckpoints {
 
@@ -126,6 +130,19 @@ abstract contract ReferralHubRates is ReferralHubCheckpoints {
             _week
         );
 
+        if (
+            _isElevatedAt(
+                _referrer,
+                _week
+            )
+        ) {
+            return (
+                table.capBps,
+                table.y2RateBps,
+                table.mRateBps
+            );
+        }
+
         (
             uint256 referredInput,
             uint256 selfInput
@@ -150,6 +167,26 @@ abstract contract ReferralHubRates is ReferralHubCheckpoints {
             y2Bps = table.y2RateBps;
             mBps = table.mRateBps;
         }
+    }
+
+    function _isElevatedAt(
+        address _referrer,
+        uint256 _week
+    )
+        internal
+        view
+        returns (bool)
+    {
+        uint256 fromWeek = elevatedFromWeek[_referrer];
+
+        if (fromWeek == 0 || _week < fromWeek) {
+            return false;
+        }
+
+        uint256 untilWeek = elevatedUntilWeek[_referrer];
+
+        return untilWeek == 0
+            || _week < untilWeek;
     }
 
     function _tableFor(

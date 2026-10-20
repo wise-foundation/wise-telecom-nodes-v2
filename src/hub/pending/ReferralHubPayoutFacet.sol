@@ -7,13 +7,14 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 
 import {ReferralHubIntake} from "./ReferralHubIntake.sol";
 import {ReferralHubFacetBase} from "./ReferralHubFacetBase.sol";
-import {IReferralPayoutVault} from "./IReferralPayoutVault.sol";
 
 /**
  * @dev ReferralHubPayoutFacet: the claim rail (`claim`, `claimUpTo`,
- * `claimAll` over several source chains, the liability poke), the hub chain's own payout designation and the payout
- * vault pointer. It reaches only the booking arm of ReferralHubIntake,
- * never the pricing.
+ * `claimAll` over several source chains) and the hub chain's own payout
+ * designation. The hub is its own pot: a claim pays from the USD the hub
+ * holds (funded by plain transfers; `totalPayable - totalClaimed` is the
+ * amount owed to buckets that can claim), `PotDry` when it holds less. It
+ * never reaches the pricing.
  */
 contract ReferralHubPayoutFacet is
     ReferralHubIntake,
@@ -152,41 +153,6 @@ contract ReferralHubPayoutFacet is
         );
     }
 
-    function bookLiability()
-        external
-        onlyDelegateCall
-    {
-        _bookAccrual();
-    }
-
-    /**
-     * @dev A vault must answer `USD_TOKEN()` with this hub's token and
-     * `getPayoutHub()` with this hub; zero unwires the rail. A rotation does
-     * not migrate booked liability, so rotate only back to the vault that
-     * holds it.
-     */
-    function setPayoutVault(
-        address _vault
-    )
-        external
-        onlyMaster
-        onlyDelegateCall
-    {
-        require(
-            _vault == ZERO_ADDRESS
-                || _probePayoutVault(
-                    _vault
-                ),
-            InvalidPayoutVault()
-        );
-
-        payoutVault = _vault;
-
-        emit PayoutVaultSet(
-            _vault
-        );
-    }
-
     function setPayoutAddress(
         address _payout
     )
@@ -206,8 +172,6 @@ contract ReferralHubPayoutFacet is
             msg.sender,
             _payout
         );
-
-        _bookAccrual();
     }
 
     function payoutAddressOf(
@@ -230,8 +194,7 @@ contract ReferralHubPayoutFacet is
 
     /**
      * @dev The first claim of an undesignated hub chain bucket stamps its
-     * designation and releases its backlog into `totalPayable`; the claim
-     * then books before any check.
+     * designation and releases its backlog into `totalPayable`.
      */
     function _openClaim(
         uint256 _chainId,
@@ -252,8 +215,6 @@ contract ReferralHubPayoutFacet is
                 block.timestamp << PAYOUT_STAMP_SHIFT
             );
         }
-
-        _bookAccrual();
     }
 
     function _payClaim(
@@ -285,34 +246,12 @@ contract ReferralHubPayoutFacet is
         totalClaimed = totalClaimed
             + _amount;
 
-        address vault = payoutVault;
-
-        if (vault == ZERO_ADDRESS) {
-
-            require(
-                _amount <= totalPayable - totalBooked,
-                PotClosed()
-            );
-
-            require(
-                _amount <= USD_TOKEN.balanceOf(
-                    address(this)
-                ),
-                PotDry()
-            );
-
-            totalBooked = totalBooked
-                + _amount;
-
-            emit PotClaimBooked(
-                _amount
-            );
-        } else {
-
-            IReferralPayoutVault(vault).fundReferralPayout(
-                _amount
-            );
-        }
+        require(
+            _amount <= USD_TOKEN.balanceOf(
+                address(this)
+            ),
+            PotDry()
+        );
 
         USD_TOKEN.safeTransfer(
             payout,
@@ -365,81 +304,9 @@ contract ReferralHubPayoutFacet is
         view
         returns (uint256)
     {
-        address vault = payoutVault;
-
-        if (vault == ZERO_ADDRESS) {
-
-            uint256 potBalance = USD_TOKEN.balanceOf(
-                address(this)
-            );
-
-            uint256 unbooked = totalPayable - totalBooked;
-
-            return potBalance < unbooked
-                ? potBalance
-                : unbooked;
-        }
-
-        uint256 pending = IReferralPayoutVault(vault).getPendingReferralPayout();
-
-        uint256 vaultBalance = USD_TOKEN.balanceOf(
-            vault
+        return USD_TOKEN.balanceOf(
+            address(this)
         );
-
-        return pending < vaultBalance
-            ? pending
-            : vaultBalance;
-    }
-
-    function _probePayoutVault(
-        address _vault
-    )
-        internal
-        view
-        returns (bool)
-    {
-        if (_vault == address(this)) {
-            return false;
-        }
-
-        bool settlesInToken = _answersAddress(
-            _vault,
-            IReferralPayoutVault.USD_TOKEN.selector,
-            address(USD_TOKEN)
-        );
-
-        return settlesInToken
-            && _answersAddress(
-                _vault,
-                IReferralPayoutVault.getPayoutHub.selector,
-                address(this)
-            );
-    }
-
-    function _answersAddress(
-        address _target,
-        bytes4 _selector,
-        address _expected
-    )
-        internal
-        view
-        returns (bool)
-    {
-        (
-            bool success,
-            bytes memory returnData
-        ) = _target.staticcall(
-            abi.encodeWithSelector(
-                _selector
-            )
-        );
-
-        return success
-            && returnData.length == 32
-            && abi.decode(
-                returnData,
-                (address)
-            ) == _expected;
     }
 
     function _resolvedPayout(

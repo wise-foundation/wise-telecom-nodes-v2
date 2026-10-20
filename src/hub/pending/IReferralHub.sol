@@ -137,11 +137,6 @@ interface IReferralHub {
         view
         returns (uint256);
 
-    function totalBooked()
-        external
-        view
-        returns (uint256);
-
     function totalPayable()
         external
         view
@@ -153,11 +148,6 @@ interface IReferralHub {
         external
         view
         returns (bool);
-
-    function payoutVault()
-        external
-        view
-        returns (address);
 
     function payoutStamp(
         uint256 _chainId,
@@ -363,14 +353,6 @@ interface IReferralHub {
         external
         returns (uint256 total);
 
-    function bookLiability()
-        external;
-
-    function setPayoutVault(
-        address _vault
-    )
-        external;
-
     function setPayoutAddress(
         address _payout
     )
@@ -395,6 +377,32 @@ interface IReferralHub {
         uint256 _cap
     )
         external;
+
+    function elevateReferrer(
+        address _referrer,
+        uint256 _fromWeek
+    )
+        external;
+
+    function endElevation(
+        address _referrer,
+        uint256 _untilWeek
+    )
+        external;
+
+    function elevatedFromWeek(
+        address _referrer
+    )
+        external
+        view
+        returns (uint256);
+
+    function elevatedUntilWeek(
+        address _referrer
+    )
+        external
+        view
+        returns (uint256);
 
     function weeklyRates(
         address _referrer,

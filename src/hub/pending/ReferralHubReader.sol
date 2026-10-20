@@ -34,6 +34,9 @@ contract ReferralHubReader {
         uint256 y1Bps;
         uint256 y2Bps;
         uint256 mBps;
+        uint256 elevatedFromWeek;
+        uint256 elevatedUntilWeek;
+        bool elevated;
     }
 
     constructor(
@@ -277,7 +280,10 @@ contract ReferralHubReader {
     /**
      * @dev A week's inputs are its sources' reports for that closed week,
      * so the current week reads zero until it closes and reports land. A
-     * next threshold of zero means the input sits on the top tier.
+     * next threshold of zero means the input sits on the top tier. The
+     * tiers are the natural ones; `elevated` says whether the week is
+     * priced as at the cap instead (the rates reported are the effective
+     * ones), with the window beside it.
      */
     function ladderStandingOf(
         address _referrer,
@@ -323,6 +329,18 @@ contract ReferralHubReader {
             table,
             standing.selfInput
         );
+
+        standing.elevatedFromWeek = HUB.elevatedFromWeek(
+            _referrer
+        );
+
+        standing.elevatedUntilWeek = HUB.elevatedUntilWeek(
+            _referrer
+        );
+
+        standing.elevated = standing.elevatedFromWeek != 0
+            && _week >= standing.elevatedFromWeek
+            && (standing.elevatedUntilWeek == 0 || _week < standing.elevatedUntilWeek);
     }
 
     function _tableFor(

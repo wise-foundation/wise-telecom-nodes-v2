@@ -64,8 +64,6 @@ contract ReferralHubIntakeFacet is
                 block.chainid
             );
         }
-
-        _bookAccrual();
     }
 
     function settleWeeks(
@@ -87,8 +85,6 @@ contract ReferralHubIntakeFacet is
                 _fromWeek + i
             );
         }
-
-        _bookAccrual();
     }
 
     function deliverCrumbs(
@@ -135,8 +131,6 @@ contract ReferralHubIntakeFacet is
                 origin
             );
         }
-
-        _bookAccrual();
     }
 
     function deliverGap(
@@ -170,8 +164,6 @@ contract ReferralHubIntakeFacet is
                 _deliverer
             )
         );
-
-        _bookAccrual();
     }
 
     function setAllowedReporter(

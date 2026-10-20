@@ -15,8 +15,8 @@ import {CohortWeeks} from "../../diamond/shared/pending/CohortWeeks.sol";
  * deliverer means no courier (a vault packs one for any caller that is not
  * an allowed flush bot), so such an envelope pays no courier fee. A
  * malformed envelope reverts as a whole; a bad designation is skipped with
- * an event. Every path that stamps a designation books the backlog it
- * releases, so the payout vault reserves it before any sweep.
+ * an event. Every path that stamps a designation releases the bucket's
+ * backlog into `totalPayable`, the amount the hub's pot owes.
  */
 abstract contract ReferralHubMailbox is ReferralHubIntake {
 
@@ -137,8 +137,6 @@ abstract contract ReferralHubMailbox is ReferralHubIntake {
             context.work <= CohortFlushCodec.MAX_FLUSH_WORK,
             FlushPayloadInvalid()
         );
-
-        _bookAccrual();
 
         emit FlushApplied(
             _messageId,
@@ -412,8 +410,6 @@ abstract contract ReferralHubMailbox is ReferralHubIntake {
             setAt,
             rank
         );
-
-        _bookAccrual();
     }
 
     function _applyDesignationPair(

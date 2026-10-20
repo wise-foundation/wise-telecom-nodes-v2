@@ -22,10 +22,10 @@ import {
  * proposals (a proposal carries the exact setter call it queues, so the
  * pending grant is public for the whole delay) and the fallback
  * dispatcher. Master can never write scores, cursors, week buckets or
- * claimables. Referrers claim the vault's USD here per (source chain,
+ * claimables. Referrers claim the hub's own USD here per (source chain,
  * referrer), so money earned on a chain moves only to the payout address
- * proven on that chain. Claims book before they check and otherwise follow
- * checks, effects, interactions.
+ * proven on that chain; the hub is funded by plain USD transfers and never
+ * draws on a vault. Claims follow checks, effects, interactions.
  */
 contract ReferralHub is ReferralHubDeclarations {
 

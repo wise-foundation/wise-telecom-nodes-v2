@@ -3,7 +3,6 @@
 pragma solidity =0.8.36;
 
 import {ReferralHubRates} from "./ReferralHubRates.sol";
-import {IReferralPayoutVault} from "./IReferralPayoutVault.sol";
 import {CohortWeeks} from "../../diamond/shared/pending/CohortWeeks.sol";
 import {CohortFlushCodec} from "../../diamond/shared/pending/CohortFlushCodec.sol";
 
@@ -36,8 +35,9 @@ import {CohortFlushCodec} from "../../diamond/shared/pending/CohortFlushCodec.so
  * average also moves its cursor and settles its own cell; one that raises
  * the average with no lane above the cursor tops its own cell up the same
  * way. A self run's average is at most one 80-bit lane over one week, the
- * bound a crumb lane and a gap record already carry. A bucket books
- * liability on the payout vault only once its owner has a claim path.
+ * bound a crumb lane and a gap record already carry. A bucket joins
+ * `totalPayable`, the amount the hub's pot owes, only once its owner has
+ * a claim path.
  */
 abstract contract ReferralHubIntake is ReferralHubRates {
 
@@ -149,7 +149,9 @@ abstract contract ReferralHubIntake is ReferralHubRates {
             _week
         );
 
-        sourceWeekOf[_source][_referrer][_week] = word - previous + _average;
+        sourceWeekOf[_source][_referrer][_week] = word
+            - previous
+            + _average;
 
         weekInputsOf[_referrer][_week] += _average - previous;
 
@@ -880,32 +882,6 @@ abstract contract ReferralHubIntake is ReferralHubRates {
         }
 
         payoutStamp[_chainId][_owner] = _stamp;
-    }
-
-    function _bookAccrual()
-        internal
-    {
-        address vault = payoutVault;
-
-        if (vault == ZERO_ADDRESS) {
-            return;
-        }
-
-        uint256 delta = totalPayable - totalBooked;
-
-        if (delta == 0) {
-            return;
-        }
-
-        totalBooked = totalPayable;
-
-        IReferralPayoutVault(vault).raisePendingReferralPayout(
-            delta
-        );
-
-        emit PayoutLiabilityBooked(
-            delta
-        );
     }
 
     function _laneIncrement(
