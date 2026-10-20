@@ -423,13 +423,15 @@ contract DeployReferralHub is VaultConfig {
         );
 
         console2.log(
-            "  totalBooked ",
-            hub.totalBooked()
+            "  totalPayable",
+            hub.totalPayable()
         );
 
         console2.log(
-            "  totalPayable",
-            hub.totalPayable()
+            "  pot balance ",
+            hub.USD_TOKEN().balanceOf(
+                address(hub)
+            )
         );
 
         console2.log(
