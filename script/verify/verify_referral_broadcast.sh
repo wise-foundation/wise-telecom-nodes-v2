@@ -15,8 +15,9 @@
 # each contract is found by its declaration under src/, so the script keeps working after the
 # pending folders graduate. Idempotent: an already verified contract reports so and the loop
 # continues. A CREATE whose contract it cannot place counts as a failure. Constructor
-# arguments are reconstructed from the creation code (`--guess-constructor-args`), which
-# covers the three referral contracts that take any (the registry, the hub and the reader).
+# arguments are read from the broadcast file (forge records them per CREATE) and encoded
+# against the artifact's constructor signature, which covers the three referral contracts
+# that take any (the registry, the hub and the reader); nothing is guessed from the chain.
 # Run inside WSL with foundry on PATH and the explorer key loaded through env_run.sh.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -65,13 +66,23 @@ for run in runs:
         if len(paths) != 1:
             print("UNPLACED " + (name or "unnamed") + "@" + address)
             continue
-        print(paths[0] + ":" + name + " " + address)
+        artifact = os.path.join("out", os.path.basename(paths[0]), name + ".json")
+        types = []
+        if os.path.exists(artifact):
+            for item in json.load(open(artifact, encoding="utf-8")).get("abi", []):
+                if item.get("type") == "constructor":
+                    types = [i["type"] for i in item.get("inputs", [])]
+        args = t.get("arguments") or []
+        if len(args) != len(types):
+            print("UNPLACED " + name + "@" + address)
+            continue
+        print(paths[0] + ":" + name + " " + address + " " + ("constructor(" + ",".join(types) + ")" if types else "-") + " " + " ".join(args))
 PY
 )
 
 FAILED=0
 COUNT=0
-while read -r CONTRACT ADDR; do
+while read -r CONTRACT ADDR SIG ARGS; do
   [ -z "${CONTRACT:-}" ] && continue
   if [[ "$CONTRACT" == UNPLACED* ]]; then
     echo "!! cannot place a source for $ADDR"
@@ -83,9 +94,13 @@ while read -r CONTRACT ADDR; do
     continue
   fi
   COUNT=$((COUNT+1))
-  echo "--- $CONTRACT @ $ADDR"
+  CTOR_ARGS=""
+  if [ "$SIG" != "-" ]; then
+    CTOR_ARGS="--constructor-args $(cast abi-encode "$SIG" $ARGS)"
+  fi
+  echo "--- $CONTRACT @ $ADDR $SIG $ARGS"
   forge verify-contract "$ADDR" "$CONTRACT" \
-    --rpc-url "$NET" --compiler-version 0.8.36 --guess-constructor-args --watch $VERIFIER_ARGS \
+    --rpc-url "$NET" --compiler-version 0.8.36 --watch $CTOR_ARGS $VERIFIER_ARGS \
     || { echo "!! verification failed for $CONTRACT @ $ADDR"; FAILED=$((FAILED+1)); }
 done <<< "$PAIRS"
 
