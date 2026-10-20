@@ -13,14 +13,17 @@ import {NotProposed} from "../../src/diamond/shared/OwnableMaster.sol";
  * @dev Admin/access-control suite for {ReferralRegistry}: the
  * {OwnableMaster} two-step wiring (propose, claim, renounce) and the
  * vault allowlist (grant, revoke, zero-address guard,
- * `VaultAllowedSet`, master gating). Every `onlyMaster` entrypoint
+ * `VaultAllowedSet` only on an actual change, so a repeated allow or
+ * revoke logs nothing, master gating, `trackedVaultCount` starting at
+ * zero and growing with the first allow). Every `onlyMaster` entrypoint
  * is also exercised once on its success path so both the guard and
  * the guarded body are covered, not just the revert arm. The
  * read/write asymmetry pin lives here too: revoking a vault blocks
  * only NEW assignments while `referrerOf` reads stay permissionless,
  * and a renounced-master registry keeps serving reads and writes
  * from still-allowlisted vaults (inert-safe, only allowlist changes
- * are lost).
+ * are lost). The public sync key floor constant is pinned to its
+ * literal value, since every chain's registry must share it.
  */
 contract ReferralRegistryAdminTest is Test {
 
@@ -61,8 +64,15 @@ contract ReferralRegistryAdminTest is Test {
     function test_master_isDeployerAfterConstruction()
         public
     {
-        assertEq(registry.master(), address(this));
-        assertEq(registry.proposedMaster(), address(0));
+        assertEq(
+            registry.master(),
+            address(this)
+        );
+
+        assertEq(
+            registry.proposedMaster(),
+            address(0)
+        );
     }
 
     function test_ownership_proposeAndClaim_transfersMaster()
@@ -72,7 +82,10 @@ contract ReferralRegistryAdminTest is Test {
             newMaster
         );
 
-        assertEq(registry.proposedMaster(), newMaster);
+        assertEq(
+            registry.proposedMaster(),
+            newMaster
+        );
 
         vm.prank(
             newMaster
@@ -80,7 +93,10 @@ contract ReferralRegistryAdminTest is Test {
 
         registry.claimOwnership();
 
-        assertEq(registry.master(), newMaster);
+        assertEq(
+            registry.master(),
+            newMaster
+        );
     }
 
     function test_RevertWhen_claimOwnership_notProposed()
@@ -111,7 +127,10 @@ contract ReferralRegistryAdminTest is Test {
 
         registry.renounceOwnership();
 
-        assertEq(registry.master(), address(0));
+        assertEq(
+            registry.master(),
+            address(0)
+        );
 
         vm.expectRevert(
             NotMaster.selector
@@ -131,7 +150,12 @@ contract ReferralRegistryAdminTest is Test {
             refA
         );
 
-        assertEq(registry.referrerOf(user1), refA);
+        assertEq(
+            registry.referrerOf(
+                user1
+            ),
+            refA
+        );
     }
 
     // ---- vault allowlist ----
@@ -139,7 +163,11 @@ contract ReferralRegistryAdminTest is Test {
     function test_setAllowedVault_grantEmitsEventAndEnablesVault()
         public
     {
-        assertFalse(registry.allowedVault(vaultA));
+        assertFalse(
+            registry.allowedVault(
+                vaultA
+            )
+        );
 
         vm.expectEmit(
             true,
@@ -159,7 +187,11 @@ contract ReferralRegistryAdminTest is Test {
             true
         );
 
-        assertTrue(registry.allowedVault(vaultA));
+        assertTrue(
+            registry.allowedVault(
+                vaultA
+            )
+        );
 
         vm.prank(
             vaultA
@@ -170,7 +202,12 @@ contract ReferralRegistryAdminTest is Test {
             refA
         );
 
-        assertEq(registry.referrerOf(user1), refA);
+        assertEq(
+            registry.referrerOf(
+                user1
+            ),
+            refA
+        );
     }
 
     function test_setAllowedVault_revokeEmitsEventAndBlocksNewAssignsOnly()
@@ -208,7 +245,11 @@ contract ReferralRegistryAdminTest is Test {
             false
         );
 
-        assertFalse(registry.allowedVault(vaultA));
+        assertFalse(
+            registry.allowedVault(
+                vaultA
+            )
+        );
 
         vm.prank(
             vaultA
@@ -223,7 +264,12 @@ contract ReferralRegistryAdminTest is Test {
             user1
         );
 
-        assertEq(registry.referrerOf(user1), refA);
+        assertEq(
+            registry.referrerOf(
+                user1
+            ),
+            refA
+        );
     }
 
     function test_RevertWhen_setAllowedVault_zeroVault()
@@ -255,4 +301,123 @@ contract ReferralRegistryAdminTest is Test {
             true
         );
     }
+
+    function test_setAllowedVault_revokeOfRevokedVault_isSilentNoop()
+        public
+    {
+        registry.setAllowedVault(
+            vaultA,
+            true
+        );
+
+        registry.setAllowedVault(
+            vaultA,
+            false
+        );
+
+        vm.recordLogs();
+
+        registry.setAllowedVault(
+            vaultA,
+            false
+        );
+
+        assertEq(
+            vm.getRecordedLogs().length,
+            0
+        );
+
+        vm.recordLogs();
+
+        registry.setAllowedVault(
+            address(0xD2),
+            false
+        );
+
+        assertEq(
+            vm.getRecordedLogs().length,
+            0
+        );
+
+        assertFalse(
+            registry.allowedVault(
+                vaultA
+            )
+        );
+
+        assertFalse(
+            registry.everAllowedVault(
+                address(0xD2)
+            )
+        );
+
+        assertEq(
+            registry.trackedVaultCount(),
+            1
+        );
+    }
+
+    function test_setAllowedVault_allowOfAllowedVault_isSilentNoop()
+        public
+    {
+        registry.setAllowedVault(
+            vaultA,
+            true
+        );
+
+        vm.recordLogs();
+
+        registry.setAllowedVault(
+            vaultA,
+            true
+        );
+
+        assertEq(
+            vm.getRecordedLogs().length,
+            0
+        );
+
+        assertTrue(
+            registry.allowedVault(
+                vaultA
+            )
+        );
+
+        assertEq(
+            registry.trackedVaultCount(),
+            1
+        );
+    }
+
+    function test_trackedVaultCount_startsAtZero()
+        public
+    {
+        assertEq(
+            registry.trackedVaultCount(),
+            0
+        );
+
+        assertFalse(
+            registry.everAllowedVault(
+                vaultA
+            )
+        );
+
+        registry.setAllowedVault(
+            vaultA,
+            true
+        );
+
+        assertEq(
+            registry.trackedVaultCount(),
+            1
+        );
+
+        assertTrue(
+            registry.everAllowedVault(
+                vaultA
+            )
+        );
+    }
+
 }

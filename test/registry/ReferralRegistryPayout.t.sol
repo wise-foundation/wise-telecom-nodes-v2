@@ -3,6 +3,7 @@
 pragma solidity =0.8.36;
 
 import {Test} from "forge-std/Test.sol";
+import {Vm} from "forge-std/Vm.sol";
 
 import {ReferralRegistry} from "../../src/registry/pending/ReferralRegistry.sol";
 import {ReferralRegistryDeclarations} from "../../src/registry/pending/ReferralRegistryDeclarations.sol";
@@ -106,20 +107,68 @@ contract PushRefundRejector {
 }
 
 /**
+ * @dev Caller whose receive function spends the excess refund of a
+ * `pushPayoutAddress` call on a second push for another owner, used
+ * to pin that the outer push emits its event before the refund runs.
+ */
+contract PushRefundReentrant {
+
+    ReferralRegistry internal immutable REGISTRY;
+
+    address internal immutable SECOND_OWNER;
+
+    constructor(
+        ReferralRegistry _registry,
+        address _secondOwner
+    ) {
+        REGISTRY = _registry;
+
+        SECOND_OWNER = _secondOwner;
+    }
+
+    function trigger(
+        address _owner
+    )
+        external
+        payable
+    {
+        REGISTRY.pushPayoutAddress{value: msg.value}(
+            _owner
+        );
+    }
+
+    receive()
+        external
+        payable
+    {
+        REGISTRY.pushPayoutAddress{value: msg.value}(
+            SECOND_OWNER
+        );
+    }
+}
+
+/**
  * @dev Payout-designation suite for {ReferralRegistry}: the
  * own-chain `setPayoutAddress` write (freshness stamp packed
- * `(block.timestamp << 8) | LOCAL_CHAIN_RANK`, redesignation always
- * overwrites and re-stamps, zero payout is a valid designation), the
+ * `(block.timestamp << 8) | LOCAL_CHAIN_RANK`, a redesignation in a
+ * later second overwrites and re-stamps while a second designation in
+ * the same second reverts because its stamp is not strictly newer,
+ * zero payout is a valid designation, and an allowlisted vault,
+ * revoked or not, can never designate a payout for itself), the
  * caller-paid permissionless `pushPayoutAddress` transport with its
  * ordered guard chain (nothing staged, hub route detached, router
- * unset), exact-fee send with deterministic message id, excess
- * refund and refund-failure arms, `quotePushPayoutFee`,
+ * unset), exact-fee send with deterministic message id and payload
+ * version 2, excess refund and refund-failure arms, the push event
+ * emitted before a re-entering refund recipient's own push,
+ * `quotePushPayoutFee` with the push's guards in the push's order,
  * `getPayoutDesignation`, and the payout-hub route trio
  * (propose/execute/cancel: instant while wiring, 3-day timelocked
  * after `finalizeSyncSetup`, half-zero proposals rejected, all-zero
- * detaches). The zero-designation push test also pins the
- * non-default sync gas limit branch of the push message builder.
- * Mock router and refund rejector live at the top of this file.
+ * detaches, a cancel with nothing queued refused). The
+ * zero-designation push test also pins the non-default sync gas
+ * limit branch of the push message builder. Mock router, refund
+ * rejector and re-entering refund caller live at the top of this
+ * file.
  */
 contract ReferralRegistryPayoutTest is Test {
 
@@ -167,6 +216,8 @@ contract ReferralRegistryPayoutTest is Test {
     address internal payoutB = address(0xB2);
 
     address internal stranger = address(0xC1);
+
+    address internal vaultA = address(0xD1);
 
     address internal hubAddress = address(0xE5);
 
@@ -271,8 +322,19 @@ contract ReferralRegistryPayoutTest is Test {
             payoutA
         );
 
-        assertEq(registry.payoutAddress(ownerA), payoutA);
-        assertEq(registry.payoutStamp(ownerA), stamp);
+        assertEq(
+            registry.payoutAddress(
+                ownerA
+            ),
+            payoutA
+        );
+
+        assertEq(
+            registry.payoutStamp(
+                ownerA
+            ),
+            stamp
+        );
 
         (
             address payout,
@@ -281,11 +343,29 @@ contract ReferralRegistryPayoutTest is Test {
             ownerA
         );
 
-        assertEq(payout, payoutA);
-        assertEq(storedStamp, stamp);
+        assertEq(
+            payout,
+            payoutA
+        );
 
-        assertEq(registry.payoutAddress(ownerB), address(0));
-        assertEq(registry.payoutStamp(ownerB), 0);
+        assertEq(
+            storedStamp,
+            stamp
+        );
+
+        assertEq(
+            registry.payoutAddress(
+                ownerB
+            ),
+            address(0)
+        );
+
+        assertEq(
+            registry.payoutStamp(
+                ownerB
+            ),
+            0
+        );
     }
 
     function test_setPayoutAddress_stampCarriesLocalChainRank()
@@ -308,9 +388,23 @@ contract ReferralRegistryPayoutTest is Test {
             ownerA
         );
 
-        assertEq(stamp, _stamp(BASE_TIME, 3));
-        assertEq(stamp & 0xff, 3);
-        assertEq(stamp >> 8, BASE_TIME);
+        assertEq(
+            stamp,
+            _stamp(
+                BASE_TIME,
+                3
+            )
+        );
+
+        assertEq(
+            stamp & 0xff,
+            3
+        );
+
+        assertEq(
+            stamp >> 8,
+            BASE_TIME
+        );
     }
 
     function test_setPayoutAddress_redesignationOverwritesAndRestamps()
@@ -355,8 +449,19 @@ contract ReferralRegistryPayoutTest is Test {
             payoutB
         );
 
-        assertEq(registry.payoutAddress(ownerA), payoutB);
-        assertEq(registry.payoutStamp(ownerA), newStamp);
+        assertEq(
+            registry.payoutAddress(
+                ownerA
+            ),
+            payoutB
+        );
+
+        assertEq(
+            registry.payoutStamp(
+                ownerA
+            ),
+            newStamp
+        );
     }
 
     function test_setPayoutAddress_zeroPayoutIsValidDesignation()
@@ -377,9 +482,196 @@ contract ReferralRegistryPayoutTest is Test {
             ownerA
         );
 
-        assertEq(payout, address(0));
-        assertEq(stamp, _stamp(BASE_TIME, 0));
-        assertGt(stamp, 0);
+        assertEq(
+            payout,
+            address(0)
+        );
+
+        assertEq(
+            stamp,
+            _stamp(
+                BASE_TIME,
+                0
+            )
+        );
+
+        assertGt(
+            stamp,
+            0
+        );
+    }
+
+    function test_RevertWhen_setPayoutAddress_sameSecondRedesignation()
+        public
+    {
+        vm.prank(
+            ownerA
+        );
+
+        registry.setPayoutAddress(
+            payoutA
+        );
+
+        vm.prank(
+            ownerA
+        );
+
+        vm.expectRevert(
+            ReferralRegistryDeclarations.PayoutStampNotNewer.selector
+        );
+
+        registry.setPayoutAddress(
+            ownerB
+        );
+
+        assertEq(
+            registry.payoutAddress(
+                ownerA
+            ),
+            payoutA
+        );
+
+        assertEq(
+            registry.payoutStamp(
+                ownerA
+            ),
+            _stamp(
+                BASE_TIME,
+                0
+            )
+        );
+    }
+
+    function test_setPayoutAddress_nextSecondRedesignationRestamps()
+        public
+    {
+        vm.prank(
+            ownerA
+        );
+
+        registry.setPayoutAddress(
+            payoutA
+        );
+
+        vm.warp(
+            BASE_TIME + 1
+        );
+
+        uint256 newStamp = _stamp(
+            BASE_TIME + 1,
+            0
+        );
+
+        vm.expectEmit(
+            true,
+            true,
+            false,
+            true,
+            address(registry)
+        );
+
+        emit PayoutAddressSet(
+            ownerA,
+            ownerB,
+            newStamp
+        );
+
+        vm.prank(
+            ownerA
+        );
+
+        registry.setPayoutAddress(
+            ownerB
+        );
+
+        assertEq(
+            registry.payoutAddress(
+                ownerA
+            ),
+            ownerB
+        );
+
+        assertEq(
+            registry.payoutStamp(
+                ownerA
+            ),
+            newStamp
+        );
+    }
+
+    function test_RevertWhen_setPayoutAddress_callerIsAllowedVault()
+        public
+    {
+        registry.setAllowedVault(
+            vaultA,
+            true
+        );
+
+        vm.prank(
+            vaultA
+        );
+
+        vm.expectRevert(
+            ReferralRegistryDeclarations.InvalidPayoutOwner.selector
+        );
+
+        registry.setPayoutAddress(
+            payoutA
+        );
+
+        assertEq(
+            registry.payoutAddress(
+                vaultA
+            ),
+            address(0)
+        );
+
+        assertEq(
+            registry.payoutStamp(
+                vaultA
+            ),
+            0
+        );
+    }
+
+    function test_RevertWhen_setPayoutAddress_callerIsRevokedVault()
+        public
+    {
+        registry.setAllowedVault(
+            vaultA,
+            true
+        );
+
+        registry.setAllowedVault(
+            vaultA,
+            false
+        );
+
+        vm.prank(
+            vaultA
+        );
+
+        vm.expectRevert(
+            ReferralRegistryDeclarations.InvalidPayoutOwner.selector
+        );
+
+        registry.setPayoutAddress(
+            payoutA
+        );
+
+        assertEq(
+            registry.payoutAddress(
+                vaultA
+            ),
+            address(0)
+        );
+
+        assertEq(
+            registry.payoutStamp(
+                vaultA
+            ),
+            0
+        );
     }
 
     // ---- pushPayoutAddress guards ----
@@ -482,12 +774,37 @@ contract ReferralRegistryPayoutTest is Test {
             ownerA
         );
 
-        assertEq(router.sendCount(), 1);
-        assertEq(router.lastSelector(), SEL_HUB);
-        assertEq(router.lastReceiver(), abi.encode(hubAddress));
-        assertEq(router.lastData().length, 160);
-        assertEq(address(router).balance, PUSH_FEE);
-        assertEq(address(registry).balance, 0);
+        assertEq(
+            router.sendCount(),
+            1
+        );
+
+        assertEq(
+            router.lastSelector(),
+            SEL_HUB
+        );
+
+        assertEq(
+            router.lastReceiver(),
+            abi.encode(
+                hubAddress
+            )
+        );
+
+        assertEq(
+            router.lastData().length,
+            160
+        );
+
+        assertEq(
+            address(router).balance,
+            PUSH_FEE
+        );
+
+        assertEq(
+            address(registry).balance,
+            0
+        );
 
         (
             uint256 version,
@@ -500,11 +817,30 @@ contract ReferralRegistryPayoutTest is Test {
             (uint256, address, address, uint256, uint256)
         );
 
-        assertEq(version, 1);
-        assertEq(owner, ownerA);
-        assertEq(payout, payoutA);
-        assertEq(setAt, BASE_TIME);
-        assertEq(rank, 0);
+        assertEq(
+            version,
+            2
+        );
+
+        assertEq(
+            owner,
+            ownerA
+        );
+
+        assertEq(
+            payout,
+            payoutA
+        );
+
+        assertEq(
+            setAt,
+            BASE_TIME
+        );
+
+        assertEq(
+            rank,
+            0
+        );
     }
 
     function test_pushPayoutAddress_thirdPartyCallerPays()
@@ -525,9 +861,20 @@ contract ReferralRegistryPayoutTest is Test {
             ownerA
         );
 
-        assertEq(router.sendCount(), 1);
-        assertEq(stranger.balance, 1 ether - PUSH_FEE);
-        assertEq(address(router).balance, PUSH_FEE);
+        assertEq(
+            router.sendCount(),
+            1
+        );
+
+        assertEq(
+            stranger.balance,
+            1 ether - PUSH_FEE
+        );
+
+        assertEq(
+            address(router).balance,
+            PUSH_FEE
+        );
 
         (
             ,
@@ -539,8 +886,15 @@ contract ReferralRegistryPayoutTest is Test {
             (uint256, address, address, uint256, uint256)
         );
 
-        assertEq(owner, ownerA);
-        assertEq(payout, payoutA);
+        assertEq(
+            owner,
+            ownerA
+        );
+
+        assertEq(
+            payout,
+            payoutA
+        );
     }
 
     function test_pushPayoutAddress_refundsExcess()
@@ -559,9 +913,20 @@ contract ReferralRegistryPayoutTest is Test {
             ownerA
         );
 
-        assertEq(address(this).balance, balanceBefore - PUSH_FEE);
-        assertEq(address(router).balance, PUSH_FEE);
-        assertEq(address(registry).balance, 0);
+        assertEq(
+            address(this).balance,
+            balanceBefore - PUSH_FEE
+        );
+
+        assertEq(
+            address(router).balance,
+            PUSH_FEE
+        );
+
+        assertEq(
+            address(registry).balance,
+            0
+        );
     }
 
     function test_pushPayoutAddress_revertsWhenFeeInsufficient()
@@ -606,6 +971,78 @@ contract ReferralRegistryPayoutTest is Test {
         );
     }
 
+    function test_pushPayoutAddress_emitsBeforeReentrantRefund()
+        public
+    {
+        MockPushCcipRouter router = _armPush();
+
+        vm.prank(
+            ownerB
+        );
+
+        registry.setPayoutAddress(
+            payoutB
+        );
+
+        PushRefundReentrant reentrant = new PushRefundReentrant(
+            registry,
+            ownerB
+        );
+
+        vm.deal(
+            address(this),
+            1 ether
+        );
+
+        vm.recordLogs();
+
+        reentrant.trigger{value: 2 * PUSH_FEE}(
+            ownerA
+        );
+
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        assertEq(
+            logs.length,
+            2
+        );
+
+        assertEq(
+            logs[0].topics[0],
+            PayoutPushed.selector
+        );
+
+        assertEq(
+            logs[0].topics[1],
+            bytes32(uint256(uint160(ownerA)))
+        );
+
+        assertEq(
+            logs[1].topics[0],
+            PayoutPushed.selector
+        );
+
+        assertEq(
+            logs[1].topics[1],
+            bytes32(uint256(uint160(ownerB)))
+        );
+
+        assertEq(
+            router.sendCount(),
+            2
+        );
+
+        assertEq(
+            address(reentrant).balance,
+            0
+        );
+
+        assertEq(
+            address(registry).balance,
+            0
+        );
+    }
+
     function test_pushPayoutAddress_zeroPayoutDesignationPushes()
         public
     {
@@ -613,6 +1050,10 @@ contract ReferralRegistryPayoutTest is Test {
 
         registry.setSyncGasLimit(
             400_000
+        );
+
+        vm.warp(
+            BASE_TIME + 1
         );
 
         vm.prank(
@@ -632,7 +1073,10 @@ contract ReferralRegistryPayoutTest is Test {
             ownerA
         );
 
-        assertEq(router.sendCount(), 1);
+        assertEq(
+            router.sendCount(),
+            1
+        );
 
         (
             uint256 version,
@@ -645,20 +1089,83 @@ contract ReferralRegistryPayoutTest is Test {
             (uint256, address, address, uint256, uint256)
         );
 
-        assertEq(version, 1);
-        assertEq(owner, ownerA);
-        assertEq(payout, address(0));
-        assertEq(setAt, BASE_TIME);
-        assertEq(rank, 0);
+        assertEq(
+            version,
+            2
+        );
+
+        assertEq(
+            owner,
+            ownerA
+        );
+
+        assertEq(
+            payout,
+            address(0)
+        );
+
+        assertEq(
+            setAt,
+            BASE_TIME + 1
+        );
+
+        assertEq(
+            rank,
+            0
+        );
     }
 
     // ---- quotePushPayoutFee ----
 
+    function test_quotePushPayoutFee_revertsWhenNothingToPush()
+        public
+    {
+        _armPush();
+
+        vm.expectRevert(
+            ReferralRegistryDeclarations.NothingToPush.selector
+        );
+
+        registry.quotePushPayoutFee(
+            ownerB
+        );
+    }
+
     function test_quotePushPayoutFee_revertsWhenPayoutHubNotSet()
         public
     {
+        vm.prank(
+            ownerA
+        );
+
+        registry.setPayoutAddress(
+            payoutA
+        );
+
         vm.expectRevert(
             ReferralRegistryDeclarations.PayoutHubNotSet.selector
+        );
+
+        registry.quotePushPayoutFee(
+            ownerA
+        );
+    }
+
+    function test_quotePushPayoutFee_revertsWhenRouterNotSet()
+        public
+    {
+        _wireRoute();
+
+        vm.prank(
+            ownerA
+        );
+
+        registry.setPayoutAddress(
+            payoutA
+        );
+
+        vm.expectRevert(
+            ReferralRegistryDeclarations.RouterNotSet.selector
         );
 
         registry.quotePushPayoutFee(
@@ -703,9 +1210,20 @@ contract ReferralRegistryPayoutTest is Test {
             SEL_HUB
         );
 
-        assertEq(registry.proposedPayoutHub(), hubAddress);
-        assertEq(registry.proposedPayoutHubChainSelector(), SEL_HUB);
-        assertEq(registry.payoutHubChangeQueuedAt(), BASE_TIME);
+        assertEq(
+            registry.proposedPayoutHub(),
+            hubAddress
+        );
+
+        assertEq(
+            registry.proposedPayoutHubChainSelector(),
+            SEL_HUB
+        );
+
+        assertEq(
+            registry.payoutHubChangeQueuedAt(),
+            BASE_TIME
+        );
     }
 
     function test_executePayoutHubChange_instantPreFinalize()
@@ -731,11 +1249,30 @@ contract ReferralRegistryPayoutTest is Test {
 
         registry.executePayoutHubChange();
 
-        assertEq(registry.payoutHub(), hubAddress);
-        assertEq(registry.payoutHubChainSelector(), SEL_HUB);
-        assertEq(registry.proposedPayoutHub(), address(0));
-        assertEq(registry.proposedPayoutHubChainSelector(), 0);
-        assertEq(registry.payoutHubChangeQueuedAt(), 0);
+        assertEq(
+            registry.payoutHub(),
+            hubAddress
+        );
+
+        assertEq(
+            registry.payoutHubChainSelector(),
+            SEL_HUB
+        );
+
+        assertEq(
+            registry.proposedPayoutHub(),
+            address(0)
+        );
+
+        assertEq(
+            registry.proposedPayoutHubChainSelector(),
+            0
+        );
+
+        assertEq(
+            registry.payoutHubChangeQueuedAt(),
+            0
+        );
     }
 
     function test_executePayoutHubChange_revertsWhenNoneProposed()
@@ -774,8 +1311,15 @@ contract ReferralRegistryPayoutTest is Test {
 
         registry.executePayoutHubChange();
 
-        assertEq(registry.payoutHub(), hubAddress);
-        assertEq(registry.payoutHubChainSelector(), SEL_HUB);
+        assertEq(
+            registry.payoutHub(),
+            hubAddress
+        );
+
+        assertEq(
+            registry.payoutHubChainSelector(),
+            SEL_HUB
+        );
     }
 
     function test_executePayoutHubChange_revertsWhenHubZeroSelectorNonzero()
@@ -820,8 +1364,15 @@ contract ReferralRegistryPayoutTest is Test {
 
         registry.executePayoutHubChange();
 
-        assertEq(registry.payoutHub(), address(0));
-        assertEq(registry.payoutHubChainSelector(), 0);
+        assertEq(
+            registry.payoutHub(),
+            address(0)
+        );
+
+        assertEq(
+            registry.payoutHubChainSelector(),
+            0
+        );
 
         vm.deal(
             address(this),
@@ -859,15 +1410,59 @@ contract ReferralRegistryPayoutTest is Test {
 
         registry.cancelPayoutHubChange();
 
-        assertEq(registry.proposedPayoutHub(), address(0));
-        assertEq(registry.proposedPayoutHubChainSelector(), 0);
-        assertEq(registry.payoutHubChangeQueuedAt(), 0);
+        assertEq(
+            registry.proposedPayoutHub(),
+            address(0)
+        );
+
+        assertEq(
+            registry.proposedPayoutHubChainSelector(),
+            0
+        );
+
+        assertEq(
+            registry.payoutHubChangeQueuedAt(),
+            0
+        );
 
         vm.expectRevert(
             ReferralRegistryDeclarations.NoPayoutHubProposed.selector
         );
 
         registry.executePayoutHubChange();
+    }
+
+    function test_cancelPayoutHubChange_revertsWhenNothingQueued()
+        public
+    {
+        vm.expectRevert(
+            ReferralRegistryDeclarations.NoPayoutHubProposed.selector
+        );
+
+        registry.cancelPayoutHubChange();
+
+        registry.proposePayoutHub(
+            hubAddress,
+            SEL_HUB
+        );
+
+        registry.executePayoutHubChange();
+
+        vm.expectRevert(
+            ReferralRegistryDeclarations.NoPayoutHubProposed.selector
+        );
+
+        registry.cancelPayoutHubChange();
+
+        assertEq(
+            registry.payoutHub(),
+            hubAddress
+        );
+
+        assertEq(
+            registry.payoutHubChainSelector(),
+            SEL_HUB
+        );
     }
 
     function test_payoutHubRoute_revertsWhenNotMaster()
@@ -949,8 +1544,24 @@ contract ReferralRegistryPayoutTest is Test {
             ownerA
         );
 
-        assertEq(registry.payoutAddress(ownerA), _payout);
-        assertEq(stampAfter, _stamp(BASE_TIME + delta, 0));
-        assertGt(stampAfter, stampBefore);
+        assertEq(
+            registry.payoutAddress(
+                ownerA
+            ),
+            _payout
+        );
+
+        assertEq(
+            stampAfter,
+            _stamp(
+                BASE_TIME + delta,
+                0
+            )
+        );
+
+        assertGt(
+            stampAfter,
+            stampBefore
+        );
     }
 }
