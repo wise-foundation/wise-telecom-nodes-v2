@@ -17,11 +17,11 @@ import {IReferralRegistry} from "../../interfaces/pending/IReferralRegistry.sol"
  * synced at its park instant by the next entrypoint; under the CCIP router
  * only a park on the landing book itself is resolved. Every self settle
  * piece that crosses a week boundary appends a self log record, whatever
- * the book or flush state of the user (owner card (i), 2026-10-15), so a
+ * the book or flush state of the user, so a
  * closed week's self presence stays readable after the crumb rolls past
  * it. A crumb last settled before the re-arm of a closed disarm span
  * settles at its tracked stake up to the disarm and at zero from there to
- * this settle (owner card (j), 2026-10-15): a transfer in does not settle
+ * this settle: a transfer in does not settle
  * the recipient, so its balance between the re-arm and this settle is
  * unknown and counts no presence.
  */

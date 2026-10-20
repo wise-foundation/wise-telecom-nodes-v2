@@ -21,7 +21,7 @@ import {IReferralFlushHub} from "../../interfaces/pending/IReferralFlushHub.sol"
  * takes at most LOCAL_FLUSH_ENTRIES referrers because the same transaction
  * pays the hub intake; any unused
  * fee is refunded. The deliverer the hub sees is the caller only when the
- * caller is an allowed flush bot (owner card (h), 2026-10-15); otherwise it
+ * caller is an allowed flush bot; otherwise it
  * is zero in a CCIP header and the referrer itself on the hub chain, whose
  * intake refuses a zero deliverer. Either way only an allowlisted bot can
  * earn the courier fee, and a referrer that flushes its own book from a
