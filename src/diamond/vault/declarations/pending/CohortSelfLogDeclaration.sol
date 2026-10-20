@@ -4,7 +4,7 @@ pragma solidity =0.8.36;
 
 /**
  * @dev Tail shard at slot 95: the per-week self presence log of every
- * user with a self crumb on this vault (owner card (i), 2026-10-15: the
+ * user with a self crumb on this vault (the
  * log once skipped users with no book and no flush, which dropped a
  * referrer's weeks before its first flush here). A self settle piece
  * that crosses a week boundary appends one record `fromWeek(32) |
