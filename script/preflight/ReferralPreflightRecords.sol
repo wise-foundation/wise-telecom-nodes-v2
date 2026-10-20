@@ -64,8 +64,6 @@ abstract contract ReferralPreflightRecords is VaultConfig {
 
     uint256 internal constant HUB_HANDOFF_PHASE = 4;
 
-    uint256 internal constant HUB_HANDOFF_PHASE = 4;
-
     uint256 internal constant REGISTRY_HANDOFF_PHASE = 5;
 
     uint256 internal constant NO_HANDOFF = type(uint256).max;
