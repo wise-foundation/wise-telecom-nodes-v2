@@ -35,7 +35,7 @@ import {WiseTelecomNodesDiamondSelectors} from "./WiseTelecomNodesDiamondSelecto
 /// genesis-routed), so `proposeFlushHub` only exists on the diamond after the selector
 /// round executes; the transfer-hook proposal runs inside clock 1 alongside the selector
 /// batches, so the settle-aware engine is installed before any flush can arm:
-///   `propose()`         : deploys the 3 facets, proposes both selector batches and the
+///   `propose()`         : deploys the 4 facets, proposes the three selector batches and the
 ///                         hook. Clock 1 starts.
 ///   `execute()`         : after 3 days: flips both batches and the hook. Idempotent
 ///                         (queuedAt-guarded), re-runnable after partial mining.
@@ -97,6 +97,10 @@ contract UpgradeCohortFlush is VaultConfig {
             "UpgradeCohortFlush: no hub config (run DeployReferralHub on the hub chain first)"
         );
 
+        _requireRegistryRoundExecuted(
+            diamond
+        );
+
         vm.startBroadcast(
             privKey
         );
@@ -133,6 +137,12 @@ contract UpgradeCohortFlush is VaultConfig {
         console2.log(
             "proposed cohort-flush upgrade on diamond",
             diamond
+        );
+
+        console2.log(
+            "  product / network",
+            _vaultProduct(),
+            _networkName()
         );
 
         console2.log(
@@ -199,9 +209,30 @@ contract UpgradeCohortFlush is VaultConfig {
 
         vm.stopBroadcast();
 
+        _assertGroupRouted(
+            diamond,
+            WiseTelecomNodesDiamondSelectors._adminSelectors()
+        );
+
+        _assertGroupRouted(
+            diamond,
+            WiseTelecomNodesDiamondSelectors._cohortFlushSelectors()
+        );
+
+        _assertGroupRouted(
+            diamond,
+            WiseTelecomNodesDiamondSelectors._cohortFlushPolicySelectors()
+        );
+
         console2.log(
             "executed cohort-flush selector round on diamond",
             diamond
+        );
+
+        console2.log(
+            "  product / network",
+            _vaultProduct(),
+            _networkName()
         );
 
         console2.log(
@@ -270,6 +301,12 @@ contract UpgradeCohortFlush is VaultConfig {
         );
 
         console2.log(
+            "  product / network",
+            _vaultProduct(),
+            _networkName()
+        );
+
+        console2.log(
             "  hub          ",
             hub
         );
@@ -331,6 +368,12 @@ contract UpgradeCohortFlush is VaultConfig {
         );
 
         console2.log(
+            "  product / network",
+            _vaultProduct(),
+            _networkName()
+        );
+
+        console2.log(
             "run DeployReferralHub.wireFlush() on the hub chain so this vault is accepted"
         );
     }
@@ -352,18 +395,33 @@ contract UpgradeCohortFlush is VaultConfig {
             privKey
         );
 
-        _cancelGroup(
-            diamond,
-            WiseTelecomNodesDiamondSelectors._adminSelectors()
-        );
+        bool flushRoundPending = WiseTelecomNodesDiamond(payable(diamond)).selectorChangeQueuedAt(
+            WiseTelecomNodesDiamondSelectors._cohortFlushSelectors()[0]
+        ) > 0;
 
         _cancelGroup(
             diamond,
             WiseTelecomNodesDiamondSelectors._cohortFlushSelectors()
         );
 
-        if (WiseTelecomNodesDiamond(payable(diamond)).transferHookChangeQueuedAt() > 0) {
-            AdminFacet(diamond).cancelTransferHookFacetChange();
+        _cancelGroup(
+            diamond,
+            WiseTelecomNodesDiamondSelectors._cohortFlushPolicySelectors()
+        );
+
+        if (flushRoundPending) {
+            _cancelGroup(
+                diamond,
+                WiseTelecomNodesDiamondSelectors._adminSelectors()
+            );
+
+            if (WiseTelecomNodesDiamond(payable(diamond)).transferHookChangeQueuedAt() > 0) {
+                AdminFacet(diamond).cancelTransferHookFacetChange();
+            }
+        } else {
+            console2.log(
+                "flush batch not pending: the admin batch and the hook proposal were left alone (they may belong to the registry round)"
+            );
         }
 
         WiseTelecomNodesDiamond d = WiseTelecomNodesDiamond(
@@ -381,6 +439,12 @@ contract UpgradeCohortFlush is VaultConfig {
         console2.log(
             "aborted pending cohort-flush upgrade on diamond",
             diamond
+        );
+
+        console2.log(
+            "  product / network",
+            _vaultProduct(),
+            _networkName()
         );
     }
 
@@ -420,6 +484,27 @@ contract UpgradeCohortFlush is VaultConfig {
         console2.log(
             "cohortFlushPolicy group facet",
             d.selectorToFacet(
+                WiseTelecomNodesDiamondSelectors._cohortFlushPolicySelectors()[0]
+            )
+        );
+
+        console2.log(
+            "admin batch queuedAt",
+            d.selectorChangeQueuedAt(
+                WiseTelecomNodesDiamondSelectors._adminSelectors()[0]
+            )
+        );
+
+        console2.log(
+            "cohortFlush batch queuedAt",
+            d.selectorChangeQueuedAt(
+                WiseTelecomNodesDiamondSelectors._cohortFlushSelectors()[0]
+            )
+        );
+
+        console2.log(
+            "cohortFlushPolicy batch queuedAt",
+            d.selectorChangeQueuedAt(
                 WiseTelecomNodesDiamondSelectors._cohortFlushPolicySelectors()[0]
             )
         );
@@ -533,6 +618,64 @@ contract UpgradeCohortFlush is VaultConfig {
         for (uint256 i; i < _sels.length; ++i) {
             WiseTelecomNodesDiamond(payable(_diamond)).cancelSelectorProposal(
                 _sels[i]
+            );
+        }
+    }
+
+    /// @dev Law 8 of the runbook: this round re-proposes the admin batch and the transfer hook,
+    /// so it may start only after the registry round executed on this vault, and never twice
+    /// (a second propose overwrites every pending batch and restarts its clock) unless
+    /// `UPGRADE_FORCE_REPROPOSE=true` is set on purpose.
+    function _requireRegistryRoundExecuted(
+        address _diamond
+    )
+        internal
+        view
+    {
+        WiseTelecomNodesDiamond dispatcher = WiseTelecomNodesDiamond(
+            payable(_diamond)
+        );
+
+        require(
+            dispatcher.selectorToFacet(WiseTelecomNodesDiamondSelectors._cohortRecorderSelectors()[0]) != address(0),
+            "UpgradeCohortFlush: the registry round has not executed on this vault (law 8: run UpgradeReferralRegistry.execute() first)"
+        );
+
+        if (vm.envOr("UPGRADE_FORCE_REPROPOSE", false)) {
+            return;
+        }
+
+        require(
+            dispatcher.selectorToFacet(WiseTelecomNodesDiamondSelectors._cohortFlushSelectors()[0]) == address(0),
+            "UpgradeCohortFlush: the flush round already executed on this vault (set UPGRADE_FORCE_REPROPOSE=true to propose it again on purpose)"
+        );
+
+        require(
+            dispatcher.selectorChangeQueuedAt(WiseTelecomNodesDiamondSelectors._adminSelectors()[0]) == 0,
+            "UpgradeCohortFlush: a selector round is already pending on this vault (a second propose would overwrite it and restart its clock; abort() first, or set UPGRADE_FORCE_REPROPOSE=true)"
+        );
+    }
+
+    function _assertGroupRouted(
+        address _diamond,
+        bytes4[] memory _sels
+    )
+        internal
+        view
+    {
+        WiseTelecomNodesDiamond dispatcher = WiseTelecomNodesDiamond(
+            payable(_diamond)
+        );
+
+        for (uint256 i; i < _sels.length; ++i) {
+            require(
+                dispatcher.selectorToFacet(_sels[i]) != address(0),
+                "UpgradeCohortFlush: a selector this round adds routes to no facet after execute() (its batch proposal was missing or cancelled)"
+            );
+
+            require(
+                dispatcher.selectorChangeQueuedAt(_sels[i]) == 0,
+                "UpgradeCohortFlush: a round selector is still queued after execute() (its batch was skipped because its first selector was cancelled)"
             );
         }
     }

@@ -84,9 +84,9 @@ interface IAutoCompoundGetters {
  * the flush round's). The
  * referral groups (referral=4,
  * permit2Referral=3) and the cohortRecorder group are post-launch:
- * installed exclusively by the registry upgrade script (which
- * supersedes {UpgradeCohortRecorder}, which superseded
- * {UpgradeReferral}), never by the genesis deploy scripts, so the
+ * installed exclusively by the registry upgrade script (the two
+ * earlier upgrade scripts it replaced were deleted so that neither
+ * can run by mistake), never by the genesis deploy scripts, so the
  * genesis wiring stays identical to what is live in production.
  * The queueForecast and interestAdmin groups are also post-launch,
  * live on all nine diamonds since early August 2026, as is the

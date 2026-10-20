@@ -29,8 +29,9 @@ import {WiseTelecomNodesDiamondSelectors} from "./WiseTelecomNodesDiamondSelecto
 
 /// @notice Installs the referral-registry round
 /// on an already-running, finalized diamond: the cohort recorder manifest
-/// PLUS the slot-77 registry pointer. Supersedes {UpgradeCohortRecorder} (which superseded
-/// {UpgradeReferral}): the slot-77 shard recompiles every facet in the manifest and the
+/// PLUS the slot-77 registry pointer. It replaces the two earlier upgrade scripts, deleted
+/// so that neither can run by mistake: the slot-77 shard recompiles every facet in the
+/// manifest and the
 /// referral facets now write the per-chain standalone {ReferralRegistry}, so installing the
 /// older script's builds would route stale bytecode. The LIVE diamond entry contracts are
 /// never redeployed and never migrated: this round only deploys NEW facet contracts and
@@ -98,7 +99,7 @@ import {WiseTelecomNodesDiamondSelectors} from "./WiseTelecomNodesDiamondSelecto
 ///                        itself requires the pointer onchain), so no bridge ever leaves an
 ///                        armed vault under the 200k genesis budget, and post-asserts both
 ///                        values.
-///   `proposeRetireLegacyReferralBridge()` : OPTIONAL, a rollout parameter decision, any
+///   `proposeRetireLegacyReferralBridge()` : REQUIRED by the rollout (the legacy pair retires), any
 ///                        day after execute(): proposes the genesis passthrough pair
 ///                        `bridgeToVaultWithReferral` / `quoteBridgeFeeWithReferral` to the
 ///                        zero facet. The armed carry never needs caller bytes (both bridge
@@ -192,6 +193,10 @@ contract UpgradeReferralRegistry is VaultConfig {
                 diamond
             ),
             "UpgradeReferralRegistry: diamond not allowlisted on the registry (run allow())"
+        );
+
+        _requireRoundNotProposed(
+            diamond
         );
 
         vm.startBroadcast(
@@ -302,6 +307,12 @@ contract UpgradeReferralRegistry is VaultConfig {
         console2.log(
             "proposed referral-registry upgrade on diamond",
             diamond
+        );
+
+        console2.log(
+            "  product / network",
+            _vaultProduct(),
+            _networkName()
         );
 
         console2.log(
@@ -488,6 +499,12 @@ contract UpgradeReferralRegistry is VaultConfig {
         );
 
         console2.log(
+            "  product / network",
+            _vaultProduct(),
+            _networkName()
+        );
+
+        console2.log(
             "run proposePointer() now (second 3-day clock)"
         );
     }
@@ -586,6 +603,12 @@ contract UpgradeReferralRegistry is VaultConfig {
         );
 
         console2.log(
+            "  product / network",
+            _vaultProduct(),
+            _networkName()
+        );
+
+        console2.log(
             "  registry",
             registry
         );
@@ -645,6 +668,12 @@ contract UpgradeReferralRegistry is VaultConfig {
         );
 
         console2.log(
+            "  product / network",
+            _vaultProduct(),
+            _networkName()
+        );
+
+        console2.log(
             "run arm() to enable recording (separate go-live step)"
         );
     }
@@ -689,6 +718,10 @@ contract UpgradeReferralRegistry is VaultConfig {
             _networkName()
         );
 
+        _assertPeerRoundsExecuted(
+            diamond
+        );
+
         vm.startBroadcast(
             privKey
         );
@@ -716,6 +749,12 @@ contract UpgradeReferralRegistry is VaultConfig {
         console2.log(
             "armed cohort recorder on diamond",
             diamond
+        );
+
+        console2.log(
+            "  product / network",
+            _vaultProduct(),
+            _networkName()
         );
 
         console2.log(
@@ -822,6 +861,12 @@ contract UpgradeReferralRegistry is VaultConfig {
         );
 
         console2.log(
+            "  product / network",
+            _vaultProduct(),
+            _networkName()
+        );
+
+        console2.log(
             "earliest executeRetireLegacyReferralBridge()",
             block.timestamp + 3 days
         );
@@ -876,6 +921,12 @@ contract UpgradeReferralRegistry is VaultConfig {
         console2.log(
             "retired legacy referral bridge on diamond",
             diamond
+        );
+
+        console2.log(
+            "  product / network",
+            _vaultProduct(),
+            _networkName()
         );
     }
 
@@ -1051,6 +1102,22 @@ contract UpgradeReferralRegistry is VaultConfig {
                 "round batch facet",
                 i,
                 d.selectorToFacet(
+                    groups[i][0]
+                )
+            );
+
+            console2.log(
+                "round batch proposed facet",
+                i,
+                d.proposedSelectorFacet(
+                    groups[i][0]
+                )
+            );
+
+            console2.log(
+                "round batch queuedAt",
+                i,
+                d.selectorChangeQueuedAt(
                     groups[i][0]
                 )
             );
@@ -1423,6 +1490,120 @@ contract UpgradeReferralRegistry is VaultConfig {
                 "  same-chain vault round executed",
                 products[i],
                 vault
+            );
+        }
+    }
+
+    /// @dev A second `propose()` on a vault would overwrite every pending batch and the hook
+    /// proposal and restart their clocks (the flush round's included, law 8), and a propose
+    /// after the round executed would re-deploy fourteen facets for nothing, so the step refuses
+    /// both unless `UPGRADE_FORCE_REPROPOSE=true` is set on purpose.
+    function _requireRoundNotProposed(
+        address _diamond
+    )
+        internal
+        view
+    {
+        if (vm.envOr("UPGRADE_FORCE_REPROPOSE", false)) {
+            return;
+        }
+
+        WiseTelecomNodesDiamond dispatcher = WiseTelecomNodesDiamond(
+            payable(_diamond)
+        );
+
+        require(
+            dispatcher.selectorToFacet(WiseTelecomNodesDiamondSelectors._cohortRecorderSelectors()[0]) == address(0),
+            "UpgradeReferralRegistry: the registry round already executed on this vault (set UPGRADE_FORCE_REPROPOSE=true to propose it again on purpose)"
+        );
+
+        require(
+            dispatcher.selectorChangeQueuedAt(WiseTelecomNodesDiamondSelectors._adminSelectors()[0]) == 0,
+            "UpgradeReferralRegistry: a selector round is already pending on this vault (a second propose would overwrite it and restart its clock; abort() first, or set UPGRADE_FORCE_REPROPOSE=true)"
+        );
+    }
+
+    /// @dev Law 1 of the runbook: no vault arms while a bridge peer of its mesh still runs the
+    /// genesis bytecode, because a genesis source relays caller bytes verbatim under the
+    /// 200,000 gas budget and an armed destination would apply a forged carry or strand the
+    /// delivery. Every enabled bridge peer is read over its own chain alias (`vm.rpc`, the
+    /// keyed endpoint of the env) and must route the cohort bridge hook slice, which only the
+    /// executed registry round installs. `ARM_SKIP_PEER_CHECK=true` skips the read for an
+    /// emergency re-arm.
+    function _assertPeerRoundsExecuted(
+        address _diamond
+    )
+        internal
+    {
+        if (vm.envOr("ARM_SKIP_PEER_CHECK", false)) {
+            console2.log(
+                "  law 1 peer check skipped by ARM_SKIP_PEER_CHECK"
+            );
+
+            return;
+        }
+
+        WiseTelecomNodesDiamond dispatcher = WiseTelecomNodesDiamond(
+            payable(_diamond)
+        );
+
+        string[] memory chains = _loadMesh().chains;
+
+        for (uint256 i; i < chains.length; ++i) {
+            if (_sameString(chains[i], _networkName())) {
+                continue;
+            }
+
+            uint64 selector = _loadCcipChainSelector(
+                chains[i]
+            );
+
+            if (dispatcher.crossChainPeerEnabled(selector) == false) {
+                continue;
+            }
+
+            address peer = dispatcher.crossChainPeer(
+                selector
+            );
+
+            if (peer == address(0)) {
+                continue;
+            }
+
+            string memory params = string.concat(
+                "[{\"to\":\"",
+                vm.toString(
+                    peer
+                ),
+                "\",\"data\":\"",
+                vm.toString(
+                    abi.encodeWithSignature(
+                        "selectorToFacet(bytes4)",
+                        WiseTelecomNodesDiamondSelectors._cohortBridgeHookSelectors()[0]
+                    )
+                ),
+                "\"},\"latest\"]"
+            );
+
+            bytes memory answer = vm.rpc(
+                chains[i],
+                "eth_call",
+                params
+            );
+
+            require(
+                answer.length == 32 && abi.decode(answer, (address)) != address(0),
+                string.concat(
+                    "UpgradeReferralRegistry: the bridge peer on ",
+                    chains[i],
+                    " has not executed the registry round (law 1: every peer routes the shipped BridgeFacet and the bridge hook slice before any vault arms)"
+                )
+            );
+
+            console2.log(
+                "  bridge peer round executed",
+                chains[i],
+                peer
             );
         }
     }
