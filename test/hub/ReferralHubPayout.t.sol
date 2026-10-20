@@ -6,7 +6,11 @@ import {Test} from "forge-std/Test.sol";
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
+import {IReferralHub} from "../../src/hub/pending/IReferralHub.sol";
+import {HubLeverGrants} from "./utils/HubLeverGrants.sol";
 import {ReferralHub} from "../../src/hub/pending/ReferralHub.sol";
+import {HubDiamondHarness} from "../hub/utils/HubDiamondHarness.sol";
+import {ReferralHubReader} from "../../src/hub/pending/ReferralHubReader.sol";
 import {ReferralHubDeclarations} from "../../src/hub/pending/ReferralHubDeclarations.sol";
 import {CohortWeeks} from "../../src/diamond/shared/pending/CohortWeeks.sol";
 import {NotMaster} from "../../src/diamond/shared/OwnableMaster.sol";
@@ -43,37 +47,46 @@ contract MockUSD is ERC20 {
 }
 
 /**
- * @dev Hub-local payout-rail suite: the claim surface against a
- * pre-funded pot with NO payout vault wired: claim authorization
- * (referrer or resolved payout address, nobody else), full claims,
- * `claimUpTo` clamping to entitlement and to covered funds, the
- * dry-pot and nothing-claimable reverts, the `setPayoutVault`
- * master gate, the designation stamp, and the constructor
- * zero-token guard. The vault-coupled half of the rail (booking,
- * funding pulls, buffer interplay) lives in
- * `test/diamond/WiseTelecomNodesPayoutHub.t.sol` against the real
- * diamond. Accrual here reuses the intake recipe: absolute score
+ * @dev Hub-local payout-rail suite: the claim surface against the
+ * pre-funded pot (the hub holds the USD it pays; `totalPayable -
+ * totalClaimed` is the amount it owes, a claim counts in `totalClaimed`
+ * and never books anything anywhere):
+ * claim authorization (referrer or resolved payout address, nobody
+ * else), full claims, the hub-chain bucket needing no designation
+ * (the spoke-bucket designation rule is pinned in the mailbox
+ * suite) and joining `totalPayable` at once, `claimUpTo` clamping to
+ * entitlement and to the hub's own balance (a short pot pays the
+ * balance and leaves the rest claimable, then a full claim reverts
+ * `PotDry`), the dry-pot and nothing-claimable reverts, the
+ * designation stamp (an undesignated other chain reads zero from
+ * `payoutAddressOf`), and the constructor zero-token guard.
+ * Accrual here reuses the intake recipe: absolute score
  * report, two dwell-min boundary crossings, one crumb delivery
  * whose lane quantity prices to an exact whole amount (no dust).
- * The batch readers are pinned against their single-value siblings.
+ * The batch readers on the {ReferralHubReader} companion are pinned
+ * against their single-value siblings on the hub.
  * `paidCursorsAtSource` over a window with two delivered weeks and
  * two untouched ones returns, per week, exactly the packed lanes of
  * `paidCursorAtSource`, with the untouched weeks reading zero. A
  * zero count yields an empty array without reverting. `claimableOf`
  * over three referrers on one chain id, two with distinct accruals
  * and one with nothing, equals `claimable` element by element. An
- * empty batch yields an empty array without reverting.
+ * empty batch yields an empty array without reverting. `claimAll` pays
+ * an undesignated hub-chain bucket to its owner, stamps that designation
+ * and skips an empty other chain in the same call.
  */
-contract ReferralHubPayoutTest is Test {
-
-    event PayoutVaultSet(
-        address payoutVault
-    );
+contract ReferralHubPayoutTest is Test, HubDiamondHarness {
 
     event PayoutClaimed(
         uint256 indexed chainId,
         address indexed referrer,
         address indexed payout,
+        uint256 amount
+    );
+
+    event PayoutBacklogReleased(
+        uint256 indexed chainId,
+        address indexed owner,
         uint256 amount
     );
 
@@ -89,7 +102,9 @@ contract ReferralHubPayoutTest is Test {
 
     MockUSD internal usd;
 
-    ReferralHub internal hub;
+    IReferralHub internal hub;
+
+    ReferralHubReader internal reader;
 
     function setUp()
         public
@@ -100,13 +115,23 @@ contract ReferralHubPayoutTest is Test {
 
         usd = new MockUSD();
 
-        hub = new ReferralHub(
+        hub = _deployHub(
             address(usd)
         );
 
-        hub.setAllowedReporter(
-            address(this),
-            true
+        reader = new ReferralHubReader(
+            address(hub)
+        );
+
+        HubLeverGrants._grant(
+            address(hub),
+            abi.encodeCall(
+                IReferralHub.setAllowedReporter,
+                (
+                    address(this),
+                    true
+                )
+            )
         );
     }
 
@@ -116,13 +141,11 @@ contract ReferralHubPayoutTest is Test {
         internal
         returns (uint256 expectedPaid)
     {
-        hub.reportScores(
-            refA,
-            6_000 * 1e6,
-            0
-        );
-
         uint256 reportWeek = block.timestamp / CohortWeeks.WEEK;
+
+        vm.warp(
+            (reportWeek + 1) * CohortWeeks.WEEK + 1 hours
+        );
 
         vm.warp(
             (reportWeek + 3) * CohortWeeks.WEEK + 1 hours
@@ -132,13 +155,14 @@ contract ReferralHubPayoutTest is Test {
         weeksArr[0] = reportWeek + 2;
 
         uint256[] memory words = new uint256[](1);
-        words[0] = CohortWeeks.packLanes(
+        words[0] = CohortWeeks._packLanes(
             100 * CohortWeeks.YEAR * 1e6,
             0,
             0
         );
 
         hub.deliverCrumbs(
+            refA,
             refA,
             weeksArr,
             words
@@ -154,13 +178,11 @@ contract ReferralHubPayoutTest is Test {
         internal
         returns (uint256 expectedPaid)
     {
-        hub.reportScores(
-            _referrer,
-            6_000 * 1e6,
-            0
-        );
-
         uint256 reportWeek = block.timestamp / CohortWeeks.WEEK;
+
+        vm.warp(
+            (reportWeek + 1) * CohortWeeks.WEEK + 1 hours
+        );
 
         vm.warp(
             (reportWeek + 3) * CohortWeeks.WEEK + 1 hours
@@ -170,7 +192,7 @@ contract ReferralHubPayoutTest is Test {
         weeksArr[0] = reportWeek + 2;
 
         uint256[] memory words = new uint256[](1);
-        words[0] = CohortWeeks.packLanes(
+        words[0] = CohortWeeks._packLanes(
             _wholeUsd * 100 * CohortWeeks.YEAR * 1e6,
             0,
             0
@@ -178,11 +200,20 @@ contract ReferralHubPayoutTest is Test {
 
         hub.deliverCrumbs(
             _referrer,
+            _referrer,
             weeksArr,
             words
         );
 
-        expectedPaid = _wholeUsd * 1e6;
+        (
+            uint256 y1Bps,
+            ,
+        ) = hub.weeklyRates(
+            _referrer,
+            weeksArr[0]
+        );
+
+        expectedPaid = words[0] * y1Bps / (10_000 * CohortWeeks.YEAR);
     }
 
     // ---- constructor ----
@@ -208,11 +239,32 @@ contract ReferralHubPayoutTest is Test {
         );
     }
 
-    // ---- setPayoutVault ----
-
-    function test_setPayoutVault_setsAndEmits()
+    /**
+     * @dev a hub-chain bucket whose owner never designated and never
+     * claimed stays out of the amount the pot owes
+     * the first claim is its owner liveness probe: it stamps the
+     * designation, releases the backlog and pays in one step
+     */
+    function test_deliverCrumbs_hubChainBucket_undesignatedDoesNotBook()
         public
     {
+        uint256 expectedPaid = _accrueOneUsd();
+
+        assertEq(
+            hub.totalPayable(),
+            0
+        );
+
+        assertEq(
+            hub.totalAccrued(),
+            expectedPaid
+        );
+
+        usd.mint(
+            address(hub),
+            expectedPaid
+        );
+
         vm.expectEmit(
             false,
             false,
@@ -221,59 +273,124 @@ contract ReferralHubPayoutTest is Test {
             address(hub)
         );
 
-        emit PayoutVaultSet(
-            address(0xA7)
+        emit PayoutBacklogReleased(
+            block.chainid,
+            refA,
+            expectedPaid
         );
 
-        hub.setPayoutVault(
-            address(0xA7)
-        );
-
-        assertEq(
-            hub.payoutVault(),
-            address(0xA7)
-        );
-
-        hub.setPayoutVault(
-            address(0)
-        );
-
-        assertEq(
-            hub.payoutVault(),
-            address(0)
-        );
-    }
-
-    function test_RevertWhen_setPayoutVault_calledByStranger()
-        public
-    {
         vm.prank(
-            stranger
+            refA
         );
 
-        vm.expectRevert(
-            NotMaster.selector
+        hub.claim(
+            block.chainid,
+            refA
         );
 
-        hub.setPayoutVault(
-            address(0xA7)
+        assertEq(
+            hub.totalPayable(),
+            expectedPaid
+        );
+
+        assertEq(
+            usd.balanceOf(
+                refA
+            ),
+            expectedPaid
         );
     }
 
-    function test_bookLiability_noVault_isNoop()
+    /**
+     * @dev a hub-chain designation releases the backlog into the amount
+     * the pot owes in the same call
+     */
+    function test_setPayoutAddress_hubChainBacklog_joinsPayableOnDesignation()
         public
     {
-        _accrueOneUsd();
-
-        hub.bookLiability();
+        uint256 expectedPaid = _accrueOneUsd();
 
         assertEq(
-            hub.totalBooked(),
+            hub.totalPayable(),
             0
+        );
+
+        vm.prank(
+            refA
+        );
+
+        hub.setPayoutAddress(
+            refA
+        );
+
+        assertEq(
+            hub.totalPayable(),
+            expectedPaid
+        );
+
+        assertEq(
+            hub.totalPayable() - hub.totalClaimed(),
+            expectedPaid
         );
     }
 
     // ---- claim ----
+
+    function test_claim_partialThenFull_releasesBacklogExactlyOnce()
+        public
+    {
+        uint256 expectedPaid = _accrueOneUsd();
+
+        usd.mint(
+            address(hub),
+            expectedPaid
+        );
+
+        vm.prank(
+            refA
+        );
+
+        hub.claimUpTo(
+            block.chainid,
+            refA,
+            expectedPaid / 2
+        );
+
+        assertEq(
+            usd.balanceOf(
+                refA
+            ),
+            expectedPaid / 2
+        );
+
+        vm.recordLogs();
+
+        vm.prank(
+            refA
+        );
+
+        hub.claim(
+            block.chainid,
+            refA
+        );
+
+        assertEq(
+            usd.balanceOf(
+                refA
+            ),
+            expectedPaid
+        );
+
+        assertEq(
+            hub.totalPayable(),
+            expectedPaid
+        );
+
+        assertEq(
+            hub.totalClaimed(),
+            expectedPaid
+        );
+    }
 
     function test_claim_paysFullBalanceFromPreFundedPot()
         public
@@ -310,12 +427,17 @@ contract ReferralHubPayoutTest is Test {
         );
 
         assertEq(
-            usd.balanceOf(refA),
+            usd.balanceOf(
+                refA
+            ),
             expectedPaid
         );
 
         assertEq(
-            hub.claimable(block.chainid, refA),
+            hub.claimable(
+                block.chainid,
+                refA
+            ),
             0
         );
 
@@ -418,7 +540,9 @@ contract ReferralHubPayoutTest is Test {
         );
 
         assertEq(
-            usd.balanceOf(designated),
+            usd.balanceOf(
+                designated
+            ),
             expectedPaid
         );
     }
@@ -451,13 +575,158 @@ contract ReferralHubPayoutTest is Test {
         );
 
         assertEq(
-            usd.balanceOf(designated),
+            usd.balanceOf(
+                designated
+            ),
             expectedPaid
         );
 
         assertEq(
-            usd.balanceOf(refA),
+            usd.balanceOf(
+                refA
+            ),
             0
+        );
+    }
+
+    function test_claim_hubBucket_needsNoDesignation()
+        public
+    {
+        uint256 expectedPaid = _accrueOneUsd();
+
+        usd.mint(
+            address(hub),
+            expectedPaid
+        );
+
+        assertEq(
+            hub.payoutStamp(
+                block.chainid,
+                refA
+            ),
+            0
+        );
+
+        vm.prank(
+            refA
+        );
+
+        hub.claim(
+            block.chainid,
+            refA
+        );
+
+        assertEq(
+            usd.balanceOf(
+                refA
+            ),
+            expectedPaid
+        );
+    }
+
+    function test_claim_fromPot_paysAndCountsClaimed()
+        public
+    {
+        uint256 potPaid = _accrueOneUsd();
+
+        usd.mint(
+            address(hub),
+            potPaid
+        );
+
+        vm.prank(
+            refA
+        );
+
+        hub.claim(
+            block.chainid,
+            refA
+        );
+
+        assertEq(
+            hub.totalClaimed(),
+            potPaid
+        );
+
+        assertEq(
+            hub.totalPayable(),
+            potPaid
+        );
+
+        assertEq(
+            usd.balanceOf(
+                address(hub)
+            ),
+            0
+        );
+
+        vm.prank(
+            refB
+        );
+
+        hub.setPayoutAddress(
+            refB
+        );
+
+        uint256 laterPaid = _accrueUsd(
+            refB,
+            2
+        );
+
+        assertEq(
+            hub.totalPayable() - hub.totalClaimed(),
+            laterPaid
+        );
+    }
+
+    function test_claimUpTo_shortPot_paysTheBalanceAndLeavesTheRest()
+        public
+    {
+        uint256 firstPaid = _accrueOneUsd();
+
+        uint256 secondPaid = _accrueOneUsd();
+
+        usd.mint(
+            address(hub),
+            firstPaid
+        );
+
+        vm.prank(
+            refA
+        );
+
+        hub.claimUpTo(
+            block.chainid,
+            refA,
+            firstPaid + secondPaid
+        );
+
+        assertEq(
+            usd.balanceOf(
+                refA
+            ),
+            firstPaid
+        );
+
+        assertEq(
+            hub.claimable(
+                block.chainid,
+                refA
+            ),
+            secondPaid
+        );
+
+        vm.prank(
+            refA
+        );
+
+        vm.expectRevert(
+            ReferralHubDeclarations.PotDry.selector
+        );
+
+        hub.claim(
+            block.chainid,
+            refA
         );
     }
 
@@ -484,12 +753,17 @@ contract ReferralHubPayoutTest is Test {
         );
 
         assertEq(
-            usd.balanceOf(refA),
+            usd.balanceOf(
+                refA
+            ),
             expectedPaid
         );
 
         assertEq(
-            hub.claimable(block.chainid, refA),
+            hub.claimable(
+                block.chainid,
+                refA
+            ),
             0
         );
     }
@@ -517,12 +791,17 @@ contract ReferralHubPayoutTest is Test {
         );
 
         assertEq(
-            usd.balanceOf(refA),
+            usd.balanceOf(
+                refA
+            ),
             potFunds
         );
 
         assertEq(
-            hub.claimable(block.chainid, refA),
+            hub.claimable(
+                block.chainid,
+                refA
+            ),
             expectedPaid - potFunds
         );
 
@@ -610,7 +889,10 @@ contract ReferralHubPayoutTest is Test {
         uint256 otherChain = block.chainid + 1;
 
         assertEq(
-            hub.claimable(otherChain, refA),
+            hub.claimable(
+                otherChain,
+                refA
+            ),
             0
         );
 
@@ -628,7 +910,10 @@ contract ReferralHubPayoutTest is Test {
         );
 
         assertEq(
-            hub.claimable(block.chainid, refA),
+            hub.claimable(
+                block.chainid,
+                refA
+            ),
             expectedPaid
         );
     }
@@ -645,22 +930,34 @@ contract ReferralHubPayoutTest is Test {
         );
 
         assertEq(
-            hub.payoutAddressOf(block.chainid, refA),
+            hub.payoutAddressOf(
+                block.chainid,
+                refA
+            ),
             designated
         );
 
         assertEq(
-            hub.payoutAddressOf(block.chainid + 1, refA),
-            refA
+            hub.payoutAddressOf(
+                block.chainid + 1,
+                refA
+            ),
+            address(0)
         );
 
         assertEq(
-            hub.payoutStamp(block.chainid, refA),
+            hub.payoutStamp(
+                block.chainid,
+                refA
+            ),
             block.timestamp << 8
         );
 
         assertEq(
-            hub.payoutStamp(block.chainid + 1, refA),
+            hub.payoutStamp(
+                block.chainid + 1,
+                refA
+            ),
             0
         );
     }
@@ -682,12 +979,12 @@ contract ReferralHubPayoutTest is Test {
         weeksArr[1] = fromWeek + 2;
 
         uint256[] memory words = new uint256[](2);
-        words[0] = CohortWeeks.packLanes(
+        words[0] = CohortWeeks._packLanes(
             11 * CohortWeeks.YEAR,
             0,
             0
         );
-        words[1] = CohortWeeks.packLanes(
+        words[1] = CohortWeeks._packLanes(
             22 * CohortWeeks.YEAR,
             33 * CohortWeeks.YEAR,
             44 * CohortWeeks.YEAR
@@ -695,11 +992,12 @@ contract ReferralHubPayoutTest is Test {
 
         hub.deliverCrumbs(
             refA,
+            refA,
             weeksArr,
             words
         );
 
-        uint256[] memory cursorWords = hub.paidCursorsAtSource(
+        uint256[] memory cursorWords = reader.paidCursorsAtSource(
             source,
             refA,
             fromWeek,
@@ -725,7 +1023,7 @@ contract ReferralHubPayoutTest is Test {
 
             assertEq(
                 cursorWords[i],
-                CohortWeeks.packLanes(
+                CohortWeeks._packLanes(
                     y1Cursor,
                     y2Cursor,
                     mCursor
@@ -754,17 +1052,23 @@ contract ReferralHubPayoutTest is Test {
         );
 
         assertEq(
-            CohortWeeks.laneY1(cursorWords[2]),
+            CohortWeeks._laneY1(
+                cursorWords[2]
+            ),
             22 * CohortWeeks.YEAR
         );
 
         assertEq(
-            CohortWeeks.laneY2(cursorWords[2]),
+            CohortWeeks._laneY2(
+                cursorWords[2]
+            ),
             33 * CohortWeeks.YEAR
         );
 
         assertEq(
-            CohortWeeks.laneM(cursorWords[2]),
+            CohortWeeks._laneM(
+                cursorWords[2]
+            ),
             44 * CohortWeeks.YEAR
         );
     }
@@ -778,7 +1082,7 @@ contract ReferralHubPayoutTest is Test {
             address(this)
         );
 
-        uint256[] memory cursorWords = hub.paidCursorsAtSource(
+        uint256[] memory cursorWords = reader.paidCursorsAtSource(
             source,
             refA,
             block.timestamp / CohortWeeks.WEEK,
@@ -806,7 +1110,7 @@ contract ReferralHubPayoutTest is Test {
         referrers[1] = refB;
         referrers[2] = stranger;
 
-        uint256[] memory amounts = hub.claimableOf(
+        uint256[] memory amounts = reader.claimableOf(
             block.chainid,
             referrers
         );
@@ -820,7 +1124,10 @@ contract ReferralHubPayoutTest is Test {
 
             assertEq(
                 amounts[i],
-                hub.claimable(block.chainid, referrers[i])
+                hub.claimable(
+                    block.chainid,
+                    referrers[i]
+                )
             );
         }
 
@@ -840,13 +1147,72 @@ contract ReferralHubPayoutTest is Test {
         );
     }
 
+    function test_claimAll_hubChainBucket_paysOwnerAndStampsDesignation()
+        public
+    {
+        uint256 expectedPaid = _accrueOneUsd();
+
+        usd.mint(
+            address(hub),
+            expectedPaid
+        );
+
+        uint256[] memory chainIds = new uint256[](2);
+        chainIds[0] = block.chainid;
+        chainIds[1] = block.chainid + 1;
+
+        assertEq(
+            hub.payoutStamp(
+                block.chainid,
+                refA
+            ),
+            0
+        );
+
+        vm.prank(
+            refA
+        );
+
+        uint256 total = hub.claimAll(
+            refA,
+            chainIds
+        );
+
+        assertEq(
+            total,
+            expectedPaid
+        );
+
+        assertEq(
+            usd.balanceOf(
+                refA
+            ),
+            expectedPaid
+        );
+
+        assertEq(
+            hub.claimable(
+                block.chainid,
+                refA
+            ),
+            0
+        );
+
+        assertTrue(
+            hub.payoutStamp(
+                block.chainid,
+                refA
+            ) != 0
+        );
+    }
+
     function test_claimableOf_emptyBatch_returnsEmpty()
         public
         view
     {
         address[] memory referrers = new address[](0);
 
-        uint256[] memory amounts = hub.claimableOf(
+        uint256[] memory amounts = reader.claimableOf(
             block.chainid,
             referrers
         );

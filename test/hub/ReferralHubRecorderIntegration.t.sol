@@ -12,8 +12,12 @@ import {CohortHookFacet} from "../../src/diamond/vault/facets/pending/CohortHook
 import {CohortRecorderFacet} from "../../src/diamond/vault/facets/pending/CohortRecorderFacet.sol";
 
 import {CohortWeeks} from "../../src/diamond/shared/pending/CohortWeeks.sol";
+import {CohortFlushCodec} from "../../src/diamond/shared/pending/CohortFlushCodec.sol";
 
-import {ReferralHub} from "../../src/hub/pending/ReferralHub.sol";
+import {IReferralHub} from "../../src/hub/pending/IReferralHub.sol";
+import {HubLeverGrants} from "./utils/HubLeverGrants.sol";
+import {HubDiamondHarness} from "../hub/utils/HubDiamondHarness.sol";
+import {ReferralHubReader} from "../../src/hub/pending/ReferralHubReader.sol";
 
 import {WiseTelecomNodesDiamondSelectors} from "../../script/diamond/WiseTelecomNodesDiamondSelectors.sol";
 
@@ -56,10 +60,11 @@ contract MockUSD is ERC20 {
  * (deposits, warps, `advanceBook`, transfers + `syncReferee`), never a
  * hand-crafted word; the CONSUMER is a real standalone {ReferralHub}
  * fed exclusively through its public reporter surface
- * (`reportScores` / `deliverCrumbs` / `deliverGap`), never a direct
+ * (`reportSelf` / `deliverCrumbs` / `deliverGap`), never a direct
  * storage write. Every expected value is computed independently in
  * the test: replaying the hub's
- * pricing formula (`floor(laneIncrement * laneBps / 10_000 / YEAR)`)
+ * pricing formula (one floor per week over the three lanes,
+ * `floor(sum of lane times laneBps / (10_000 * YEAR))`)
  * against lanes decoded from REAL crumb/gap words via
  * {CohortWeeks}, and against rates read from the hub's own
  * `weeklyRates` view, never against the hub's private pricing
@@ -72,7 +77,7 @@ contract MockUSD is ERC20 {
  * inline-reporting integration path documented in
  * `src/hub/pending/ReferralHub.sol`.
  */
-contract ReferralHubRecorderIntegrationTest is DiamondTestHarness {
+contract ReferralHubRecorderIntegrationTest is DiamondTestHarness, HubDiamondHarness {
 
     event CrumbPriced(
         bytes32 indexed source,
@@ -108,7 +113,9 @@ contract ReferralHubRecorderIntegrationTest is DiamondTestHarness {
 
     MockUSD internal usd;
 
-    ReferralHub internal hub;
+    IReferralHub internal hub;
+
+    ReferralHubReader internal reader;
 
     function setUp()
         public
@@ -130,13 +137,13 @@ contract ReferralHubRecorderIntegrationTest is DiamondTestHarness {
         _wireOne(
             diamond,
             address(new ReferralFacet()),
-            WiseTelecomNodesDiamondSelectors.referralSelectors()
+            WiseTelecomNodesDiamondSelectors._referralSelectors()
         );
 
         _wireOne(
             diamond,
             address(new CohortRecorderFacet()),
-            WiseTelecomNodesDiamondSelectors.cohortRecorderSelectors()
+            WiseTelecomNodesDiamondSelectors._cohortRecorderSelectors()
         );
 
         AdminFacet(address(diamond)).proposeTransferHookFacet(
@@ -155,13 +162,23 @@ contract ReferralHubRecorderIntegrationTest is DiamondTestHarness {
             true
         );
 
-        hub = new ReferralHub(
+        hub = _deployHub(
             address(usd)
         );
 
-        hub.setAllowedReporter(
-            address(this),
-            true
+        reader = new ReferralHubReader(
+            address(hub)
+        );
+
+        HubLeverGrants._grant(
+            address(hub),
+            abi.encodeCall(
+                IReferralHub.setAllowedReporter,
+                (
+                    address(this),
+                    true
+                )
+            )
         );
     }
 
@@ -280,7 +297,7 @@ contract ReferralHubRecorderIntegrationTest is DiamondTestHarness {
             uint256 y1Cursor,
             uint256 y2Cursor,
             uint256 mCursor
-        ) = hub.paidCursorAt(
+        ) = reader.paidCursorAt(
             address(this),
             _referrer,
             _week
@@ -309,9 +326,11 @@ contract ReferralHubRecorderIntegrationTest is DiamondTestHarness {
             _week
         );
 
-        return CohortWeeks.laneY1(_word) * y1Bps / 10_000 / CohortWeeks.YEAR
-            + CohortWeeks.laneY2(_word) * y2Bps / 10_000 / CohortWeeks.YEAR
-            + CohortWeeks.laneM(_word) * mBps / 10_000 / CohortWeeks.YEAR;
+        return (
+            CohortWeeks._laneY1(_word) * y1Bps
+                + CohortWeeks._laneY2(_word) * y2Bps
+                + CohortWeeks._laneM(_word) * mBps
+        ) / (10_000 * CohortWeeks.YEAR);
     }
 
     function _deliverCrumbChunk(
@@ -341,6 +360,7 @@ contract ReferralHubRecorderIntegrationTest is DiamondTestHarness {
 
         hub.deliverCrumbs(
             _referrer,
+            _referrer,
             weeksBatch,
             wordsBatch
         );
@@ -361,10 +381,12 @@ contract ReferralHubRecorderIntegrationTest is DiamondTestHarness {
             refA
         );
 
-        hub.reportScores(
-            refA,
-            _principal,
-            0
+        vm.warp(
+            BASE_TIME + 1 weeks
+        );
+
+        vm.warp(
+            BASE_TIME + 2 weeks
         );
 
         vm.warp(
@@ -404,12 +426,6 @@ contract ReferralHubRecorderIntegrationTest is DiamondTestHarness {
             principal
         );
 
-        uint256 perWeekPaid = _expectedPay(
-            wordsBatch[2],
-            refA,
-            weeksBatch[2]
-        );
-
         bytes32 source = _sourceKey();
 
         vm.expectEmit(
@@ -424,11 +440,13 @@ contract ReferralHubRecorderIntegrationTest is DiamondTestHarness {
             source,
             refA,
             weeksBatch[0],
-            address(this),
-            CohortWeeks.laneY1(wordsBatch[0]),
+            refA,
+            CohortWeeks._laneY1(
+                wordsBatch[0]
+            ),
             0,
             0,
-            0
+            CohortWeeks._laneY1(wordsBatch[0]) * 100 / (10_000 * CohortWeeks.YEAR)
         );
 
         vm.expectEmit(
@@ -443,11 +461,13 @@ contract ReferralHubRecorderIntegrationTest is DiamondTestHarness {
             source,
             refA,
             weeksBatch[1],
-            address(this),
-            CohortWeeks.laneY1(wordsBatch[1]),
+            refA,
+            CohortWeeks._laneY1(
+                wordsBatch[1]
+            ),
             0,
             0,
-            0
+            CohortWeeks._laneY1(wordsBatch[1]) * 200 / (10_000 * CohortWeeks.YEAR)
         );
 
         vm.expectEmit(
@@ -462,11 +482,13 @@ contract ReferralHubRecorderIntegrationTest is DiamondTestHarness {
             source,
             refA,
             weeksBatch[2],
-            address(this),
-            CohortWeeks.laneY1(wordsBatch[2]),
+            refA,
+            CohortWeeks._laneY1(
+                wordsBatch[2]
+            ),
             0,
             0,
-            perWeekPaid
+            CohortWeeks._laneY1(wordsBatch[2]) * 200 / (10_000 * CohortWeeks.YEAR)
         );
 
         vm.expectEmit(
@@ -481,14 +503,17 @@ contract ReferralHubRecorderIntegrationTest is DiamondTestHarness {
             source,
             refA,
             weeksBatch[3],
-            address(this),
-            CohortWeeks.laneY1(wordsBatch[3]),
+            refA,
+            CohortWeeks._laneY1(
+                wordsBatch[3]
+            ),
             0,
             0,
-            perWeekPaid
+            CohortWeeks._laneY1(wordsBatch[3]) * 200 / (10_000 * CohortWeeks.YEAR)
         );
 
         hub.deliverCrumbs(
+            refA,
             refA,
             weeksBatch,
             wordsBatch
@@ -510,7 +535,10 @@ contract ReferralHubRecorderIntegrationTest is DiamondTestHarness {
         );
 
         assertEq(
-            hub.claimable(block.chainid, refA),
+            hub.claimable(
+                block.chainid,
+                refA
+            ),
             expected
         );
 
@@ -553,7 +581,9 @@ contract ReferralHubRecorderIntegrationTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getCohortGapLogLength(refA),
+            _recorder().getCohortGapLogLength(
+                refA
+            ),
             1
         );
 
@@ -562,7 +592,11 @@ contract ReferralHubRecorderIntegrationTest is DiamondTestHarness {
             0
         );
 
-        uint256 claimableBefore = hub.claimable(block.chainid, refA);
+        uint256 claimableBefore = hub.claimable(
+            block.chainid,
+            refA
+        );
+
         uint256 totalAccruedBefore = hub.totalAccrued();
 
         bytes32 source = _sourceKey();
@@ -578,13 +612,14 @@ contract ReferralHubRecorderIntegrationTest is DiamondTestHarness {
         emit GapPriced(
             source,
             refA,
-            address(this),
+            refA,
             3_208,
             3_258,
             0
         );
 
         hub.deliverGap(
+            refA,
             refA,
             gapRecord,
             3_208,
@@ -602,7 +637,7 @@ contract ReferralHubRecorderIntegrationTest is DiamondTestHarness {
         emit GapPriced(
             source,
             refA,
-            address(this),
+            refA,
             3_258,
             3_300,
             0
@@ -610,13 +645,17 @@ contract ReferralHubRecorderIntegrationTest is DiamondTestHarness {
 
         hub.deliverGap(
             refA,
+            refA,
             gapRecord,
             3_258,
             100
         );
 
         assertEq(
-            hub.claimable(block.chainid, refA),
+            hub.claimable(
+                block.chainid,
+                refA
+            ),
             claimableBefore
         );
 
@@ -629,7 +668,7 @@ contract ReferralHubRecorderIntegrationTest is DiamondTestHarness {
             ,
             ,
             uint256 mCursorStart
-        ) = hub.paidCursorAt(
+        ) = reader.paidCursorAt(
             address(this),
             refA,
             3_208
@@ -639,7 +678,7 @@ contract ReferralHubRecorderIntegrationTest is DiamondTestHarness {
             ,
             ,
             uint256 mCursorMid
-        ) = hub.paidCursorAt(
+        ) = reader.paidCursorAt(
             address(this),
             refA,
             3_257
@@ -649,15 +688,26 @@ contract ReferralHubRecorderIntegrationTest is DiamondTestHarness {
             ,
             ,
             uint256 mCursorLast
-        ) = hub.paidCursorAt(
+        ) = reader.paidCursorAt(
             address(this),
             refA,
             3_299
         );
 
-        assertEq(mCursorStart, principal * 1 weeks);
-        assertEq(mCursorMid, principal * 1 weeks);
-        assertEq(mCursorLast, principal * 1 weeks);
+        assertEq(
+            mCursorStart,
+            principal * 1 weeks
+        );
+
+        assertEq(
+            mCursorMid,
+            principal * 1 weeks
+        );
+
+        assertEq(
+            mCursorLast,
+            principal * 1 weeks
+        );
     }
 
     // ---- 3. mixed advance + gap -> both encodings merge ----
@@ -673,10 +723,12 @@ contract ReferralHubRecorderIntegrationTest is DiamondTestHarness {
             refA
         );
 
-        hub.reportScores(
-            refA,
-            principal,
-            0
+        vm.warp(
+            BASE_TIME + 1 weeks
+        );
+
+        vm.warp(
+            BASE_TIME + 2 weeks
         );
 
         vm.warp(
@@ -704,7 +756,9 @@ contract ReferralHubRecorderIntegrationTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getCohortGapLogLength(refA),
+            _recorder().getCohortGapLogLength(
+                refA
+            ),
             1
         );
 
@@ -713,19 +767,47 @@ contract ReferralHubRecorderIntegrationTest is DiamondTestHarness {
             0
         );
 
-        _deliverCrumbChunk(refA, 3_000, 3_103);
-        _deliverCrumbChunk(refA, 3_104, 3_207);
-        _deliverCrumbChunk(refA, 3_208, 3_233);
-        _deliverCrumbChunk(refA, 3_300, 3_300);
+        vm.warp(
+            3_301 weeks + 2 hours
+        );
+
+        _deliverCrumbChunk(
+            refA,
+            3_000,
+            3_103
+        );
+
+        _deliverCrumbChunk(
+            refA,
+            3_104,
+            3_207
+        );
+
+        _deliverCrumbChunk(
+            refA,
+            3_208,
+            3_233
+        );
+
+        _deliverCrumbChunk(
+            refA,
+            3_300,
+            3_300
+        );
 
         hub.deliverGap(
+            refA,
             refA,
             gapRecord,
             3_234,
             66
         );
 
-        uint256 claimableAfterFirst = hub.claimable(block.chainid, refA);
+        uint256 claimableAfterFirst = hub.claimable(
+            block.chainid,
+            refA
+        );
+
         uint256 totalAfterFirst = hub.totalAccrued();
 
         assertGt(
@@ -733,18 +815,72 @@ contract ReferralHubRecorderIntegrationTest is DiamondTestHarness {
             0
         );
 
-        assertGt(_cursorSum(refA, 3_129), 0);
-        assertGt(_cursorSum(refA, 3_233), 0);
-        assertGt(_cursorSum(refA, 3_234), 0);
-        assertGt(_cursorSum(refA, 3_299), 0);
-        assertGt(_cursorSum(refA, 3_300), 0);
+        assertGt(
+            _cursorSum(
+                refA,
+                3_129
+            ),
+            0
+        );
 
-        _deliverCrumbChunk(refA, 3_000, 3_103);
-        _deliverCrumbChunk(refA, 3_104, 3_207);
-        _deliverCrumbChunk(refA, 3_208, 3_233);
-        _deliverCrumbChunk(refA, 3_300, 3_300);
+        assertGt(
+            _cursorSum(
+                refA,
+                3_233
+            ),
+            0
+        );
+
+        assertGt(
+            _cursorSum(
+                refA,
+                3_234
+            ),
+            0
+        );
+
+        assertGt(
+            _cursorSum(
+                refA,
+                3_299
+            ),
+            0
+        );
+
+        assertGt(
+            _cursorSum(
+                refA,
+                3_300
+            ),
+            0
+        );
+
+        _deliverCrumbChunk(
+            refA,
+            3_000,
+            3_103
+        );
+
+        _deliverCrumbChunk(
+            refA,
+            3_104,
+            3_207
+        );
+
+        _deliverCrumbChunk(
+            refA,
+            3_208,
+            3_233
+        );
+
+        _deliverCrumbChunk(
+            refA,
+            3_300,
+            3_300
+        );
 
         hub.deliverGap(
+            refA,
             refA,
             gapRecord,
             3_234,
@@ -752,7 +888,10 @@ contract ReferralHubRecorderIntegrationTest is DiamondTestHarness {
         );
 
         assertEq(
-            hub.claimable(block.chainid, refA),
+            hub.claimable(
+                block.chainid,
+                refA
+            ),
             claimableAfterFirst
         );
 
@@ -775,10 +914,12 @@ contract ReferralHubRecorderIntegrationTest is DiamondTestHarness {
             refA
         );
 
-        hub.reportScores(
-            refA,
-            principal,
-            0
+        vm.warp(
+            BASE_TIME + 1 weeks
+        );
+
+        vm.warp(
+            BASE_TIME + 2 weeks
         );
 
         vm.warp(
@@ -813,12 +954,16 @@ contract ReferralHubRecorderIntegrationTest is DiamondTestHarness {
 
         hub.deliverCrumbs(
             refA,
+            refA,
             weeksBatch,
             wordsBatch
         );
 
         assertEq(
-            _cursorSum(refA, 3_004),
+            _cursorSum(
+                refA,
+                3_004
+            ),
             0
         );
 
@@ -843,14 +988,17 @@ contract ReferralHubRecorderIntegrationTest is DiamondTestHarness {
         );
 
         assertEq(
-            hub.claimable(block.chainid, refA),
+            hub.claimable(
+                block.chainid,
+                refA
+            ),
             expected
         );
     }
 
     // ---- 5. recorder-side clamp flows through as an absolute re-report ----
 
-    function test_scoreReporting_recorderClampFlowsThrough()
+    function test_weekBucket_recorderClampFlowsIntoTheWeeksAverage()
         public
     {
         uint256 principal = 8_000 * 1e6;
@@ -861,19 +1009,13 @@ contract ReferralHubRecorderIntegrationTest is DiamondTestHarness {
             refA
         );
 
-        uint256 firstScore = _recorder().getCohortScore(refA);
-
-        hub.reportScores(
-            refA,
-            firstScore,
-            0
-        );
-
         vm.warp(
             BASE_TIME + 3 weeks
         );
 
-        uint256 held = diamond.balanceOf(user1);
+        uint256 held = diamond.balanceOf(
+            user1
+        );
 
         _transferAs(
             user1,
@@ -889,48 +1031,76 @@ contract ReferralHubRecorderIntegrationTest is DiamondTestHarness {
             user1
         );
 
-        uint256 clampedScore = _recorder().getCohortScore(refA);
-
-        assertLt(
-            clampedScore,
-            firstScore
+        vm.warp(
+            BASE_TIME + 4 weeks
         );
 
-        hub.reportScores(
+        _recorder().advanceBook(
             refA,
-            clampedScore,
-            0
+            104
         );
 
-        assertEq(
-            hub.globalReferredScore(refA),
-            clampedScore
+        uint256[] memory weeksBatch = new uint256[](4);
+
+        uint256[] memory wordsBatch = new uint256[](4);
+
+        for (uint256 i; i < 4; ++i) {
+
+            weeksBatch[i] = 3_000 + i;
+
+            wordsBatch[i] = _recorder().getCohortWeekCrumb(
+                refA,
+                3_000 + i
+            );
+        }
+
+        hub.deliverCrumbs(
+            refA,
+            refA,
+            weeksBatch,
+            wordsBatch
         );
 
         (
-            uint256 pastOpening,
-        ) = hub.openingScoresAt(
+            uint256 fullWeek,
+        ) = hub.ladderInputsAt(
             refA,
             3_001
         );
 
         (
-            uint256 currentWeekOpening,
-        ) = hub.openingScoresAt(
+            uint256 clampWeek,
+        ) = hub.ladderInputsAt(
             refA,
             3_003
         );
 
         (
-            uint256 futureOpening,
-        ) = hub.openingScoresAt(
+            uint256 openWeek,
+        ) = hub.ladderInputsAt(
             refA,
             3_004
         );
 
-        assertEq(pastOpening, firstScore);
-        assertEq(currentWeekOpening, firstScore);
-        assertEq(futureOpening, clampedScore);
+        assertEq(
+            fullWeek,
+            principal
+        );
+
+        assertLt(
+            clampWeek,
+            principal
+        );
+
+        assertGt(
+            clampWeek,
+            principal - held / 4
+        );
+
+        assertEq(
+            openWeek,
+            0
+        );
     }
 
     // ---- 6. self-stake tracked contribution feeds the referrer's own ladder ----
@@ -939,6 +1109,7 @@ contract ReferralHubRecorderIntegrationTest is DiamondTestHarness {
         public
     {
         uint256 referredAmount = 6_000 * 1e6;
+
         uint256 selfAmount = 12_000 * 1e6;
 
         _depositWithReferralAs(
@@ -952,48 +1123,88 @@ contract ReferralHubRecorderIntegrationTest is DiamondTestHarness {
             selfAmount
         );
 
-        hub.reportScores(
-            refA,
-            _recorder().getCohortScore(refA),
-            _recorder().getTrackedContribution(refA)
-        );
-
         vm.warp(
             BASE_TIME + 2 weeks
         );
 
+        _recorder().advanceBook(
+            refA,
+            104
+        );
+
+        uint256[] memory weeksBatch = new uint256[](1);
+
+        weeksBatch[0] = 3_001;
+
+        uint256[] memory wordsBatch = new uint256[](1);
+
+        wordsBatch[0] = _recorder().getCohortWeekCrumb(
+            refA,
+            3_001
+        );
+
+        hub.deliverCrumbs(
+            refA,
+            refA,
+            weeksBatch,
+            wordsBatch
+        );
+
         (
-            uint256 y1BpsDwellOne,
+            uint256 y1BpsReferredOnly,
             ,
         ) = hub.weeklyRates(
             refA,
             3_001
         );
 
+        uint256[] memory runs = new uint256[](1);
+
+        runs[0] = CohortFlushCodec._packSelfRun(
+            3_001,
+            3_002,
+            _recorder().getTrackedContribution(
+                refA
+            )
+        );
+
+        hub.reportSelf(
+            refA,
+            runs
+        );
+
         (
-            uint256 y1BpsDwellTwo,
+            uint256 y1BpsWithSelf,
             ,
         ) = hub.weeklyRates(
             refA,
-            3_002
+            3_001
         );
 
-        assertEq(y1BpsDwellOne, 0);
-        assertEq(y1BpsDwellTwo, 100 + 200);
+        assertEq(
+            y1BpsReferredOnly,
+            100
+        );
+
+        assertEq(
+            y1BpsWithSelf,
+            100 + 200
+        );
     }
 
     // ---- 7. producer guarantee: a written crumb word is never all-zero-lane ----
 
     /**
      * @dev {CohortRecorderBase._recordSegmentCohort} early-returns
-     * without writing anything when `cohortBook[_referrer] == 0`, and
-     * every call site passes a strictly positive `dt`
-     * (`_to > _from`); so whenever the CRUMB_WRITTEN_BIT is set, at
-     * least one of the three 80-bit lanes it was set alongside is
-     * provably non-zero. A "written but all-lanes-zero" crumb word is
-     * therefore unreachable from the real recorder; the hub's
-     * `_word == 0` fast skip in `deliverCrumbs` is the only skip a
-     * real caller can ever exercise.
+     * without writing anything when `cohortBook[_referrer] == 0` or
+     * when the segment's live seconds (its length outside a disarm
+     * span, `CohortWeeks._liveSecondsCohort`) are zero, and every call site passes
+     * a segment with `_to > _from`; so whenever the CRUMB_WRITTEN_BIT
+     * is set, at least one of the three 80-bit lanes it was set
+     * alongside is provably non-zero. A "written but all-lanes-zero"
+     * crumb word is therefore unreachable from the real recorder; the
+     * hub's `_word == 0` fast skip in `deliverCrumbs` is the only skip
+     * a real caller can ever exercise.
      */
     function test_recorder_neverWritesEmptyCrumbWords()
         public
@@ -1017,10 +1228,18 @@ contract ReferralHubRecorderIntegrationTest is DiamondTestHarness {
 
         for (uint256 week = 3_000; week < 3_010; ++week) {
 
-            uint256 word = _recorder().getCohortWeekCrumb(refA, week);
+            uint256 word = _recorder().getCohortWeekCrumb(
+                refA,
+                week
+            );
 
-            assertTrue(word & CohortWeeks.CRUMB_WRITTEN_BIT != 0);
-            assertTrue(word != CohortWeeks.CRUMB_WRITTEN_BIT);
+            assertTrue(
+                word & CohortWeeks.CRUMB_WRITTEN_BIT != 0
+            );
+
+            assertTrue(
+                word != CohortWeeks.CRUMB_WRITTEN_BIT
+            );
         }
     }
 
@@ -1040,11 +1259,16 @@ contract ReferralHubRecorderIntegrationTest is DiamondTestHarness {
 
         hub.deliverCrumbs(
             refA,
+            refA,
             weeksBatch,
             wordsBatch
         );
 
-        uint256 claimableAfterFirst = hub.claimable(block.chainid, refA);
+        uint256 claimableAfterFirst = hub.claimable(
+            block.chainid,
+            refA
+        );
+
         uint256 totalAfterFirst = hub.totalAccrued();
 
         assertGt(
@@ -1054,12 +1278,16 @@ contract ReferralHubRecorderIntegrationTest is DiamondTestHarness {
 
         hub.deliverCrumbs(
             refA,
+            refA,
             weeksBatch,
             wordsBatch
         );
 
         assertEq(
-            hub.claimable(block.chainid, refA),
+            hub.claimable(
+                block.chainid,
+                refA
+            ),
             claimableAfterFirst
         );
 
