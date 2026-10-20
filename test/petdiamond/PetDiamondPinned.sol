@@ -29,7 +29,7 @@ library LibPetReferral {
         mapping(address => address) referrerOf;
     }
 
-    function layout() internal pure returns (Layout storage l) {
+    function _layout() internal pure returns (Layout storage l) {
         bytes32 slot = SLOT;
         assembly {
             l.slot := slot
@@ -42,14 +42,14 @@ library LibPetReferral {
 library LibPetGate {
     bytes32 internal constant SLOT_ACTIVE = bytes32(uint256(7));
 
-    function active() internal view returns (bool v) {
+    function _active() internal view returns (bool v) {
         bytes32 s = SLOT_ACTIVE;
         assembly {
             v := sload(s)
         }
     }
 
-    function setActive(bool v) internal {
+    function _setActive(bool v) internal {
         bytes32 s = SLOT_ACTIVE;
         assembly {
             sstore(s, v)
@@ -62,22 +62,22 @@ library LibPetGate {
 // delegatecall.
 contract PinnedReferralFacet {
     function setReferrerPinned(address _ref) external {
-        require(LibPetReferral.layout().referrerOf[msg.sender] == address(0), "already set");
-        LibPetReferral.layout().referrerOf[msg.sender] = _ref;
+        require(LibPetReferral._layout().referrerOf[msg.sender] == address(0), "already set");
+        LibPetReferral._layout().referrerOf[msg.sender] = _ref;
     }
 
     function getReferrerPinned(address _who) external view returns (address) {
-        return LibPetReferral.layout().referrerOf[_who];
+        return LibPetReferral._layout().referrerOf[_who];
     }
 }
 
 contract PinnedGateFacet {
     function setActivePinned(bool _v) external {
-        LibPetGate.setActive(_v);
+        LibPetGate._setActive(_v);
     }
 
     function isActivePinned() external view returns (bool) {
-        return LibPetGate.active();
+        return LibPetGate._active();
     }
 }
 
@@ -87,7 +87,7 @@ contract PinnedGateFacet {
 library LibBadGate {
     bytes32 internal constant SLOT = bytes32(uint256(3));
 
-    function setActive(bool v) internal {
+    function _setActive(bool v) internal {
         bytes32 s = SLOT;
         assembly {
             sstore(s, v)
@@ -104,7 +104,7 @@ library LibBadReferralPin {
         mapping(address => address) referrerOf;
     }
 
-    function layout() internal pure returns (Layout storage l) {
+    function _layout() internal pure returns (Layout storage l) {
         bytes32 slot = SLOT;
         assembly {
             l.slot := slot
@@ -114,10 +114,10 @@ library LibBadReferralPin {
 
 contract BadPinnedFacet {
     function setActiveBad(bool _v) external {
-        LibBadGate.setActive(_v); // clobbers totalDeposited (slot 3)
+        LibBadGate._setActive(_v); // clobbers totalDeposited (slot 3)
     }
 
     function setReferrerBad(address _ref) external {
-        LibBadReferralPin.layout().referrerOf[msg.sender] = _ref; // collides with deposits[msg.sender]
+        LibBadReferralPin._layout().referrerOf[msg.sender] = _ref; // collides with deposits[msg.sender]
     }
 }
