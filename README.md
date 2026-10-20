@@ -108,7 +108,7 @@ The suite splits into an offline part and a mainnet-fork part:
 
 ```bash
 # offline: no network or configuration needed
-forge test --no-match-path "test/{MoneyForward.t.sol,MoneyForwardViewParity.t.sol,diamond/WiseTelecomNodesBurnWiseFacet.t.sol,diamond/fork/CcipBridgeFork.t.sol,diamond/fork/CcipCarryUpgradeRehearsalFork.t.sol,diamond/fork/CcipLaneDiscoveryFork.t.sol,diamond/fork/CcipRobinhoodBridgeFork.t.sol,diamond/fork/CcipUsdgPeeringRehearsalFork.t.sol,diamond/fork/CohortBridgeAttributionMatrixFork.t.sol,diamond/fork/CohortBridgeAttributionMatrixForkRollout.t.sol,diamond/fork/CohortBridgeAttributionMatrixForkStates.t.sol,diamond/fork/CohortFlushUpgradeFork.t.sol,diamond/fork/DiamondLiveUsageFork.t.sol,diamond/fork/ReferralBotOpsFork.t.sol,diamond/fork/ReferralPayoutUpgradeFork.t.sol,diamond/fork/ReferralPreflightFork.t.sol,diamond/fork/ReferralRegistryUpgradeFork.t.sol,diamond/fork/SovrenReferralFork.t.sol,diamond/fork/UniswapV4FlashLoanFork.t.sol,diamond/fork/WiseBurnFork.t.sol,diamond/fork/WiseTelecomNodesPermitFork.t.sol,migration/DiamondMigrationForkE2E.t.sol,migration/PostDeployMigrationFork.t.sol}"
+forge test --no-match-path "test/{MoneyForward.t.sol,MoneyForwardViewParity.t.sol,diamond/WiseTelecomNodesBurnWiseFacet.t.sol,diamond/fork/CcipBridgeFork.t.sol,diamond/fork/CcipCarryUpgradeRehearsalFork.t.sol,diamond/fork/CcipLaneDiscoveryFork.t.sol,diamond/fork/CcipRobinhoodBridgeFork.t.sol,diamond/fork/CcipUsdgPeeringRehearsalFork.t.sol,diamond/fork/CohortBridgeAttributionMatrixFork.t.sol,diamond/fork/CohortBridgeAttributionMatrixForkRollout.t.sol,diamond/fork/CohortBridgeAttributionMatrixForkStates.t.sol,diamond/fork/CohortFlushUpgradeFork.t.sol,diamond/fork/DiamondLiveUsageFork.t.sol,diamond/fork/ReferralBotOpsFork.t.sol,diamond/fork/ReferralHubClaimFork.t.sol,diamond/fork/ReferralPreflightFork.t.sol,diamond/fork/ReferralRegistryUpgradeFork.t.sol,diamond/fork/SovrenReferralFork.t.sol,diamond/fork/UniswapV4FlashLoanFork.t.sol,diamond/fork/WiseBurnFork.t.sol,diamond/fork/WiseTelecomNodesPermitFork.t.sol,migration/DiamondMigrationForkE2E.t.sol,migration/PostDeployMigrationFork.t.sol}"
 
 # full: additionally replays the live Ethereum + Arbitrum vaults and re-verifies the
 # v2 to v3 migration against real chain state at a pinned pre-migration block
@@ -123,18 +123,17 @@ forge test --match-path "test/diamond/fork/ReferralRegistryUpgradeFork.t.sol" --
 # plus the mainnet cross-vault half: ONE registry serving the usdc + usdt diamonds
 forge test --match-path "test/diamond/fork/ReferralRegistryUpgradeFork.t.sol" --match-contract ReferralRegistryCrossVaultMainnetFork
 
-# payout rehearsal: replays the referral-payout round (three selector batches + the
-# slot-80 hub pointer clock + a real-USD claim through the live vault's pool) on a
-# mainnet fork, plus the default-off half on a base fork, the registry latch phase
-# mirrored on both forks (inside the hub pointer clock on the payout vault), the registry master
-# handoff on both forks, the payout route wiring of the registry deploy script on the base fork,
-# and the payout selector routing the hub wiring script requires
-forge test --match-path "test/diamond/fork/ReferralPayoutUpgradeFork.t.sol"
+# claim rehearsal: the hub as its own payout pot (funded by a plain transfer, a real-USD
+# claim paid out of the hub) on a mainnet fork, the retired vault rail never routed on both
+# forks, the registry latch phase mirrored on both forks, the registry master handoff on
+# both forks, and the payout route wiring of the registry deploy script on the base fork
+forge test --match-path "test/diamond/fork/ReferralHubClaimFork.t.sol"
 
 # flush-transport rehearsal: installs the full flush round on a live spoke fork and the
-# payout rail + hub on a mainnet fork, then proves the whole pipeline over the real CCIP
-# lane — deposit, flush envelope, mailbox commit, lazy apply, liability booking and a
-# real-USD claim — per spoke lane, plus a three-fork mesh proof that the CREATE3
+# hub (its own payout pot, funded by a plain transfer) on a mainnet fork, then proves the
+# whole pipeline over the real CCIP lane — deposit, flush envelope, mailbox commit, lazy
+# apply, the owed amount and a real-USD claim out of the pot — per spoke lane, plus a
+# three-fork mesh proof that the CREATE3
 # same-address vaults stay keyed apart per source chain
 forge test --match-path "test/diamond/fork/CohortFlushUpgradeFork.t.sol" --match-contract CohortFlushUsdcBaseMainnetFork
 
