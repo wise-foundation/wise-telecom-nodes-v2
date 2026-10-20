@@ -268,7 +268,7 @@ contract CohortDisarmHarness is CohortRecorderBase {
  * after the re-arm (the last second of that week still parks, the
  * week's end crosses the span); and the self crumb, last settled before
  * the re-arm, accrues no presence from the disarm to the settle whatever
- * the held balance (owner card (j): a transfer in does not settle the
+ * the held balance (a transfer in does not settle the
  * recipient, so the balance after the re-arm is unknown; a later settle
  * that does not cross the span keeps the ledger value), a target inside
  * the span stopping at the target and a target before the disarm
