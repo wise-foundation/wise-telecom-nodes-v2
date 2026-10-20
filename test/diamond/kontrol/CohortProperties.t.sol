@@ -9,9 +9,7 @@ import {CohortWeeks} from "../../../src/diamond/shared/pending/CohortWeeks.sol";
 import {ReferralRegistry} from "../../../src/registry/pending/ReferralRegistry.sol";
 
 /**
- * @dev REFB property family: the dual-engine extension of the fenwick
- * sandbox's PROVEN REFS clamp-monotonicity family
- * (`test/fenwick/ReferralSyncProperties.t.sol`, 7/7 Kontrol proofs) to
+ * @dev REFB property family: clamp-monotonicity properties for
  * the production PACKED book mirror: uint64 ring lanes, the three-lane
  * book word, and the saturating arithmetic of {CohortWeeks}. Each
  * `testFuzz_*` is written to run under both engines: fuzzed by
