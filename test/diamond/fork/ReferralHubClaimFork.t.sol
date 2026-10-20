@@ -4,9 +4,6 @@ pragma solidity =0.8.36;
 
 import {Test} from "forge-std/Test.sol";
 
-import {AdminFacet} from "../../../src/diamond/vault/facets/AdminFacet.sol";
-import {SweepFacet} from "../../../src/diamond/vault/facets/SweepFacet.sol";
-import {ReferralPayoutFacet} from "../../../src/diamond/vault/facets/pending/ReferralPayoutFacet.sol";
 import {IReferralHub} from "../../../src/hub/pending/IReferralHub.sol";
 import {HubLeverGrants} from "../../hub/utils/HubLeverGrants.sol";
 import {HubDiamondHarness} from "../../hub/utils/HubDiamondHarness.sol";
@@ -15,14 +12,12 @@ import {ReferralRegistryDeclarations} from "../../../src/registry/pending/Referr
 
 import {FacetNotFound} from "../../../src/diamond/shared/DiamondErrors.sol";
 import {NotMaster} from "../../../src/diamond/shared/OwnableMaster.sol";
-import {WiseTelecomNodesDiamondErrors} from "../../../src/diamond/vault/WiseTelecomNodesDiamondErrors.sol";
 
 import {CohortWeeks} from "../../../src/diamond/shared/pending/CohortWeeks.sol";
 
-import {WiseTelecomNodesDiamondSelectors} from "../../../script/diamond/WiseTelecomNodesDiamondSelectors.sol";
 import {DeployReferralRegistry} from "../../../script/registry/DeployReferralRegistry.s.sol";
 
-interface IWtnPayoutVault {
+interface IWtnClaimVault {
 
     function master()
         external
@@ -34,69 +29,6 @@ interface IWtnPayoutVault {
         view
         returns (address);
 
-    function selectorToFacet(
-        bytes4 selector
-    )
-        external
-        view
-        returns (address);
-
-    function proposeSelectors(
-        bytes4[] memory selectors,
-        address facet
-    )
-        external;
-
-    function executeSelectorChanges(
-        bytes4[] memory selectors
-    )
-        external;
-
-    function proposePayoutHub(
-        address hub
-    )
-        external;
-
-    function executePayoutHubChange()
-        external;
-
-    function cancelPayoutHubChange()
-        external;
-
-    function getPayoutHub()
-        external
-        view
-        returns (address);
-
-    function getProposedPayoutHub()
-        external
-        view
-        returns (address);
-
-    function getPayoutHubChangeQueuedAt()
-        external
-        view
-        returns (uint256);
-
-    function getPendingReferralPayout()
-        external
-        view
-        returns (uint256);
-
-    function raisePendingReferralPayout(
-        uint256 amount
-    )
-        external;
-
-    function fundReferralPayout(
-        uint256 amount
-    )
-        external;
-
-    function getOverhang()
-        external
-        view
-        returns (uint256);
 }
 
 interface IUsdErc20 {
@@ -121,7 +53,7 @@ interface IUsdErc20 {
  * variable or a config file. The script's broadcast runs inside the
  * harness, so every registry call it makes comes from the test key.
  */
-contract PayoutForkRouteScriptHarness is DeployReferralRegistry, HubDiamondHarness {
+contract ClaimForkRouteScriptHarness is DeployReferralRegistry, HubDiamondHarness {
 
     function wirePayoutRouteOn(
         ReferralRegistry _registry,
@@ -141,33 +73,22 @@ contract PayoutForkRouteScriptHarness is DeployReferralRegistry, HubDiamondHarne
 }
 
 /**
- * @dev Rehearses the {UpgradeReferralPayout} rollout against a LIVE,
- * already-finalized diamond on a fork of a production chain. The
- * LIVE diamond entry contract is never redeployed: the round deploys
- * NEW facets (AdminFacet with the payout-hub pointer six, SweepFacet
- * with the liability buffer term, ReferralPayoutFacet with the
- * hub-gated writers), routes the three selector batches through the
- * real 3-day timelock, and (on the payout vault only) wires the
- * slot-80 pointer through the second real 3-day clock. Proves, per
- * chain:
- *   1. the live dispatcher does NOT know the payout surfaces and
- *      slots 76 and 80-82 are raw-zero on the real bytecode;
- *   2. the exact selector manifest the upgrade script broadcasts
- *      works under the real master and the real timelock;
- *   3. the intermediate states are default-off: after the selector
- *      round both writers revert {NotPayoutHub} while the pointer is
- *      unset, and the redeployed SweepFacet's overhang equals the
- *      pre-upgrade reading exactly (the buffer term is `+ 0`);
- *   4. payout vault only, the second clock: the pointer proposal
- *      through the freshly-routed trio, its premature-execute
- *      revert, execute with the real USD-token shape probe, then the
- *      full rail end-to-end: a standalone {ReferralHub} deployed
- *      on-fork against the vault's REAL underlying, crumb pricing at
- *      the week's own tier, liability booked into slot 76, and a claim
- *      that pulls real USD out of the live vault's pool and pays the
- *      referrer, leaving liability, claimable and balances exactly
- *      conserved;
- *   5. the seed latch phase of {DeployReferralRegistry}, the one
+ * @dev Rehearses the hub claim rail and the registry phases against a
+ * LIVE, already-finalized diamond on a fork of a production chain. The
+ * hub is its own payout pot (the vault side of the payout rail was
+ * removed before it shipped), so nothing is installed on the diamond
+ * here. Proves, per chain:
+ *   1. the retired rail is not routed and never was: the live
+ *      dispatcher does not know `getPendingReferralPayout` or
+ *      `getPayoutHub`, and slots 76 and 80 to 82 are raw-zero on the
+ *      real bytecode;
+ *   2. hub chain only, the claim rail end to end: a standalone
+ *      {ReferralHub} deployed on-fork against the vault's REAL
+ *      underlying and funded by a plain transfer, crumb pricing at the
+ *      week's own tier, the owed amount `totalPayable - totalClaimed`,
+ *      and a claim that pays the referrer real USD out of the hub's
+ *      pot, leaving claimable, totals and balances exactly conserved;
+ *   3. the seed latch phase of {DeployReferralRegistry}, the one
  *      script phase with no rehearsal elsewhere: the real registry
  *      bytecode is deployed on-fork under the live master and
  *      latched exactly as the script does (`latchSeeds`), proving
@@ -177,18 +98,8 @@ contract PayoutForkRouteScriptHarness is DeployReferralRegistry, HubDiamondHarne
  *      correction lane stays open afterwards: under the live master
  *      a vault is allowlisted, a referrer is assigned through it, a
  *      correction is proposed (and then cancelled so no proposal is
- *      left standing) and `correctionsLatched` is still false. On
- *      the payout vault the seed latch runs inside the pointer
- *      clock, before the hub pointer executes, in the order the
- *      rollout requires: every registry fires its seed latch before
- *      payouts arm at the hub;
- *   6. the payout selector preflight of {DeployReferralHub}'s `wire()`:
- *      all three payout selectors route to no facet before the
- *      selector round and to a facet after it, which is exactly what
- *      the preflight reads through `selectorToFacet` before it lets
- *      `setPayoutVault` run, checked on both lanes and again on the
- *      payout vault right before the hub wires it;
- *   7. spoke lanes only, the decision logic of {DeployReferralRegistry}'s
+ *      left standing) and `correctionsLatched` is still false;
+ *   4. spoke lanes only, the decision logic of {DeployReferralRegistry}'s
  *      `wirePayoutRoute()`, driven through a harness that inherits the
  *      script with the registry, the hub, the chain selector and a
  *      test key passed in, so the case sets no PRIVATE_KEY and writes
@@ -202,7 +113,7 @@ contract PayoutForkRouteScriptHarness is DeployReferralRegistry, HubDiamondHarne
  *      that window neither executes nor proposes again); once wired,
  *      a stray proposal is cancelled, and a re-run with nothing
  *      queued returns without a cancel;
- *   8. the registry master handoff: the deploy key, which is the live
+ *   5. the registry master handoff: the deploy key, which is the live
  *      master, fires the seed latch (the last scripted registry master
  *      operation) and proposes a Safe stand-in, the Safe claims, the
  *      deploy key is refused afterwards and the Safe operates the
@@ -211,9 +122,7 @@ contract PayoutForkRouteScriptHarness is DeployReferralRegistry, HubDiamondHarne
  * .json before forking so it can never drift to a wrong or stale
  * address.
  */
-abstract contract ReferralPayoutUpgradeForkBase is Test, HubDiamondHarness {
-
-    uint256 internal constant SELECTOR_DELAY = 3 days;
+abstract contract ReferralHubClaimForkBase is Test, HubDiamondHarness {
 
     uint256 internal constant PAYOUT_HUB_DELAY = 3 days;
 
@@ -230,11 +139,11 @@ abstract contract ReferralPayoutUpgradeForkBase is Test, HubDiamondHarness {
         string rpc;
         string product;
         string network;
-        bool payoutVault;
+        bool hubChain;
         uint256 chainRank;
     }
 
-    IWtnPayoutVault internal v;
+    IWtnClaimVault internal v;
     address internal usd;
     address internal master;
     uint256 internal one;
@@ -275,7 +184,7 @@ abstract contract ReferralPayoutUpgradeForkBase is Test, HubDiamondHarness {
             "diamond not deployed on this fork"
         );
 
-        v = IWtnPayoutVault(
+        v = IWtnClaimVault(
             diamond
         );
 
@@ -286,7 +195,7 @@ abstract contract ReferralPayoutUpgradeForkBase is Test, HubDiamondHarness {
         one = 10 ** IUsdErc20(usd).decimals();
 
         refA = makeAddr(
-            "payoutForkRefA"
+            "claimForkRefA"
         );
     }
 
@@ -329,75 +238,6 @@ abstract contract ReferralPayoutUpgradeForkBase is Test, HubDiamondHarness {
                 _slot
             )
         );
-    }
-
-    function _assertPayoutSelectorsRouted(
-        bool _routed
-    )
-        internal
-        view
-    {
-        bytes4[] memory sels = WiseTelecomNodesDiamondSelectors._referralPayoutSelectors();
-
-        for (uint256 i; i < sels.length; ++i) {
-
-            assertEq(
-                v.selectorToFacet(sels[i]) != address(0),
-                _routed,
-                "payout selector routing differs from what the hub wire() preflight expects"
-            );
-        }
-    }
-
-    function _executeSelectorRound()
-        internal
-    {
-        address adminFacet = address(new AdminFacet());
-        address sweepFacet = address(new SweepFacet());
-        address referralPayoutFacet = address(new ReferralPayoutFacet());
-
-        vm.startPrank(
-            master
-        );
-
-        v.proposeSelectors(
-            WiseTelecomNodesDiamondSelectors._adminSelectors(),
-            adminFacet
-        );
-
-        v.proposeSelectors(
-            WiseTelecomNodesDiamondSelectors._sweepSelectors(),
-            sweepFacet
-        );
-
-        v.proposeSelectors(
-            WiseTelecomNodesDiamondSelectors._referralPayoutSelectors(),
-            referralPayoutFacet
-        );
-
-        vm.stopPrank();
-
-        vm.warp(
-            block.timestamp + SELECTOR_DELAY + 1
-        );
-
-        vm.startPrank(
-            master
-        );
-
-        v.executeSelectorChanges(
-            WiseTelecomNodesDiamondSelectors._adminSelectors()
-        );
-
-        v.executeSelectorChanges(
-            WiseTelecomNodesDiamondSelectors._sweepSelectors()
-        );
-
-        v.executeSelectorChanges(
-            WiseTelecomNodesDiamondSelectors._referralPayoutSelectors()
-        );
-
-        vm.stopPrank();
     }
 
     function _deployRegistry()
@@ -533,18 +373,18 @@ abstract contract ReferralPayoutUpgradeForkBase is Test, HubDiamondHarness {
 
     // ---- rehearsal ----
 
-    function test_payoutUpgrade_selectorRound_defaultOffEverywhere()
+    function test_claimFork_retiredRailNeverRouted()
         public
     {
         _assertSelectorUnknown(
-            abi.encodeWithSelector(
-                IWtnPayoutVault.getPendingReferralPayout.selector
+            abi.encodeWithSignature(
+                "getPendingReferralPayout()"
             )
         );
 
         _assertSelectorUnknown(
-            abi.encodeWithSelector(
-                IWtnPayoutVault.getPayoutHub.selector
+            abi.encodeWithSignature(
+                "getPayoutHub()"
             )
         );
 
@@ -579,55 +419,9 @@ abstract contract ReferralPayoutUpgradeForkBase is Test, HubDiamondHarness {
             bytes32(0),
             "slot 82 not virgin on the live diamond"
         );
-
-        _assertPayoutSelectorsRouted(
-            false
-        );
-
-        uint256 overhangBefore = v.getOverhang();
-
-        _executeSelectorRound();
-
-        _assertPayoutSelectorsRouted(
-            true
-        );
-
-        assertEq(
-            v.getPendingReferralPayout(),
-            0,
-            "pending payout must read zero on virgin storage"
-        );
-
-        assertEq(
-            v.getPayoutHub(),
-            address(0),
-            "hub pointer must read zero on virgin storage"
-        );
-
-        assertEq(
-            v.getOverhang(),
-            overhangBefore,
-            "overhang must be unchanged while the liability term is zero"
-        );
-
-        vm.expectRevert(
-            WiseTelecomNodesDiamondErrors.NotPayoutHub.selector
-        );
-
-        v.raisePendingReferralPayout(
-            one
-        );
-
-        vm.expectRevert(
-            WiseTelecomNodesDiamondErrors.NotPayoutHub.selector
-        );
-
-        v.fundReferralPayout(
-            one
-        );
     }
 
-    function test_payoutUpgrade_latchPhase_registrySeedLatchUnderMaster()
+    function test_claimFork_latchPhase_registrySeedLatchUnderMaster()
         public
     {
         _latchRegistry(
@@ -635,12 +429,12 @@ abstract contract ReferralPayoutUpgradeForkBase is Test, HubDiamondHarness {
         );
     }
 
-    function test_payoutUpgrade_pointerAndClaimEndToEnd()
+    function test_claimFork_potClaimEndToEnd()
         public
     {
         Cfg memory cfg = _config();
 
-        if (cfg.payoutVault == false) {
+        if (cfg.hubChain == false) {
 
             vm.skip(
                 true
@@ -649,63 +443,8 @@ abstract contract ReferralPayoutUpgradeForkBase is Test, HubDiamondHarness {
             return;
         }
 
-        _executeSelectorRound();
-
         IReferralHub hub = _deployHub(
             usd
-        );
-
-        vm.prank(
-            master
-        );
-
-        v.proposePayoutHub(
-            address(hub)
-        );
-
-        vm.prank(
-            master
-        );
-
-        vm.expectRevert(
-            WiseTelecomNodesDiamondErrors.PayoutHubTimelockNotElapsed.selector
-        );
-
-        v.executePayoutHubChange();
-
-        ReferralRegistry registry = _deployRegistry();
-
-        _latchRegistry(
-            registry
-        );
-
-        vm.warp(
-            block.timestamp + PAYOUT_HUB_DELAY + 1
-        );
-
-        assertTrue(
-            registry.seedsLatched(),
-            "the seed latch must be set before the hub pointer executes"
-        );
-
-        vm.prank(
-            master
-        );
-
-        v.executePayoutHubChange();
-
-        assertEq(
-            v.getPayoutHub(),
-            address(hub),
-            "hub pointer not wired"
-        );
-
-        _assertPayoutSelectorsRouted(
-            true
-        );
-
-        hub.setPayoutVault(
-            address(v)
         );
 
         HubLeverGrants._grant(
@@ -717,6 +456,12 @@ abstract contract ReferralPayoutUpgradeForkBase is Test, HubDiamondHarness {
                     true
                 )
             )
+        );
+
+        deal(
+            usd,
+            address(hub),
+            10 * one
         );
 
         uint256 reportWeek = block.timestamp / CohortWeeks.WEEK;
@@ -747,10 +492,6 @@ abstract contract ReferralPayoutUpgradeForkBase is Test, HubDiamondHarness {
             refA
         );
 
-        uint256 vaultUsdBefore = IUsdErc20(usd).balanceOf(
-            address(v)
-        );
-
         hub.deliverCrumbs(
             refA,
             refA,
@@ -768,9 +509,9 @@ abstract contract ReferralPayoutUpgradeForkBase is Test, HubDiamondHarness {
         );
 
         assertEq(
-            v.getPendingReferralPayout(),
+            hub.totalPayable() - hub.totalClaimed(),
             one,
-            "delivery must book the accrued liability on the vault"
+            "the pot must owe exactly the accrued unit"
         );
 
         vm.prank(
@@ -792,16 +533,10 @@ abstract contract ReferralPayoutUpgradeForkBase is Test, HubDiamondHarness {
 
         assertEq(
             IUsdErc20(usd).balanceOf(
-                address(v)
+                address(hub)
             ),
-            vaultUsdBefore - one,
-            "funding must come out of the live vault's USD pool"
-        );
-
-        assertEq(
-            v.getPendingReferralPayout(),
-            0,
-            "funding must lower the booked liability to zero"
+            9 * one,
+            "the claim must come out of the hub's pot"
         );
 
         assertEq(
@@ -820,7 +555,7 @@ abstract contract ReferralPayoutUpgradeForkBase is Test, HubDiamondHarness {
         );
     }
 
-    function test_payoutUpgrade_wirePayoutRoute_strayProposalNeverExecutes()
+    function test_claimFork_wirePayoutRoute_strayProposalNeverExecutes()
         public
     {
         Cfg memory cfg = _config();
@@ -838,19 +573,19 @@ abstract contract ReferralPayoutUpgradeForkBase is Test, HubDiamondHarness {
             address operator,
             uint256 operatorKey
         ) = makeAddrAndKey(
-            "payoutForkRouteOperator"
+            "claimForkRouteOperator"
         );
 
         address hubA = makeAddr(
-            "payoutForkRouteHubA"
+            "claimForkRouteHubA"
         );
 
         address hubB = makeAddr(
-            "payoutForkRouteHubB"
+            "claimForkRouteHubB"
         );
 
         address strayHub = makeAddr(
-            "payoutForkRouteStrayHub"
+            "claimForkRouteStrayHub"
         );
 
         uint64 mainnetSelector = uint64(
@@ -880,7 +615,7 @@ abstract contract ReferralPayoutUpgradeForkBase is Test, HubDiamondHarness {
             cfg.chainRank
         );
 
-        PayoutForkRouteScriptHarness routeScript = new PayoutForkRouteScriptHarness();
+        ClaimForkRouteScriptHarness routeScript = new ClaimForkRouteScriptHarness();
 
         vm.prank(
             operator
@@ -1082,13 +817,13 @@ abstract contract ReferralPayoutUpgradeForkBase is Test, HubDiamondHarness {
         );
     }
 
-    function test_payoutUpgrade_registryMasterHandoff_safeTakesOverAfterLatch()
+    function test_claimFork_registryMasterHandoff_safeTakesOverAfterLatch()
         public
     {
         ReferralRegistry registry = _deployRegistry();
 
         address safe = makeAddr(
-            "payoutForkRegistrySafe"
+            "claimForkRegistrySafe"
         );
 
         vm.prank(
@@ -1160,7 +895,7 @@ abstract contract ReferralPayoutUpgradeForkBase is Test, HubDiamondHarness {
     }
 }
 
-contract ReferralPayoutUpgradeUsdcMainnetFork is ReferralPayoutUpgradeForkBase {
+contract ReferralHubClaimUsdcMainnetFork is ReferralHubClaimForkBase {
 
     function _config()
         internal
@@ -1172,13 +907,13 @@ contract ReferralPayoutUpgradeUsdcMainnetFork is ReferralPayoutUpgradeForkBase {
             rpc: "mainnet",
             product: "usdc",
             network: "mainnet",
-            payoutVault: true,
+            hubChain: true,
             chainRank: 0
         });
     }
 }
 
-contract ReferralPayoutUpgradeUsdtBaseFork is ReferralPayoutUpgradeForkBase {
+contract ReferralHubClaimUsdtBaseFork is ReferralHubClaimForkBase {
 
     function _config()
         internal
@@ -1190,7 +925,7 @@ contract ReferralPayoutUpgradeUsdtBaseFork is ReferralPayoutUpgradeForkBase {
             rpc: "base",
             product: "usdt",
             network: "base",
-            payoutVault: false,
+            hubChain: false,
             chainRank: 1
         });
     }
