@@ -14,7 +14,6 @@ import {CcipV2Shapes, ICcipOnRampV2Events} from "./utils/CcipV2Shapes.sol";
 
 import {AdminFacet} from "../../../src/diamond/vault/facets/AdminFacet.sol";
 import {UserFacet} from "../../../src/diamond/vault/facets/UserFacet.sol";
-import {SweepFacet} from "../../../src/diamond/vault/facets/SweepFacet.sol";
 import {Permit2UserFacet} from "../../../src/diamond/vault/facets/Permit2UserFacet.sol";
 import {MoveFacet} from "../../../src/diamond/vault/facets/MoveFacet.sol";
 import {BridgeFacet} from "../../../src/diamond/vault/facets/BridgeFacet.sol";
@@ -28,7 +27,6 @@ import {CohortHookFacet} from "../../../src/diamond/vault/facets/pending/CohortH
 import {CohortMoveHookFacet} from "../../../src/diamond/vault/facets/pending/CohortMoveHookFacet.sol";
 import {CohortFlushFacet} from "../../../src/diamond/vault/facets/pending/CohortFlushFacet.sol";
 import {CohortFlushPolicyFacet} from "../../../src/diamond/vault/facets/pending/CohortFlushPolicyFacet.sol";
-import {ReferralPayoutFacet} from "../../../src/diamond/vault/facets/pending/ReferralPayoutFacet.sol";
 import {ReferralRegistry} from "../../../src/registry/pending/ReferralRegistry.sol";
 import {IReferralHub} from "../../../src/hub/pending/IReferralHub.sol";
 import {HubLeverGrants} from "../../hub/utils/HubLeverGrants.sol";
@@ -210,14 +208,6 @@ interface IWtnFlushVault {
             uint256
         );
 
-    function proposePayoutHub(
-        address hub
-    )
-        external;
-
-    function executePayoutHubChange()
-        external;
-
     function master()
         external
         view
@@ -288,15 +278,16 @@ contract FlushPayloadCapture {
  * @dev Full-stack cross-chain flush-transport rehearsal: installs the
  * complete recorder-plus-registry-plus-flush upgrade on a LIVE spoke
  * diamond forked from a production chain, deploys the REAL standalone
- * {ReferralHub} on a mainnet fork against the payout vault's real
- * underlying, installs the payout rail on the LIVE usdc mainnet
- * diamond, and then proves the whole referral money pipeline on real
- * bytecode, real routers and the real per-message gas budget:
+ * {ReferralHub} on a mainnet fork against the usdc mainnet vault's real
+ * underlying, funds its pot by a plain transfer (the hub is its own
+ * payout pot; no vault side rail), and then proves the whole referral
+ * money pipeline on real bytecode, real routers and the real
+ * per-message gas budget:
  * a referred deposit on the spoke, its book flushed over the wire,
  * the envelope committed into the hub mailbox, lazily applied under
  * the hashed remote source key, priced into a per-source-chain
- * claimable bucket, booked as liability on the live payout vault,
- * and claimed as REAL USD pulled out of that vault's pool.
+ * claimable bucket, owed by the pot (`totalPayable - totalClaimed`),
+ * and claimed as REAL USD paid out of the hub's pot.
  *
  * The spoke install ladder mirrors the flush upgrade rollout against
  * the live dispatcher: the carry-stack groups plus the cohortFlush
@@ -351,6 +342,8 @@ abstract contract CohortFlushUpgradeForkBase is CcipForkHarness, HubDiamondHarne
     address internal payoutDiamond;
 
     address internal payoutUsd;
+
+    uint256 internal constant POT_FUNDING = 1_000_000 * 1e6;
 
     address internal user;
 
@@ -1713,83 +1706,14 @@ abstract contract CohortFlushUpgradeForkBase is CcipForkHarness, HubDiamondHarne
 
         payoutUsd = payoutVault.USD_TOKEN();
 
-        address m = payoutVault.master();
-
-        uint256 startTime = block.timestamp;
-
-        _proposeGroup(
-            payoutVault,
-            m,
-            WiseTelecomNodesDiamondSelectors._adminSelectors(),
-            address(new AdminFacet())
-        );
-        _proposeGroup(
-            payoutVault,
-            m,
-            WiseTelecomNodesDiamondSelectors._sweepSelectors(),
-            address(new SweepFacet())
-        );
-        _proposeGroup(
-            payoutVault,
-            m,
-            WiseTelecomNodesDiamondSelectors._referralPayoutSelectors(),
-            address(new ReferralPayoutFacet())
-        );
-
-        vm.warp(
-            startTime + 3 days + 1
-        );
-
-        _executeGroup(
-            payoutVault,
-            m,
-            WiseTelecomNodesDiamondSelectors._adminSelectors()
-        );
-        _executeGroup(
-            payoutVault,
-            m,
-            WiseTelecomNodesDiamondSelectors._sweepSelectors()
-        );
-        _executeGroup(
-            payoutVault,
-            m,
-            WiseTelecomNodesDiamondSelectors._referralPayoutSelectors()
-        );
-
-        vm.warp(
-            startTime + 2
-        );
-
         hub = _deployHub(
             payoutUsd
         );
 
-        uint256 pointerTime = block.timestamp;
-
-        vm.prank(
-            m
-        );
-
-        payoutVault.proposePayoutHub(
-            address(hub)
-        );
-
-        vm.warp(
-            pointerTime + 3 days + 1
-        );
-
-        vm.prank(
-            m
-        );
-
-        payoutVault.executePayoutHubChange();
-
-        vm.warp(
-            pointerTime + 2
-        );
-
-        hub.setPayoutVault(
-            payoutDiamond
+        deal(
+            payoutUsd,
+            address(hub),
+            POT_FUNDING
         );
 
         HubLeverGrants._grant(
@@ -2095,14 +2019,8 @@ abstract contract CohortFlushUpgradeForkE2E is CohortFlushUpgradeForkBase {
             "the mature rate must stay closed below the genesis cap"
         );
 
-        assertEq(
-            ReferralPayoutFacet(payoutDiamond).getPendingReferralPayout(),
-            entitled,
-            "the priced money must be booked as liability on the live payout vault"
-        );
-
-        uint256 poolBefore = IUsdBalance(payoutUsd).balanceOf(
-            payoutDiamond
+        uint256 potBefore = IUsdBalance(payoutUsd).balanceOf(
+            address(hub)
         );
 
         assertTrue(
@@ -2129,16 +2047,10 @@ abstract contract CohortFlushUpgradeForkE2E is CohortFlushUpgradeForkBase {
 
         assertEq(
             IUsdBalance(payoutUsd).balanceOf(
-                payoutDiamond
+                address(hub)
             ),
-            poolBefore - entitled,
-            "funding must come out of the live vault's USD pool"
-        );
-
-        assertEq(
-            ReferralPayoutFacet(payoutDiamond).getPendingReferralPayout(),
-            0,
-            "funding must lower the booked liability to zero"
+            potBefore - entitled,
+            "the claim must come out of the hub's pot"
         );
 
         uint256 accruedBefore = hub.totalAccrued();
