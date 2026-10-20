@@ -13,6 +13,9 @@ coverage/
 # Dotenv file
 .env
 
+# Editor config
+.vscode/
+
 # Node / TS tooling
 node_modules/
 tools/node_modules/
