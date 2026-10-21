@@ -786,6 +786,86 @@ contract ReferralRegistryCorrectionTest is Test {
         );
     }
 
+    function test_executeCorrectReferrer_mutualDissolveDropsPendingProposal()
+        public
+    {
+        registry.proposeCorrectReferrer(
+            user1,
+            refB
+        );
+
+        _assign(
+            user1,
+            refA
+        );
+
+        vm.warp(
+            block.timestamp + CORRECTION_DELAY
+        );
+
+        vm.expectRevert(
+            ReferralRegistryDeclarations.NothingToCorrect.selector
+        );
+
+        registry.executeCorrectReferrer(
+            user1
+        );
+
+        vm.expectEmit(
+            true,
+            true,
+            true,
+            true,
+            address(registry)
+        );
+
+        emit ReferralCorrectionCancelled(
+            user1,
+            refB,
+            address(registry)
+        );
+
+        vm.prank(
+            vaultA
+        );
+
+        registry.mergeReferrer(
+            refA,
+            user1,
+            BASE_TIME - 1 days,
+            1
+        );
+
+        assertEq(
+            registry.referrerKey(
+                user1
+            ),
+            0
+        );
+
+        assertEq(
+            registry.correctionQueuedAt(
+                user1
+            ),
+            0
+        );
+
+        vm.expectRevert(
+            ReferralRegistryDeclarations.NoCorrectionProposed.selector
+        );
+
+        registry.executeCorrectReferrer(
+            user1
+        );
+
+        assertEq(
+            registry.referrerOf(
+                user1
+            ),
+            address(0)
+        );
+    }
+
     function test_RevertWhen_proposeCorrectReferrer_ringThroughCorrectionLane()
         public
     {
