@@ -8,7 +8,7 @@ This chapter is for front end and integration developers. The first part lists t
 
 ## Part One: The Vault UI Integration Guides
 
-Ten guides cover the vault surface as it is live today. Each is one markdown file with worked web3.js examples, preconditions, error handling, events and gotchas, and the live addresses; nine are published as gists and the tenth is written and awaits its link. The vault products are the World Mobile vaults `usdc` (mainnet, Base, Arbitrum), `usdt` (mainnet, Base, Arbitrum) and `usdg` (mainnet, Arbitrum, Robinhood), and the Sovren vault `wsnusdc` on mainnet; every vault has the same address on every chain it runs on and everything is six decimals.
+Ten guides cover the vault surface as it is live today. Each is one markdown file with worked web3.js examples, preconditions, error handling, events and gotchas, and the live addresses; nine are published as gists and the tenth ships as a gist with the next batch. The vault products are the World Mobile vaults `usdc` (mainnet, Base, Arbitrum), `usdt` (mainnet, Base, Arbitrum) and `usdg` (mainnet, Arbitrum, Robinhood), and the Sovren vault `wsnusdc` on mainnet; every vault has the same address on every chain it runs on and everything is six decimals.
 
 ### Permit2 Deposits
 
@@ -86,9 +86,7 @@ Link: [Grace Period Countdown, UI Integration Guide](https://gist.github.com/von
 
 **Covers:** `MulticallFacet` (`multicall`) chaining `leaveQue` and `moveBetweenVaults`, with `getAllOrdersfromAddressWithId` and `getMoveableBalance`.
 
-Your front end lets a user with an active queue order pull it and relocate the freed shares to the same chain peer vault atomically. For referral credit this is a leave followed by a move: the leave restores nothing and the move carries whatever credit the shares still hold.
-
-Link: (to be added by the owner)
+Your front end lets a user with an active queue order pull it and relocate the freed shares to the same chain peer vault atomically. For referral credit this is a leave followed by a move: the leave restores nothing and the move carries whatever credit the shares still hold. This guide ships as a gist with the next batch.
 
 ## Part Two: Referral UI Integration Guide
 
@@ -393,5 +391,3 @@ The tables list every event with its indexed fields marked and what a dashboard 
 ### Conclusion
 
 Pass the referrer address into the deposit, read the registry for the user's referrer, read the reader for the referrer's standing and claimables, and offer the flush, designation, claim and veto buttons on the chain each call belongs to. The reference tables give you every view and every event with its signature, so a dashboard and an indexer can show the whole picture without guessing at anything.
-
-Link: (to be added by the owner)
