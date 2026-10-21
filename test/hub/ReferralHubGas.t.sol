@@ -68,24 +68,28 @@ import {CohortWeeks} from "../../src/diamond/shared/pending/CohortWeeks.sol";
  *    16,777,216 with margin.
  *
  * Measured numbers, re-measured after ANY change to the hub sources:
- * reportSelf first touch (cell 1) 192,910; settleWeeks of one week over
- * eight sources (cell 2) 182,006; deliverCrumbs single week and word
- * (cell 3) 272,477; deliverGap marginal per week (cell 4) 83,223 (windows
- * of 10 and 60 weeks 1,008,965 and 5,170,138); ccipReceive max envelope
- * (cell 5) 143,243; ccipReceive first designation push (cell 6) 93,832;
- * applyFlush max work cold (cell 7) 12,227,125 (a self run re-settles its
- * own source cell inline). With inline top-ups of every source (as
- * first built) cell 7 measured 23,897,114,
- * over the transaction cap, which is why the re-settle is lazy.
- * Bound cells: settleWeeks of 104 weeks over ten listed sources (cell 8,
- * the nine vaults plus one more system) 7,068,901; applyFlush with the
- * whole work as gap weeks (cell 9, sixteen ten-week gap records at the
- * mature cap average, courier set, the heaviest unit) 14,011,883 under the
- * 14,100,000 ceiling (13,874,274 before the elevation whitelist, whose
- * window read costs one warm SLOAD per priced week); the local
- * deliverCrumbs and deliverGap of 104
- * weeks (cell 10) 9,113,501 and 8,233,174, above anything a vault sends
- * locally (its local work budget is 96 units).
+ * reportSelf first touch (cell 1) 193,569; settleWeeks of one week over
+ * eight sources (cell 2) 182,148; deliverCrumbs single week and word
+ * (cell 3) 273,136; deliverGap marginal per week (cell 4) 84,033 (windows
+ * of 10 and 60 weeks 1,016,914 and 5,218,587); ccipReceive max envelope
+ * (cell 5) 143,243; ccipReceive first designation push (cell 6) 91,681;
+ * applyFlush max work cold (cell 7) 13,925,447 (a self run re-settles its
+ * own source cell inline; 12,227,125 before the elevation whitelist, and
+ * every priced referrer of cells 7, 9 and 10 now holds the eight closed
+ * windows the history admits at most, so each priced week scans the
+ * full history, cold once per referrer and warm on every later read).
+ * With inline top-ups of every source (as first built) cell 7 measured
+ * 23,897,114, over the transaction cap, which is why the re-settle is
+ * lazy. Bound cells: settleWeeks of 104 weeks over ten listed sources
+ * (cell 8, the nine vaults plus one more system) 7,096,956; applyFlush
+ * with the whole work as gap weeks (cell 9, sixteen ten-week gap records
+ * at the mature cap average, courier set, the heaviest unit) 15,574,489
+ * under the 15,700,000 ceiling (14,003,723 with empty histories,
+ * 13,874,274 before the elevation whitelist), 1,202,727 under the
+ * transaction cap; the local deliverCrumbs and deliverGap of 104 weeks
+ * (cell 10) 10,218,499 and 9,338,127 under the 10,300,000 ceiling
+ * (9,197,592 and 8,317,263 with empty histories), above anything a vault
+ * sends locally (its local work budget is 96 units).
  */
 contract ReferralHubGasTest is Test, HubDiamondHarness {
 
@@ -141,11 +145,11 @@ contract ReferralHubGasTest is Test, HubDiamondHarness {
 
     uint256 internal constant DESIGNATION_RECEIVE_GAS_CEILING = 300_000;
 
-    uint256 internal constant FLUSH_APPLY_GAS_CEILING = 14_100_000;
+    uint256 internal constant FLUSH_APPLY_GAS_CEILING = 15_700_000;
 
     uint256 internal constant SETTLE_MAX_GAS_CEILING = 7_800_000;
 
-    uint256 internal constant LOCAL_MAX_WEEKS_GAS_CEILING = 10_000_000;
+    uint256 internal constant LOCAL_MAX_WEEKS_GAS_CEILING = 10_300_000;
 
     IReferralHub internal hubFirstTouch;
 
@@ -714,6 +718,35 @@ contract ReferralHubGasTest is Test, HubDiamondHarness {
         return used;
     }
 
+    function _seedClosedElevationWindows(
+        IReferralHub _hub,
+        address _referrer
+    )
+        internal
+    {
+        uint256 firstWeek = (block.timestamp + HubLeverGrants.LEVER_DELAY)
+            / WEEK
+            + 1;
+
+        for (uint256 i; i < 8; ++i) {
+            HubLeverGrants._grant(
+                address(_hub),
+                abi.encodeCall(
+                    IReferralHub.elevateReferrer,
+                    (
+                        _referrer,
+                        firstWeek + i
+                    )
+                )
+            );
+
+            _hub.endElevation(
+                _referrer,
+                firstWeek + i
+            );
+        }
+    }
+
     // ---- Cell 1: reportSelf first touch of one closed week ----
 
     function test_gas_reportSelf_singleWeekFirstTouch()
@@ -1063,6 +1096,15 @@ contract ReferralHubGasTest is Test, HubDiamondHarness {
     function test_gas_applyFlush_maxWorkCold()
         public
     {
+        for (uint256 i; i < CohortFlushCodec.MAX_FLUSH_ENTRIES; ++i) {
+            _seedClosedElevationWindows(
+                hubApply,
+                _maxWorkReferrer(
+                    i
+                )
+            );
+        }
+
         bytes memory payload = abi.encodeWithSelector(
             hubApply.applyFlush.selector,
             bytes32(uint256(4)),
@@ -1349,6 +1391,15 @@ contract ReferralHubGasTest is Test, HubDiamondHarness {
             );
         }
 
+        for (uint256 i; i < CohortFlushCodec.MAX_FLUSH_ENTRIES; ++i) {
+            _seedClosedElevationWindows(
+                hubGapApply,
+                _maxWorkReferrer(
+                    i
+                )
+            );
+        }
+
         bytes memory envelope = _gapWorkFlushPayload(
             fromWeek
         );
@@ -1453,6 +1504,16 @@ contract ReferralHubGasTest is Test, HubDiamondHarness {
             gapReferrer,
             fromWeek,
             maxWeeks
+        );
+
+        _seedClosedElevationWindows(
+            hubLocalMax,
+            REFERRER
+        );
+
+        _seedClosedElevationWindows(
+            hubLocalMax,
+            gapReferrer
         );
 
         uint256[] memory weeksArg = new uint256[](

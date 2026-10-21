@@ -2208,6 +2208,73 @@ contract ReferralHubRatesTest is Test, HubDiamondHarness {
         );
     }
 
+    function test_elevateReferrer_revertsWhenTheWindowHistoryIsFull()
+        public
+    {
+        address referrer = address(0xE7);
+
+        for (uint256 i; i < 8; ++i) {
+            _elevate(
+                referrer,
+                BASE_WEEK + 100 + i
+            );
+
+            hub.endElevation(
+                referrer,
+                BASE_WEEK + 101 + i
+            );
+        }
+
+        HubLeverGrants._queue(
+            address(hub),
+            abi.encodeCall(
+                IReferralHub.elevateReferrer,
+                (
+                    referrer,
+                    BASE_WEEK + 120
+                )
+            )
+        );
+
+        vm.expectRevert(
+            ReferralHubDeclarations.ElevationHistoryFull.selector
+        );
+
+        hub.elevateReferrer(
+            referrer,
+            BASE_WEEK + 120
+        );
+
+        assertEq(
+            hub.elevatedFromWeek(
+                referrer
+            ),
+            BASE_WEEK + 107
+        );
+
+        assertEq(
+            hub.elevatedUntilWeek(
+                referrer
+            ),
+            BASE_WEEK + 108
+        );
+
+        for (uint256 week = BASE_WEEK + 99; week < BASE_WEEK + 110; ++week) {
+            (
+                uint256 y1Bps,
+                ,
+            ) = hub.weeklyRates(
+                referrer,
+                week
+            );
+
+            assertEq(
+                y1Bps,
+                week >= BASE_WEEK + 100 && week < BASE_WEEK + 108 ? 1_000 : 0
+            );
+        }
+    }
+
     function test_endElevation_instantFutureWeekOnly_windowEdgesAndRegrant()
         public
     {

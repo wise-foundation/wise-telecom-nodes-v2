@@ -123,6 +123,8 @@ contract ReferralHubInvariantHandler is Test {
 
     uint256 internal constant WEEK_BACK = 6;
 
+    uint256 internal constant MAX_ELEVATION_WINDOWS = 8;
+
     address public constant REMOTE_VAULT = address(0xE1);
 
     uint64 public constant REMOTE_SELECTOR = 7_777;
@@ -213,9 +215,17 @@ contract ReferralHubInvariantHandler is Test {
 
     mapping(address => uint256) public ghostElevatedUntil;
 
+    mapping(address => uint256[]) internal ghostWindowFrom;
+
+    mapping(address => uint256[]) internal ghostWindowUntil;
+
     uint256 public elevations;
 
     uint256 public elevationEnds;
+
+    uint256 public refusedElevations;
+
+    uint256 public ghostElevationGateViolations;
 
     constructor(
         IReferralHub _hub,
@@ -1071,12 +1081,23 @@ contract ReferralHubInvariantHandler is Test {
 
             ghostElevatedUntil[referrer] = week;
 
+            ghostWindowUntil[referrer][ghostWindowUntil[referrer].length - 1] = week;
+
             ++elevationEnds;
 
             return;
         }
 
         week = (block.timestamp + HubLeverGrants.LEVER_DELAY) / CohortWeeks.WEEK + offset;
+
+        if (ghostWindowFrom[referrer].length == MAX_ELEVATION_WINDOWS) {
+            _refuseFullElevation(
+                referrer,
+                week
+            );
+
+            return;
+        }
 
         vm.startPrank(
             hub.master()
@@ -1099,7 +1120,104 @@ contract ReferralHubInvariantHandler is Test {
 
         ghostElevatedUntil[referrer] = 0;
 
+        ghostWindowFrom[referrer].push(
+            week
+        );
+
+        ghostWindowUntil[referrer].push(
+            0
+        );
+
         ++elevations;
+    }
+
+    function ghostWindowCount(
+        address _referrer
+    )
+        external
+        view
+        returns (uint256)
+    {
+        return ghostWindowFrom[_referrer].length;
+    }
+
+    function ghostElevatedAt(
+        address _referrer,
+        uint256 _week
+    )
+        public
+        view
+        returns (bool)
+    {
+        uint256 count = ghostWindowFrom[_referrer].length;
+
+        for (uint256 i; i < count; ++i) {
+
+            uint256 untilWeek = ghostWindowUntil[_referrer][i];
+
+            if (
+                _week >= ghostWindowFrom[_referrer][i]
+                    && (untilWeek == 0 || _week < untilWeek)
+            ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    function _refuseFullElevation(
+        address _referrer,
+        uint256 _week
+    )
+        internal
+    {
+        bytes memory call = abi.encodeCall(
+            IReferralHub.elevateReferrer,
+            (
+                _referrer,
+                _week
+            )
+        );
+
+        uint256 start = block.timestamp;
+
+        vm.startPrank(
+            hub.master()
+        );
+
+        HubLeverGrants._queue(
+            address(hub),
+            call
+        );
+
+        (
+            bool success,
+            bytes memory reason
+        ) = address(hub).call(
+            call
+        );
+
+        vm.stopPrank();
+
+        vm.warp(
+            start
+        );
+
+        if (
+            success
+                || keccak256(reason) != keccak256(
+                    abi.encodeWithSelector(
+                        ReferralHubDeclarations.ElevationHistoryFull.selector
+                    )
+                )
+        ) {
+            ++ghostElevationGateViolations;
+
+            return;
+        }
+
+        ++refusedElevations;
     }
 
     function setShareCap(
@@ -2136,15 +2254,12 @@ contract ReferralHubInvariantTest is Test, HubDiamondHarness {
                 y1 = table.capBps;
             }
 
-            uint256 elevatedFrom = handler.ghostElevatedFrom(
-                referrer
-            );
-
-            uint256 elevatedUntil = handler.ghostElevatedUntil(
-                referrer
-            );
-
-            if (elevatedFrom != 0 && week >= elevatedFrom && (elevatedUntil == 0 || week < elevatedUntil)) {
+            if (
+                handler.ghostElevatedAt(
+                    referrer,
+                    week
+                )
+            ) {
                 y1 = table.capBps;
             }
 
@@ -2515,6 +2630,12 @@ contract ReferralHubInvariantTest is Test, HubDiamondHarness {
             handler.ghostTableGateViolations(),
             0,
             "a refused rate table was accepted or failed with the wrong error"
+        );
+
+        assertEq(
+            handler.ghostElevationGateViolations(),
+            0,
+            "a grant over a full elevation history was accepted or failed with the wrong error"
         );
     }
 }
