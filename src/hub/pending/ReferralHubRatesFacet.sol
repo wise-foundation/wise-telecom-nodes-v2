@@ -15,10 +15,15 @@ import {CohortWeeks} from "../../diamond/shared/pending/CohortWeeks.sol";
  * `proposeLeverChange` at least the lever delay earlier); `endElevation`
  * closes the window at a future week at once. Both act on future weeks
  * only, so a closed week keeps its verdict and a week already paid at the
- * elevated rate is never clawed back; a new grant after an end starts a
- * fresh window (a week of the ended window not yet priced then prices
- * naturally). The inputs are recorded regardless, so the natural rate
- * stays derivable.
+ * elevated rate is never clawed back. A new grant after an end appends a
+ * window to the referrer's history instead of replacing the ended one, so
+ * every window keeps its verdict for good: a week of an ended window is
+ * priced as at the cap whenever it is settled, before or after the
+ * re-grant. The history holds at most MAX_ELEVATION_WINDOWS windows and a
+ * further grant reverts `ElevationHistoryFull`; the mirrored
+ * `elevatedFromWeek` and `elevatedUntilWeek` report the latest window.
+ * The inputs are recorded regardless, so the natural rate stays
+ * derivable.
  */
 contract ReferralHubRatesFacet is
     ReferralHubRates,
@@ -95,6 +100,15 @@ contract ReferralHubRatesFacet is
             AlreadyElevated()
         );
 
+        require(
+            elevationWindowsOf[_referrer].length < MAX_ELEVATION_WINDOWS,
+            ElevationHistoryFull()
+        );
+
+        elevationWindowsOf[_referrer].push(
+            _fromWeek
+        );
+
         elevatedFromWeek[_referrer] = _fromWeek;
 
         elevatedUntilWeek[_referrer] = 0;
@@ -130,6 +144,11 @@ contract ReferralHubRatesFacet is
                 && _untilWeek >= fromWeek,
             ElevationNotFuture()
         );
+
+        uint256[] storage windows = elevationWindowsOf[_referrer];
+
+        windows[windows.length - 1] = fromWeek
+            | (_untilWeek << WEEK_HALF_SHIFT);
 
         elevatedUntilWeek[_referrer] = _untilWeek;
 

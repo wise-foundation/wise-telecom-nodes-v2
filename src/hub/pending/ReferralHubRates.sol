@@ -15,10 +15,13 @@ import {CohortWeeks} from "../../diamond/shared/pending/CohortWeeks.sol";
  * field is a rate per 52-week year (`CohortWeeks.YEAR`, 364 days): a
  * cohort's year one runs from its credit to the 52nd week boundary after
  * its credit week starts, year two the 52 weeks after that. An elevated
- * referrer (master whitelist, `elevatedFromWeek` to `elevatedUntilWeek`,
- * zero meaning open) is priced as at the cap for every week inside its
- * window, whatever its inputs; the inputs are recorded all the same, so
- * the natural rate stays derivable from `ladderInputsAt` and the table.
+ * referrer (master whitelist, every window of `elevationWindowsOf`, the
+ * latest mirrored by `elevatedFromWeek` and `elevatedUntilWeek`, an until
+ * week of zero meaning open) is priced as at the cap for every week any of
+ * its windows holds, whatever its inputs, and keeps that verdict for good;
+ * the inputs are recorded all the same, so the natural rate stays
+ * derivable from `ladderInputsAt` and the table. A referrer never elevated
+ * costs one warm SLOAD per priced week, the empty history's length.
  */
 abstract contract ReferralHubRates is ReferralHubCheckpoints {
 
@@ -177,16 +180,25 @@ abstract contract ReferralHubRates is ReferralHubCheckpoints {
         view
         returns (bool)
     {
-        uint256 fromWeek = elevatedFromWeek[_referrer];
+        uint256[] storage windows = elevationWindowsOf[_referrer];
 
-        if (fromWeek == 0 || _week < fromWeek) {
-            return false;
+        uint256 count = windows.length;
+
+        for (uint256 i; i < count; ++i) {
+
+            uint256 window = windows[i];
+
+            uint256 untilWeek = window >> WEEK_HALF_SHIFT;
+
+            if (
+                _week >= (window & WEEK_HALF_MASK)
+                    && (untilWeek == 0 || _week < untilWeek)
+            ) {
+                return true;
+            }
         }
 
-        uint256 untilWeek = elevatedUntilWeek[_referrer];
-
-        return untilWeek == 0
-            || _week < untilWeek;
+        return false;
     }
 
     function _tableFor(

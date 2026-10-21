@@ -283,7 +283,11 @@ contract ReferralHubReader {
      * next threshold of zero means the input sits on the top tier. The
      * tiers are the natural ones; `elevated` says whether the week is
      * priced as at the cap instead (the rates reported are the effective
-     * ones), with the window beside it.
+     * ones), with the hub's latest window beside it. A week the latest
+     * window holds is elevated; so is a week of an earlier window of the
+     * referrer's history, read from its effective rate standing at the cap
+     * while the natural ladder does not reach it (a week whose ladder
+     * reaches the cap on its own is priced the same either way).
      */
     function ladderStandingOf(
         address _referrer,
@@ -338,9 +342,14 @@ contract ReferralHubReader {
             _referrer
         );
 
-        standing.elevated = standing.elevatedFromWeek != 0
-            && _week >= standing.elevatedFromWeek
-            && (standing.elevatedUntilWeek == 0 || _week < standing.elevatedUntilWeek);
+        standing.elevated = (
+            standing.elevatedFromWeek != 0
+                && _week >= standing.elevatedFromWeek
+                && (standing.elevatedUntilWeek == 0 || _week < standing.elevatedUntilWeek)
+        ) || (
+            standing.y1Bps == table.capBps
+                && standing.referredTierBps + standing.selfTierBps < table.capBps
+        );
     }
 
     function _tableFor(

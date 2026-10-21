@@ -34,7 +34,14 @@ import {CohortWeeks} from "../../diamond/shared/pending/CohortWeeks.sol";
  * designation source to a chain id) runs only as that exact call at least
  * SELECTOR_CHANGE_DELAY after its proposal, the delay the vault side
  * `payoutHub` pointer and every hub selector change already wait, and each
- * proposal runs once; a revocation never waits. Threat model: only
+ * proposal runs once; a revocation never waits.
+ * `elevationWindowsOf[referrer]` is the referrer's elevation history: one
+ * word per window, the from week in the low half and the until week in
+ * the high half (zero while open), at most MAX_ELEVATION_WINDOWS words;
+ * `elevatedFromWeek` and `elevatedUntilWeek` mirror the latest window.
+ * A week is priced as at the cap when any window holds it, so a grant
+ * after an end never changes the verdict of an earlier window.
+ * Threat model: only
  * master-registered sources write, every write is a maximum or a cursor
  * advance, and a cell is paid at most its cumulative due, so a replayed,
  * reordered or duplicated delivery can never pay twice. The state the
@@ -183,6 +190,12 @@ abstract contract ReferralHubDeclarations is OwnableMaster {
     mapping(address => uint256) public elevatedFromWeek;
 
     mapping(address => uint256) public elevatedUntilWeek;
+
+    // ---- Elevation window history (every window keeps its verdict) ----
+
+    uint256 internal constant MAX_ELEVATION_WINDOWS = 8;
+
+    mapping(address => uint256[]) internal elevationWindowsOf;
 
     // ---- Events ----
 
@@ -446,6 +459,15 @@ abstract contract ReferralHubDeclarations is OwnableMaster {
 
     error NotElevated();
 
+    error ElevationHistoryFull();
+
+    /**
+     * @dev Consumes the queued lever change a grant runs as. Before
+     * `finalizeSetup` the grant runs at once (the deploy wiring needs no
+     * proposal); afterwards only the exact call master queued at least
+     * SELECTOR_CHANGE_DELAY earlier passes, and the entry is cleared so
+     * each proposal runs once.
+     */
     function _consumeLeverChange(
         bytes32 _changeHash
     )
