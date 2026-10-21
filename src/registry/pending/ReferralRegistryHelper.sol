@@ -16,7 +16,9 @@ import {IRouterClient} from "@chainlink/contracts-ccip/contracts/interfaces/IRou
  * the drift bound and the rank bound. A flip marker is deleted before its
  * vault is poked and restored only when the poke reverts, so each vault
  * migrates a user at most once, and a poke never calls an address without
- * code.
+ * code. A mutual dissolve that clears a user's record also drops that
+ * user's pending correction proposal, so no proposal revives on a key
+ * that returns to zero.
  */
 abstract contract ReferralRegistryHelper is ReferralRegistryDeclarations {
 
@@ -75,6 +77,27 @@ abstract contract ReferralRegistryHelper is ReferralRegistryDeclarations {
         }
     }
 
+    function _dropCorrectionProposal(
+        address _user,
+        address _cancelledBy
+    )
+        internal
+    {
+        address dropped = proposedCorrection[_user];
+
+        delete proposedCorrection[_user];
+
+        delete correctionQueuedAt[_user];
+
+        delete proposedCorrectionKey[_user];
+
+        emit ReferralCorrectionCancelled(
+            _user,
+            dropped,
+            _cancelledBy
+        );
+    }
+
     function _mergeReferrerPair(
         address _user,
         address _referrer,
@@ -128,6 +151,13 @@ abstract contract ReferralRegistryHelper is ReferralRegistryDeclarations {
             referrerOf[_referrer] = ZERO_ADDRESS;
 
             referrerKey[_referrer] = 0;
+
+            if (correctionQueuedAt[_referrer] > 0) {
+                _dropCorrectionProposal(
+                    _referrer,
+                    address(this)
+                );
+            }
 
             _markPendingFlips(
                 _referrer,

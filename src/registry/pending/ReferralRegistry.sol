@@ -19,7 +19,9 @@ import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
  * mesh, the user may cancel for three days, and the execute mints the
  * same mirrored key a correction mints, so a master assignment wins
  * every later merge and marks no flip (there is no old book to move).
- * Sync keys travel over CCIP to the peer
+ * A mutual dissolve that clears a user's record drops that user's
+ * pending correction proposal with it, so no proposal revives on a key
+ * that returns to zero. Sync keys travel over CCIP to the peer
  * registries, a flip is marked per tracked vault and delivered by a
  * permissionless poke, payout designations are set by the referrer and
  * pushed to the hub, and the same-chain carry mailbox is keyed by the
@@ -562,17 +564,8 @@ contract ReferralRegistry is
             NoCorrectionProposed()
         );
 
-        address cancelled = proposedCorrection[_user];
-
-        delete proposedCorrection[_user];
-
-        delete correctionQueuedAt[_user];
-
-        delete proposedCorrectionKey[_user];
-
-        emit ReferralCorrectionCancelled(
+        _dropCorrectionProposal(
             _user,
-            cancelled,
             msg.sender
         );
     }
