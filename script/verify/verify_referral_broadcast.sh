@@ -7,8 +7,10 @@
 # Reads every broadcast file under broadcast/<script file>/<chain id>/ (forge writes a
 # `run-<timestamp>.json` per finished broadcast, whatever the `--sig`, and keeps the newest run of
 # each function in `<function>-latest.json`, which also holds the CREATEs of a broadcast that
-# stopped part way) and submits every CREATE once to the chain's explorer; a CREATE whose
-# address holds no code (never mined) is reported and skipped. It is the fallback
+# stopped part way) and submits every CREATE that was sent (it carries a transaction hash) once
+# to the chain's explorer; a CREATE never sent is ignored, since a later run reuses its predicted
+# address for another contract, and a sent CREATE whose address holds no code is reported and
+# skipped. It is the fallback
 # for an in-run `--verify` that missed: a lagging explorer, a verifier that refused, a chain
 # where forge skipped the submission. Robinhood and its testnet verify on Blockscout, every
 # other network on Etherscan V2 through the `[etherscan]` table of foundry.toml. The source of
@@ -56,6 +58,8 @@ runs = sorted(glob.glob(os.path.join(sys.argv[1], "*.json")))
 for run in runs:
     for t in json.load(open(run)).get("transactions", []):
         if t.get("transactionType") != "CREATE" or not t.get("contractAddress"):
+            continue
+        if not t.get("hash"):
             continue
         address = t["contractAddress"].lower()
         if address in seen:
