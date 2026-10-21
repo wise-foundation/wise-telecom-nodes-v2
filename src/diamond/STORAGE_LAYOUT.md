@@ -618,6 +618,17 @@ never broadcast), so every field after `totalClaimed` moves up one slot and ever
 the hub tail (`elevatedFromWeek`, `elevatedUntilWeek`, after `leverChangeQueuedAt`), so the hub
 snapshot is 39 entries; no vault change.
 
+### 2026-10-21 hub elevation window history (hub slot 39)
+
+A grant after an end used to overwrite the one window pair a referrer had, so every week of the
+ended window lost its elevated verdict and a week of it delivered only after the re-grant was
+priced at the natural rate. The hub now keeps the history: `elevationWindowsOf` (hub slot 39, a
+per referrer array of words, the from week in the low half and the until week in the high half,
+zero while open, at most `MAX_ELEVATION_WINDOWS` of them) is appended by `elevateReferrer` and
+closed by `endElevation`, and `_isElevatedAt` answers true when any window holds the week.
+`elevatedFromWeek` and `elevatedUntilWeek` stay the mirror of the latest window, so no hub
+selector changes; the hub snapshot is 40 entries. No vault change.
+
 ## Snapshot & layout guard
 
 The JSON layout is committed to `test/diamond/storage_snapshot/vault_diamond_layout.json`. Regenerate with:
@@ -625,4 +636,4 @@ The JSON layout is committed to `test/diamond/storage_snapshot/vault_diamond_lay
 forge inspect src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond storage-layout --json > test/diamond/storage_snapshot/vault_diamond_layout.json
 ```
 
-`script/check_storage_layout.sh` (run in CI next to the test suite) proves the diamond and all 22 full-chain facets compile to byte-identical storage layouts (label/slot/offset/type, AST ids normalized away) and that the committed snapshot (111 entries) still matches the compiled diamond; the same script proves the hub proxy and its five facets identical against the committed hub snapshot (39 entries). Any storage edit that lands outside the shared declaration chain, or that forgets to regenerate the snapshot, fails the check with a unified diff.
+`script/check_storage_layout.sh` (run in CI next to the test suite) proves the diamond and all 22 full-chain facets compile to byte-identical storage layouts (label/slot/offset/type, AST ids normalized away) and that the committed snapshot (111 entries) still matches the compiled diamond; the same script proves the hub proxy and its five facets identical against the committed hub snapshot (40 entries). Any storage edit that lands outside the shared declaration chain, or that forgets to regenerate the snapshot, fails the check with a unified diff.
