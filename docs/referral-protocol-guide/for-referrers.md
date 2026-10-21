@@ -35,6 +35,12 @@ Referred credit ages. A deposit is **year one credit** from the week it was made
 
 The ladder, the cap and the two tail rates are one rate table. We can publish a new table with `pushRateTable`, but only for a future week, and every past week keeps the table that was in force when it closed. The first table is the genesis table above.
 
+### Several Vault Systems Under One Referral Umbrella:
+
+Your ladder does not care which vault system a stake sits in. The nine World Mobile vaults are system 0 and the Sovren vault (`wsnusdc` on mainnet) is system 1, and both run under the same rate table, cap, ladder, courier share and payout pot. Your referred input and your own input each sum over every vault of every system, so 500,000 referred in a World Mobile vault plus 500,000 in the Sovren vault counts as 1,000,000 and reaches the top rung. Commission still accrues per source chain, so Sovren commission lands in your mainnet bucket beside the World Mobile mainnet commission.
+
+Money never moves between systems: a referee cannot move or bridge shares from a World Mobile vault into the Sovren vault or back, so credit never relocates across systems either. The Sovren vault joins the referral system after the World Mobile rollout and takes no part until then; the overview explains the umbrella in [Several Vault Systems Under One Referral Umbrella](README.md#several-vault-systems-under-one-referral-umbrella).
+
 ### Elevated Referrers:
 
 We can **elevate** a referrer. An elevated referrer is priced as at the cap for every week inside its elevation window whatever its inputs are: 10 percent on year one credit, 5 percent on year two credit and 1 percent on mature credit under the genesis table. A grant opens at a future week and waits the same three day timelock as every other grant on the hub. An end closes the window at a future week and takes effect at once. A closed week keeps its verdict, so an elevation can never lower what you were already paid, and a week inside an ended window stays elevated for good even when it is delivered to the hub later. A referrer's history holds at most eight windows.

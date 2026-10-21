@@ -122,7 +122,7 @@ The events an indexer needs most are `ReferralAssigned` on the registry for ever
 
 ## Vault Systems
 
-One hub prices every vault system of the umbrella under one rate table, one cap and one ladder. The World Mobile vaults are system 0 and the Sovren vault is system 1; a later node system is added by a configuration record, a registry allow lane and a hub source tag, never by a redeploy. A referrer's ladder inputs sum over every vault of every system. **Money never moves between systems**: no vault of one system is ever peered with a vault of another for moves or bridges, on any chain.
+One hub prices every vault system of the umbrella under one rate table, one cap, one ladder, one courier share and one payout pot. The World Mobile vaults are system 0 and the Sovren vault (`wsnusdc` on mainnet, built on the same vault code) is system 1; a later node system is added by a configuration record, a registry allow lane and a hub source tag (`setSourceSystem`, read by `sourceSystemOf`, informational only), never by a redeploy. A referrer's ladder inputs sum over every vault of every system. **Money never moves between systems**: no vault of one system is ever peered with a vault of another for moves or bridges, on any chain, which the deploy preflight reads in both directions on every run. The Sovren vault joins after the World Mobile rollout through its own registry and flush rounds, the mainnet registry's allow lane and a hub reporter grant behind the lever timelock; until then its configuration record is marked deferred, which keeps its identity in every mainnet preflight and skips its rollout items.
 
 ### Conclusion
 

@@ -27,7 +27,7 @@ Every address here is copied from a configuration record in the repository, neve
 | `ReferralHubReader` | (filled at deployment) | `config/hub-reader.mainnet.json` |
 | Vault facets of the registry round (`ReferralFacet`, `Permit2ReferralFacet`, `CohortRecorderFacet`, `CohortHookFacet`, `CohortMoveHookFacet`, `CohortBridgeHookFacet`, the grown `AdminFacet`) | (filled at deployment) | `src/diamond/DEPLOYED.md` |
 | Vault facets of the flush round (`CohortFlushFacet`, `CohortFlushPolicyFacet`) | (filled at deployment) | `src/diamond/DEPLOYED.md` |
-| Sovren vault diamond, product `wsnusdc` (system 1, not yet part of the referral system) | `0x50bae2675A6D7D9CADf9e2Ec96c7e45897Be8603` | `config/vault.wsnusdc.mainnet.json` |
+| Sovren vault diamond, product `wsnusdc` (vault system 1; joins the referral system after the World Mobile rollout, recorded as deferred until then) | `0x50bae2675A6D7D9CADf9e2Ec96c7e45897Be8603` | `config/vault.wsnusdc.mainnet.json` |
 | USD token of `wsnusdc` (USDC, 6 decimals) | `0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48` | `config/vault.wsnusdc.mainnet.json` |
 
 ## Base (Chain Id 8453)
@@ -71,6 +71,7 @@ Every address here is copied from a configuration record in the repository, neve
 * **The hub and the reader:** exist only on Ethereum mainnet.
 * **The registries:** one per chain, four in all.
 * **The vault facets:** deployed once per chain and routed on every vault of that chain through the selector timelock; `src/diamond/DEPLOYED.md` records per chain which facet address is live, pending or pending redeploy.
+* **The Sovren vault:** vault system 1, live on mainnet today, joins the referral system later through its own upgrade rounds and the mainnet registry's allow lane; its referral facets are deployed from its own repository and recorded there.
 
 ### Conclusion
 

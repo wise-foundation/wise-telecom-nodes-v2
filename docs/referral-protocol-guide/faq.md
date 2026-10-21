@@ -56,6 +56,10 @@ The pot is funded by the protocol and can be short between top ups. `claim` then
 
 At the hub on Ethereum mainnet, in USDC, into one bucket per source chain and referrer. A mainnet bucket pays your own address by default; a Base, Arbitrum or Robinhood bucket pays only after you designate a payout address on that chain's registry and it reaches the hub, and a contract wallet must designate a nonzero mainnet address it controls. See [Your Payout Address per Chain](for-referrers.md#your-payout-address-per-chain).
 
+### What Is the Sovren Vault, and Does It Count for My Ladder?
+
+The Sovren vault (`wsnusdc` on mainnet, a USDC vault whose deposits finance Sovren infrastructure nodes) is vault system 1 of the same referral umbrella; the nine World Mobile vaults are system 0. Both run under one rate table, cap, ladder, courier share and payout pot, and your ladder inputs sum over every vault of every system, so 500,000 referred in each counts as 1,000,000. Money never moves between systems, and the Sovren vault joins the referral system after the World Mobile rollout. See [Several Vault Systems Under One Referral Umbrella](README.md#several-vault-systems-under-one-referral-umbrella).
+
 ### What Happens to My Commission if a Bot Flushes My Weeks First?
 
 Nothing changes for you. The bot earns the courier share on top of your commission, and you are credited the full commission of every week it delivered. If you prefer to ship first, flush your own book, which advances the cursors a courier must stay above. See [Who Controls What Is Shipped?](for-referrers.md#who-controls-what-is-shipped).

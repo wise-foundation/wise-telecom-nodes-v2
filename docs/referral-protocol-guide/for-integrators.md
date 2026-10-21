@@ -16,6 +16,10 @@ Commission accrues per source chain and referrer at the hub, so an integrator ea
 
 > Tell us the referrer address before the first deposit. An elevation granted later prices the earlier weeks on the ladder, and nothing is ever re priced.
 
+### Several Vault Systems, One Referrer Address:
+
+The referral umbrella covers several vault systems: the nine World Mobile vaults are system 0 and the Sovren vault (`wsnusdc` on mainnet) is system 1, under one rate table, cap, ladder, courier share and payout pot. Use the same referrer address in every system; your ladder inputs sum over every vault of every system, so 500,000 referred in a World Mobile vault plus 500,000 in the Sovren vault counts as 1,000,000. The hub tags each source with its system number for reporting only, and the user facing functions of the Sovren vault are the same as those of a World Mobile vault, because it is built on the same code. Money never moves between systems, so a user cannot move or bridge between a Sovren vault and a World Mobile vault. The Sovren vault joins the referral system after the World Mobile rollout and takes no part until then.
+
 ## Functions Reference
 
 This section lists every user facing function of a vault, grouped by what it does, with one sentence each on what it does, who may call it and what it changes.

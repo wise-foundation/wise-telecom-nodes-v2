@@ -26,6 +26,14 @@ The system adds three parts to the running vault diamonds.
 
 **A source** is one vault on one chain as the hub sees it. The hub keys everything it receives by source, because the same vault product has the same address on every chain it runs on.
 
+## Several Vault Systems Under One Referral Umbrella
+
+The referral system is one umbrella over several **vault systems**. The nine World Mobile vaults are system 0. The Sovren vault, product `wsnusdc` on Ethereum mainnet, a USDC vault whose deposits finance Sovren infrastructure nodes, is system 1. Later node systems built on the same code can join as further systems. Every system runs under the same settings: one rate table, one cap, one ladder, one courier share and one payout pot at the hub.
+
+A referrer's ladder inputs sum over every vault of every system, so 500,000 referred in a World Mobile vault plus 500,000 in the Sovren vault counts as 1,000,000 on the ladder. The hub tags every source vault with its system number for reporting only; pricing never reads the tag. **Money never moves between systems:** no move peer and no bridge peer is ever registered between a Sovren vault and a World Mobile vault, on any chain.
+
+The Sovren vault joins the referral system after the World Mobile rollout, through its own upgrade rounds and the registry's allow lane. Until then its record is marked deferred and it takes no part. Adding a system is an operator procedure, a configuration record, the registry allow lane and the hub source tag, never a redeploy of anything shared.
+
 ## How to Read This Guide
 
 * **[For Depositors](for-depositors.md):** naming a referrer, the referral link, what changes for you, and what the exit queue does to your referrer's commission.
