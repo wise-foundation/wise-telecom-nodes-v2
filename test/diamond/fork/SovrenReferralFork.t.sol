@@ -10,6 +10,8 @@ import {Client} from "@chainlink/contracts-ccip/contracts/libraries/Client.sol";
 import {WiseTelecomNodesDiamondErrors} from "../../../src/diamond/vault/WiseTelecomNodesDiamondErrors.sol";
 import {ReferralRegistry} from "../../../src/registry/pending/ReferralRegistry.sol";
 import {ReferralRegistryDeclarations} from "../../../src/registry/pending/ReferralRegistryDeclarations.sol";
+import {IReferralHub} from "../../../src/hub/pending/IReferralHub.sol";
+import {HubLeverGrants} from "../../hub/utils/HubLeverGrants.sol";
 
 /**
  * @dev Peer and bridge surface shared by the live diamonds of every vault system (the
@@ -740,6 +742,218 @@ contract VaultSystemIsolationMainnetFork is VaultSystemIsolationForkBase {
             registry,
             home,
             foreign
+        );
+    }
+
+    function test_sovrenJoin_liveRegistryAllowLaneTagAndGrant()
+        public
+    {
+        (
+            address[] memory home,
+            address[] memory foreign
+        ) = _splitBySystem();
+
+        address sovren = _sovrenVault(
+            foreign
+        );
+
+        ReferralRegistry registry = ReferralRegistry(
+            vm.parseJsonAddress(
+                vm.readFile(
+                    "config/registry.mainnet.json"
+                ),
+                ".registry"
+            )
+        );
+
+        IReferralHub hub = IReferralHub(
+            vm.parseJsonAddress(
+                vm.readFile(
+                    "config/hub.mainnet.json"
+                ),
+                ".hub"
+            )
+        );
+
+        assertTrue(
+            registry.syncInitialized(),
+            "live registry sync setup not finalized"
+        );
+
+        uint256 trackedBefore = registry.trackedVaultCount();
+
+        if (registry.allowedVault(sovren) == false) {
+            _allowOnLiveRegistry(
+                registry,
+                sovren
+            );
+
+            assertEq(
+                registry.trackedVaultCount(),
+                trackedBefore + 1,
+                "the allow lane must track exactly one more vault"
+            );
+        }
+
+        for (uint256 i; i < home.length; ++i) {
+            assertTrue(
+                registry.allowedVault(
+                    home[i]
+                ),
+                "a home system vault lost its allow"
+            );
+        }
+
+        _tagAndGrantOnLiveHub(
+            hub,
+            sovren,
+            home[0]
+        );
+    }
+
+    function _sovrenVault(
+        address[] memory _foreign
+    )
+        internal
+        view
+        returns (address)
+    {
+        for (uint256 i; i < records.length; ++i) {
+            if (records[i].system == 1 && _same(records[i].network, "mainnet")) {
+                assertTrue(
+                    _contains(
+                        _foreign,
+                        _foreign.length,
+                        records[i].diamond
+                    ),
+                    "the system 1 record is not among the foreign vaults"
+                );
+                return records[i].diamond;
+            }
+        }
+        revert("no system 1 record on mainnet");
+    }
+
+    function _allowOnLiveRegistry(
+        ReferralRegistry _registry,
+        address _vault
+    )
+        internal
+    {
+        address registryMaster = _registry.master();
+
+        vm.prank(
+            registryMaster
+        );
+        vm.expectRevert(
+            ReferralRegistryDeclarations.VaultNotTracked.selector
+        );
+        _registry.setAllowedVault(
+            _vault,
+            true
+        );
+
+        vm.prank(
+            registryMaster
+        );
+        _registry.proposeAllowedVault(
+            _vault
+        );
+
+        vm.prank(
+            registryMaster
+        );
+        vm.expectRevert(
+            ReferralRegistryDeclarations.VaultAllowTimelockNotElapsed.selector
+        );
+        _registry.executeAllowedVaultChange(
+            _vault
+        );
+
+        vm.warp(
+            block.timestamp + 3 days
+        );
+
+        vm.prank(
+            registryMaster
+        );
+        _registry.executeAllowedVaultChange(
+            _vault
+        );
+
+        assertTrue(
+            _registry.allowedVault(
+                _vault
+            ),
+            "the live allow lane did not admit the Sovren vault"
+        );
+    }
+
+    function _tagAndGrantOnLiveHub(
+        IReferralHub _hub,
+        address _vault,
+        address _homeVault
+    )
+        internal
+    {
+        address hubMaster = _hub.master();
+
+        bytes32 sourceKey = _hub.sourceKeyOf(
+            block.chainid,
+            _vault
+        );
+
+        if (_hub.sourceSystemOf(sourceKey) != 1) {
+            vm.prank(
+                hubMaster
+            );
+            _hub.setSourceSystem(
+                sourceKey,
+                1
+            );
+        }
+
+        assertEq(
+            _hub.sourceSystemOf(
+                sourceKey
+            ),
+            1,
+            "the Sovren source is not tagged system 1"
+        );
+
+        assertEq(
+            _hub.sourceSystemOf(
+                _hub.sourceKeyOf(
+                    block.chainid,
+                    _homeVault
+                )
+            ),
+            0,
+            "a home system source must stay system 0"
+        );
+
+        if (_hub.allowedReporter(_vault) == false) {
+            vm.startPrank(
+                hubMaster
+            );
+            HubLeverGrants._grant(
+                address(_hub),
+                abi.encodeCall(
+                    IReferralHub.setAllowedReporter,
+                    (
+                        _vault,
+                        true
+                    )
+                )
+            );
+            vm.stopPrank();
+        }
+
+        assertTrue(
+            _hub.allowedReporter(
+                _vault
+            ),
+            "the reporter grant did not land"
         );
     }
 
