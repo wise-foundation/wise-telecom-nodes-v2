@@ -28,3 +28,9 @@ data/.verify-lock/
 data/.que-verified-*
 data/*.tmp
 
+
+# Internal documentation (kept out of the public repository)
+docs/
+
+# Local referral sandbox (anvil state, broadcast records of the sandbox)
+sandbox/
