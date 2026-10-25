@@ -13,6 +13,30 @@ and a deterministic deploy system that gives every product the same address on e
 > Built by [René Hochmuth](https://github.com/vonMangoldt) (`@author` in the on-chain verified
 > source) for WiseSoft / Wise Foundation.
 
+## Referral commission system
+
+This repository continues [wise-telecom-nodes](https://github.com/wise-foundation/wise-telecom-nodes)
+and adds the referral commission system to the running vaults, without redeploying anything that is
+live. A depositor names a referrer once, with the deposit; the referrer earns a yearly commission on
+that depositor's principal for as long as it stays, priced week by week against a published rate
+table and paid in USDC on Ethereum mainnet. Three parts make it up:
+
+* **A referral registry per chain** (`src/registry/`): records the referrer of every depositor once,
+  shared by every vault on the chain; the four registries exchange their records over Chainlink CCIP
+  and the earliest assignment wins everywhere. Deployed on Ethereum, Base, Arbitrum and Robinhood
+  Chain on 2026-10-22.
+* **Cohort facets on every vault** (`src/diamond/vault/facets/pending/`): record, week by week, the
+  referred and the own stake each referrer had present, and ship the closed weeks to the hub. They
+  reach the live diamonds through the vaults' three day selector timelocks, in two rounds per vault.
+* **A hub on Ethereum mainnet** (`src/hub/`): receives the weekly records of every vault on every
+  chain, prices each closed week and credits a claimable bucket per source chain and referrer; it is
+  its own pot, funded by plain USDC transfers. Deployed on 2026-10-22 together with its reader.
+
+The Sovren vault (`wsnUSDC`, built on the same vault code in its own repository) joins the same
+referral umbrella as a second vault system: one rate table, one cap, one hub, one payout pot, and no
+share ever moves between the two systems. A separate guide covers the system for depositors,
+referrers, integrators and front end developers, chapter by chapter.
+
 ## Live deployments (v3)
 
 One canonical address per product, identical on every chain it runs on (CREATE3, salt
@@ -44,8 +68,8 @@ src/
 │   │                   leave/fulfill/view, Permit2 deposits, CCIP bridge, same-chain
 │   │                   move, sweep, WISE burn, cashed interest, grace hooks, multicall)
 │   └── shared/         declarations, storage structs, helper bases
-├── hub/                referral-commission mainnet hub (pending/ — never deployed)
-├── registry/           per-chain referral registry (pending/ — never deployed)
+├── hub/                referral commission hub, live on Ethereum mainnet since 2026-10-22
+├── registry/           per chain referral registry, live on all four chains since 2026-10-22
 ├── legacy/             v2 vault + queue source, kept verbatim as the parity oracle
 ├── migration/          migratable extensions of the v2 contracts
 ├── migration-v3/       flashloan-backed evacuation contract used for the v2 cash-out
@@ -95,8 +119,8 @@ the target chain's frozen signoff file in `config/` matches the compiled deploy 
 Requirements: [Foundry](https://getfoundry.sh) (forge 1.7.x), Node 20, Python 3, bash.
 
 ```bash
-git clone --recursive https://github.com/vonMangoldt/wise-telecom-nodes.git
-cd wise-telecom-nodes
+git clone --recursive https://github.com/wise-foundation/wise-telecom-nodes-v2.git
+cd wise-telecom-nodes-v2
 npm ci
 npm ci --prefix tools
 bash script/install_solc_0836.sh   # forge 1.7.1 predates solc 0.8.36, see script header
@@ -137,7 +161,7 @@ forge test --match-path "test/diamond/fork/ReferralHubClaimFork.t.sol"
 # same-address vaults stay keyed apart per source chain
 forge test --match-path "test/diamond/fork/CohortFlushUpgradeFork.t.sol" --match-contract CohortFlushUsdcBaseMainnetFork
 
-# the robinhood lane runs OnRamp/OffRamp 2.0.0 (the CCV era) — the off-ramp scrape shim
+# the robinhood lane runs OnRamp/OffRamp 2.0.0 (the CCV era); the off-ramp scrape shim
 # speaks that generation too, so the same command covers it under the default engine
 forge test --match-path "test/diamond/fork/CohortFlushUpgradeFork.t.sol" --match-contract CohortFlushUsdgRobinhoodMainnetFork
 
@@ -154,7 +178,7 @@ forge test --match-path "test/diamond/fork/ReferralBotOpsFork.t.sol"
 
 # cross-chain attribution rehearsal: forks BOTH ends of a real CCIP lane, installs and arms
 # the cohort round on each under the real master and the real timelocks, then pins the
-# referred-bridge attribution matrix over the lane — the armed scenarios (plain, junk-bytes
+# referred-bridge attribution matrix over the lane: the armed scenarios (plain, junk-bytes
 # and forged carries, same-, earlier- and later-key registry merges, a pending flip), the
 # state scenarios (untracked headroom, lazy deficit, unreferred, split rings, aged lanes,
 # a round trip over the reverse lane) and the rollout states (genesis bytecode on either or
@@ -175,6 +199,70 @@ Beyond fuzz and invariant testing (`test/diamond/invariant/`, catalogued with ID
 `test/diamond/INVARIANTS.md`), the interest accounting, queue cursor and bridge atomicity
 laws are formally verified with [Kontrol](https://github.com/runtimeverification/kontrol)
 under `test/diamond/kontrol/`.
+
+## Running the vaults locally
+
+For front end work you can run local copies of the live chains with anvil, which ships with Foundry.
+Each copy is a fork: it starts from the real chain state, so the vaults, the registries and the hub
+sit at their real addresses, and from there you get free test funds and a clock you control. Start
+one per chain, each in its own terminal:
+
+```bash
+anvil --fork-url $MAINNET_RPC_URL  --port 8545 --auto-impersonate
+anvil --fork-url $BASE_RPC_URL     --port 8546 --auto-impersonate
+anvil --fork-url $ARBITRUM_RPC_URL --port 8547 --auto-impersonate
+```
+
+Any RPC endpoint of the chain works, an archive node is not needed. A fork keeps the chain id of the
+chain it copies (1, 8453 and 42161), so add `http://127.0.0.1:8545` and the others to your wallet as
+custom networks with those ids and import one of the test accounts anvil prints at startup. The forks
+do not talk to each other, so a bridge or a cross chain message never arrives; everything that stays
+on one chain behaves as it does live.
+
+| Contract | Ethereum | Base | Arbitrum |
+|---|---|---|---|
+| wtnUSDC vault | `0x7e1EFF4301defc24936470B30bd1c686D2a295dc` | same | same |
+| Referral registry | `0x294713C98E20F2120261201B7B74079bba2E3617` | `0x15576bCE5a72566EbaeEBaB0D7b560Ef973C5767` | `0x8d2C71eCF741B1A6ca1797Cf6E6B67aC9e234Ad3` |
+| Referral hub | `0x68D207E22037d1B0764a509C16c08310C539ce94` | | |
+| USDC | `0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48` | `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913` | `0xaf88d065e77c8cC2239327C5EDb3A432268e5831` |
+
+The commands below use the mainnet fork. For Base or Arbitrum change `ETH_RPC_URL` and `USDC`.
+
+```bash
+export ETH_RPC_URL=http://127.0.0.1:8545
+USDC=0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48
+VAULT=0x7e1EFF4301defc24936470B30bd1c686D2a295dc
+REGISTRY=0x294713C98E20F2120261201B7B74079bba2E3617
+HUB=0x68D207E22037d1B0764a509C16c08310C539ce94
+ME=0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266        # anvil test account 0
+REFERRER=0x70997970C51812dc3A010C7d01b50e0d17dc79C8  # anvil test account 1
+
+# test USDC: the token's master minter makes itself a minter and mints
+MINTER=$(cast call $USDC "masterMinter()(address)")
+cast rpc anvil_setBalance $MINTER 0xDE0B6B3A7640000
+cast send $USDC "configureMinter(address,uint256)" $MINTER 1000000000000 --from $MINTER --unlocked
+cast send $USDC "mint(address,uint256)" $ME 100000000000 --from $MINTER --unlocked
+
+# deposit 50,000 USDC naming a referrer, then read the referrer back from the registry
+cast send $USDC "approve(address,uint256)" $VAULT 50000000000 --from $ME --unlocked
+cast send $VAULT "depositWithReferral(uint256,address)" 50000000000 $REFERRER --from $ME --unlocked
+cast call $REGISTRY "effectiveReferrerOf(address,address)(address)" $ME $VAULT
+
+# let two weeks pass, ship the closed weeks to the hub and read what the referrer can claim
+cast rpc evm_increaseTime 1209600 && cast rpc evm_mine
+cast send $VAULT "flushReferrals(address[])" "[$REFERRER]" --from $REFERRER --unlocked
+cast call $HUB "claimable(uint256,address)(uint256)" 1 $REFERRER
+
+# the hub pays out of its own USDC balance, so fund it before claiming
+cast send $USDC "mint(address,uint256)" $HUB 10000000000 --from $MINTER --unlocked
+cast send $HUB "claim(uint256,address)" 1 $REFERRER --from $REFERRER --unlocked
+```
+
+USDC has 6 decimals, so `50000000000` is 50,000 USDC. A week is 604,800 seconds and only closed weeks
+are shipped, so a flush in the same week as the deposit has nothing to send yet. With
+`--auto-impersonate` you can send from any address with `--from <address> --unlocked`, which is how
+the commands above act as the USDC minter. Restarting anvil throws the local state away and forks the
+chain again at its latest block.
 
 ## License
 
