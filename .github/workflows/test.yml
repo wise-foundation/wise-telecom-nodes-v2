@@ -36,7 +36,7 @@ jobs:
 
       # Pinned to the toolchain the repo is developed against: the gas-budget
       # suites measure with gasleft() and their ceilings are calibrated to
-      # 1.7.1's metering — forge 1.8+ meters call-frame warmth differently and
+      # 1.7.1's metering; forge 1.8+ meters call-frame warmth differently and
       # trips six ceilings. Re-baseline every gas cell when bumping this pin.
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1

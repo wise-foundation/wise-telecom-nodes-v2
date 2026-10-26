@@ -6,7 +6,8 @@
   "scripts": {
     "fetch": "tsx fetch-balances.ts",
     "verify": "tsx verify-deployed-source.ts",
-    "parse": "tsx parse-balance-file.ts"
+    "parse": "tsx parse-balance-file.ts",
+    "sandbox": "tsx referral-sandbox.ts"
   },
   "devDependencies": {
     "tsx": "^4.16.0",

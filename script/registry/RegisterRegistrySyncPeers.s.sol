@@ -35,7 +35,7 @@ import {ReferralRegistry} from "../../src/registry/pending/ReferralRegistry.sol"
 ///                the payout hub, and the allowlisting of every vault recorded for this
 ///                chain).
 ///
-/// NOTHING here may be broadcast until the owner gives the explicit go-ahead.
+/// Broadcast only after a fork rehearsal on every chain.
 contract RegisterRegistrySyncPeers is VaultConfig {
 
     function wire()

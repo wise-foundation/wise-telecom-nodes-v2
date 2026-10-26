@@ -68,8 +68,8 @@ import {WiseTelecomNodesDiamondSelectors} from "./WiseTelecomNodesDiamondSelecto
 ///   VAULT_PRODUCT=usdc forge script script/diamond/UpgradeCohortFlush.s.sol --sig "executeFlushHub()" --rpc-url base --broadcast
 ///   forge script script/hub/DeployReferralHub.s.sol --sig "wireFlush()" --rpc-url mainnet --broadcast
 ///
-/// NOTHING here may be broadcast until the owner gives the explicit go-ahead. After a REAL
-/// broadcast is executed and verified, `git mv` the graduated files out of EVERY pending/
+/// Broadcast only after a fork rehearsal on every live chain. After a real broadcast is
+/// executed and verified, `git mv` the graduated files out of every pending/
 /// segment in the same commit: facets/pending/ (CohortFlushFacet, and CohortHookFacet if
 /// this round ships it first), declarations/pending/ (CohortFlushDeclaration) and the
 /// registry/hub pending trees their rounds cover.

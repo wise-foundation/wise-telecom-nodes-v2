@@ -34,8 +34,7 @@ table and paid in USDC on Ethereum mainnet. Three parts make it up:
 
 The Sovren vault (`wsnUSDC`, built on the same vault code in its own repository) joins the same
 referral umbrella as a second vault system: one rate table, one cap, one hub, one payout pot, and no
-share ever moves between the two systems. A separate guide covers the system for depositors,
-referrers, integrators and front end developers, chapter by chapter.
+share ever moves between the two systems.
 
 ## Live deployments (v3)
 
@@ -200,69 +199,151 @@ Beyond fuzz and invariant testing (`test/diamond/invariant/`, catalogued with ID
 laws are formally verified with [Kontrol](https://github.com/runtimeverification/kontrol)
 under `test/diamond/kontrol/`.
 
-## Running the vaults locally
+## Running the referral system locally
 
-For front end work you can run local copies of the live chains with anvil, which ships with Foundry.
-Each copy is a fork: it starts from the real chain state, so the vaults, the registries and the hub
-sit at their real addresses, and from there you get free test funds and a clock you control. Start
-one per chain, each in its own terminal:
+For front end work you can have the whole referral system on your machine in a few minutes:
+anvil, which ships with Foundry, runs a local copy of Ethereum mainnet forked from the live chain,
+so the vaults, the registry and the hub sit at their real addresses, and a small tool installs the
+referral rounds on that copy, skips every three day timelock by moving the chain's clock, and seeds
+referrers and depositors with weeks of commission already closed and shipped to the hub. Chain id
+stays 1, the clock is yours, and nothing you do touches the real chain.
+
+### Setup
+
+You need [Foundry](https://getfoundry.sh) (`anvil`, `forge`, `cast`) and Node 20 or newer. An RPC
+endpoint for Ethereum mainnet is optional: without `MAINNET_RPC_URL` the sandbox forks from a public
+endpoint, which works but is slower and rate limited, so a free key from any provider (Alchemy, Infura,
+dRPC and the like; an archive node is not needed) makes the first run noticeably faster.
 
 ```bash
-anvil --fork-url $MAINNET_RPC_URL  --port 8545 --auto-impersonate
-anvil --fork-url $BASE_RPC_URL     --port 8546 --auto-impersonate
-anvil --fork-url $ARBITRUM_RPC_URL --port 8547 --auto-impersonate
+git clone --recursive https://github.com/wise-foundation/wise-telecom-nodes-v2.git
+cd wise-telecom-nodes-v2
+npm ci --prefix tools
+export MAINNET_RPC_URL=https://...        # optional, see above
+npm --prefix tools run sandbox -- all
 ```
 
-Any RPC endpoint of the chain works, an archive node is not needed. A fork keeps the chain id of the
-chain it copies (1, 8453 and 42161), so add `http://127.0.0.1:8545` and the others to your wallet as
-custom networks with those ids and import one of the test accounts anvil prints at startup. The forks
-do not talk to each other, so a bridge or a cross chain message never arrives; everything that stays
-on one chain behaves as it does live.
+`all` runs the four steps in order; the first run takes ten to twenty minutes, most of it compiling and
+running the upgrade scripts and fetching mainnet state into the fork: `up` starts anvil as a fork and hands the master role of the three vaults, the
+registry and the hub to the sandbox account, `install` puts the referral rounds on each vault and
+wires the hub, `seed` builds the world below, `status` prints what a front end would read. Each
+step can be run on its own, `down` stops anvil. Steps that are already live on mainnet are skipped,
+so the same command keeps working as the real rollout progresses.
 
-| Contract | Ethereum | Base | Arbitrum |
-|---|---|---|---|
-| wtnUSDC vault | `0x7e1EFF4301defc24936470B30bd1c686D2a295dc` | same | same |
-| Referral registry | `0x294713C98E20F2120261201B7B74079bba2E3617` | `0x15576bCE5a72566EbaeEBaB0D7b560Ef973C5767` | `0x8d2C71eCF741B1A6ca1797Cf6E6B67aC9e234Ad3` |
-| Referral hub | `0x68D207E22037d1B0764a509C16c08310C539ce94` | | |
-| USDC | `0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48` | `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913` | `0xaf88d065e77c8cC2239327C5EDb3A432268e5831` |
+Point your wallet or app at `http://127.0.0.1:8545` with chain id 1. The accounts are anvil's ten
+default accounts; anvil prints their keys when it starts (`.sandbox/anvil.log`), and account 0 is
+the sandbox operator and master of everything.
 
-The commands below use the mainnet fork. For Base or Arbitrum change `ETH_RPC_URL` and `USDC`.
+| Account | Role in the seeded world |
+|---|---|
+| 1 | alice, a referrer at a high tier: three referees and 40,000 USDC of own stake |
+| 2, 3, 4 | alice's referees, deposited 100,000, 50,000 and 30,000 USDC naming her |
+| 5 | bob, a referrer at the lowest tier: one referee, no own stake, pays out to account 9 |
+| 6 | bob's referee, 5,000 USDC |
+| 7 | carol, a referrer whose book shrank: her referee moved half of its shares away |
+| 8 | carol's referee, 20,000 USDC, then transferred half |
+| 9 | bob's payout address, and the account carol's referee moved shares to |
+
+Four weeks have passed on the chain, each referrer has flushed twice, and the hub holds
+20,000 USDC to pay claims from.
+
+| Contract | Address |
+|---|---|
+| wtnUSDC vault | `0x7e1EFF4301defc24936470B30bd1c686D2a295dc` |
+| Referral registry | `0x294713C98E20F2120261201B7B74079bba2E3617` |
+| Referral hub | `0x68D207E22037d1B0764a509C16c08310C539ce94` |
+| USDC | `0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48` |
+
+### Reading
+
+The three reads a front end makes, as `cast` calls against the fork:
 
 ```bash
 export ETH_RPC_URL=http://127.0.0.1:8545
-USDC=0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48
 VAULT=0x7e1EFF4301defc24936470B30bd1c686D2a295dc
 REGISTRY=0x294713C98E20F2120261201B7B74079bba2E3617
 HUB=0x68D207E22037d1B0764a509C16c08310C539ce94
-ME=0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266        # anvil test account 0
-REFERRER=0x70997970C51812dc3A010C7d01b50e0d17dc79C8  # anvil test account 1
+ALICE=0x70997970C51812dc3A010C7d01b50e0d17dc79C8   # account 1
+ACCOUNT2=0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC
 
-# test USDC: the token's master minter makes itself a minter and mints
+cast call $REGISTRY "effectiveReferrerOf(address,address)(address)" $ACCOUNT2 $VAULT   # who referred account 2
+cast call $HUB "claimable(uint256,address)(uint256)" 1 $ALICE                          # alice's claimable USDC, 6 decimals
+cast call $HUB "payoutAddressOf(uint256,address)(address)" 1 $ALICE                    # where a claim pays (her own address unless she set another)
+```
+
+The first argument of the hub reads is the chain id the commission was earned on; commission is
+kept per source chain, and on the fork everything is chain 1.
+
+### Making deposits
+
+With `--auto-impersonate` on, you can send from any address with `--from <address> --unlocked`,
+which is how the commands below mint USDC as the token's own minter. USDC has 6 decimals, so
+`50000000000` is 50,000 USDC.
+
+```bash
+USDC=0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48
+ME=0x90F79bf6EB2c4f870365E785982E1f101E93b906          # account 3, or any address you like
 MINTER=$(cast call $USDC "masterMinter()(address)")
-cast rpc anvil_setBalance $MINTER 0xDE0B6B3A7640000
 cast send $USDC "configureMinter(address,uint256)" $MINTER 1000000000000 --from $MINTER --unlocked
 cast send $USDC "mint(address,uint256)" $ME 100000000000 --from $MINTER --unlocked
 
-# deposit 50,000 USDC naming a referrer, then read the referrer back from the registry
+# deposit 50,000 USDC naming alice as referrer
 cast send $USDC "approve(address,uint256)" $VAULT 50000000000 --from $ME --unlocked
-cast send $VAULT "depositWithReferral(uint256,address)" 50000000000 $REFERRER --from $ME --unlocked
-cast call $REGISTRY "effectiveReferrerOf(address,address)(address)" $ME $VAULT
-
-# let two weeks pass, ship the closed weeks to the hub and read what the referrer can claim
-cast rpc evm_increaseTime 1209600 && cast rpc evm_mine
-cast send $VAULT "flushReferrals(address[])" "[$REFERRER]" --from $REFERRER --unlocked
-cast call $HUB "claimable(uint256,address)(uint256)" 1 $REFERRER
-
-# the hub pays out of its own USDC balance, so fund it before claiming
-cast send $USDC "mint(address,uint256)" $HUB 10000000000 --from $MINTER --unlocked
-cast send $HUB "claim(uint256,address)" 1 $REFERRER --from $REFERRER --unlocked
+cast send $VAULT "depositWithReferral(uint256,address)" 50000000000 $ALICE --from $ME --unlocked
 ```
 
-USDC has 6 decimals, so `50000000000` is 50,000 USDC. A week is 604,800 seconds and only closed weeks
-are shipped, so a flush in the same week as the deposit has nothing to send yet. With
-`--auto-impersonate` you can send from any address with `--from <address> --unlocked`, which is how
-the commands above act as the USDC minter. Restarting anvil throws the local state away and forks the
-chain again at its latest block.
+A depositor names a referrer once, with its first referred deposit; a later deposit naming someone
+else keeps the first referrer. On a fresh fork a transaction can fail once while anvil is still
+fetching the state it touches from mainnet; sending it again works.
+
+### Moving time
+
+Commission is counted in weeks of 604,800 seconds, aligned to the Unix epoch (a week closes when
+`block.timestamp / 604800` ticks over), and only closed weeks are shipped to the hub, so a flush in
+the same week as a deposit has nothing to send yet. Three ways to get there without waiting:
+
+```bash
+# jump by a fixed amount: two weeks, then mine a block so the new time is visible
+cast rpc evm_increaseTime 1209600 && cast rpc evm_mine
+
+# jump exactly to the next week boundary (the shortest skip that closes the current week)
+cast rpc evm_setNextBlockTimestamp $(( ($(cast block latest -f timestamp) / 604800 + 1) * 604800 )) && cast rpc evm_mine
+
+# let time run fast on its own: every mined block adds an hour, so a week passes in under three minutes
+# (start anvil with --block-time 1 for this, so blocks are mined once a second)
+cast rpc anvil_setBlockTimestampInterval 3600
+cast rpc anvil_removeBlockTimestampInterval   # back to normal
+```
+
+The first two are for scripted checks, the third for watching a front end update live as weeks close.
+Time only moves forward; to go back, restart the sandbox.
+
+### Flushing and claiming
+
+On the live chains nobody has to flush by hand: allowlisted bots ship every referrer's closed weeks to
+the hub and earn a courier share for it, so a front end needs no flush button, only the reads above
+and the claim. On the fork there are no bots, so after moving time a referrer flushes its own book,
+which a referrer may always do, and the hub prices the closed weeks:
+
+```bash
+cast send $VAULT "flushReferrals(address[])" "[$ALICE]" --from $ALICE --unlocked
+cast call $HUB "claimable(uint256,address)(uint256)" 1 $ALICE
+
+# pay out one bucket in full; the USDC goes to the payout address (alice herself here)
+cast send $HUB "claim(uint256,address)" 1 $ALICE --from $ALICE --unlocked
+cast call $USDC "balanceOf(address)(uint256)" $ALICE
+```
+
+`claimUpTo(chainId, referrer, amount)` pays part of a bucket, `claimAll(referrer, chainIds)` pays
+several buckets in one call, and the hub pays out of its own USDC balance, so top it up with a mint to
+the hub address if a claim reports the pot dry.
+
+### Resetting
+
+`npm --prefix tools run sandbox -- down` stops anvil and throws the local state away; `all` starts
+again from a fresh fork at the latest mainnet block. The sandbox writes its anvil log, pid and the
+broadcast records of its forge runs under `.sandbox/`, which git ignores, and never touches
+`broadcast/` or `config/`.
 
 ## License
 
