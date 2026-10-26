@@ -8,13 +8,9 @@ import {FacetBase} from "../FacetBase.sol";
 import {ReferralFacetBase} from "./ReferralFacetBase.sol";
 
 /**
- * @dev Referral variants of the three Permit2 deposit entrypoints.
- * The Permit2 pull (constant, constructor guard and call shape) is
- * an exact mirror of {Permit2UserFacet} — deliberately duplicated
- * rather than inherited so this facet's ABI carries only its own
- * routed surface. The referral handling runs first in every
- * entrypoint so revert priority on a bad referrer is uniform across
- * all six referral deposit functions.
+ * @dev Permit2ReferralFacet: the referral variants of the three Permit2
+ * deposit entrypoints. The Permit2 pull mirrors Permit2UserFacet line for
+ * line; the referral step runs first in every entrypoint.
  */
 contract Permit2ReferralFacet is ReferralFacetBase {
 

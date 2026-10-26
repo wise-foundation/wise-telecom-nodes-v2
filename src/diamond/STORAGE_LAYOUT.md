@@ -4,11 +4,11 @@ Documents the storage layout of `WiseTelecomNodesDiamond` and how it relates to 
 
 ## WiseTelecomNodesDiamond
 
-Inheritance order: `WiseTelecomNodesDiamondEvents` (no storage) → `WiseTelecomNodesDiamondErrors` (no storage) → `OwnableMaster` → `Pausable` → `ReentrancyGuard` → `ERC20` → `ConfigDeclaration` → `UserStateDeclaration` → `ProxyDeclaration` → `WorkerDeclaration` → `PeerVaultDeclaration` → `SelectorRoutingDeclaration` → `QueueStateDeclaration` → `QueueConfigDeclaration` → `CrossChainDeclaration` → `WiseDeclaration` → `BridgeReplayDeclaration` → `ThirdPartyDeclaration` → `TransferHookDeclaration` → `BurnWiseRotationDeclaration` → `ReferralDeclaration` → `DepositGateDeclaration` → `GracePeriodDeclaration` → `DepositHookDeclaration` → `DepositAccumDeclaration` → `CashedInterestTotalDeclaration` → `SweeperDeclaration` → `DepositAccumPrevDeclaration` → `HookGuardDeclaration` (transient only — no persistent slot) → `InterestRemainderDeclaration` → `ReferralRegistryDeclaration` → `CohortContributionDeclaration` → `CohortBookDeclaration` → `ReferralPayoutDeclaration` → `ReferralRegistryPointerDeclaration`.
+Inheritance order: `WiseTelecomNodesDiamondEvents` (no storage) → `WiseTelecomNodesDiamondErrors` (no storage) → `OwnableMaster` → `Pausable` → `ReentrancyGuard` → `ERC20` → `ConfigDeclaration` → `UserStateDeclaration` → `ProxyDeclaration` → `WorkerDeclaration` → `PeerVaultDeclaration` → `SelectorRoutingDeclaration` → `QueueStateDeclaration` → `QueueConfigDeclaration` → `CrossChainDeclaration` → `WiseDeclaration` → `BridgeReplayDeclaration` → `ThirdPartyDeclaration` → `TransferHookDeclaration` → `BurnWiseRotationDeclaration` → `ReferralDeclaration` → `DepositGateDeclaration` → `GracePeriodDeclaration` → `DepositHookDeclaration` → `DepositAccumDeclaration` → `CashedInterestTotalDeclaration` → `SweeperDeclaration` → `DepositAccumPrevDeclaration` → `HookGuardDeclaration` (transient only, no persistent slot) → `InterestRemainderDeclaration` → `AutoCompoundDeclaration` → `ReferralRegistryDeclaration` → `CohortContributionDeclaration` → `CohortBookDeclaration` → `ReferralPayoutDeclaration` → `ReferralRegistryPointerDeclaration` → `PayoutHubPointerDeclaration` → `CohortFlushDeclaration` → `CohortAttributionDeclaration` → `CohortDivestDeclaration` → `CohortSelfDeclaration` → `CohortDisarmDeclaration` → `CohortSelfLogDeclaration`.
 
 ### 2026-07 slot compaction
 
-Six dead fields that were previously "retained as storage gaps" were deleted and every later slot renumbered (the layout compacted from slots 0–70 to 0–66): `autoCompoundIncentive` (old slot 10), `withdrawAllowed` (old 13 byte 20), `interestRateProxyPermanent` (old 13 byte 22), `autoCompoundAllowed` (old 15), `isWhiteListed` (old 16, together with its `whiteListAddress`/`removeWhiteListAddress` selectors, the never-applied `onlyWhiteListed` modifier, the `WhiteListAddressSet` event and the `NotWhiteListed` error), and `transferInterestWithTokens` (old 19). This is safe because deploys are fresh CREATE3 instances (the canonical address depends only on the salt, not on initcode) and no live deployment receives in-place facet swaps across the change. The append-only tail-shard discipline for NEW state remains in force; layout drift between the diamond and any facet is caught by `script/check_storage_layout.sh`.
+Six dead fields that were previously "retained as storage gaps" were deleted and every later slot renumbered (the layout compacted from slots 0 through 70 to slots 0 through 66): `autoCompoundIncentive` (old slot 10), `withdrawAllowed` (old 13 byte 20), `interestRateProxyPermanent` (old 13 byte 22), `autoCompoundAllowed` (old 15), `isWhiteListed` (old 16, together with its `whiteListAddress`/`removeWhiteListAddress` selectors, the never-applied `onlyWhiteListed` modifier, the `WhiteListAddressSet` event and the `NotWhiteListed` error), and `transferInterestWithTokens` (old 19). This is safe because deploys are fresh CREATE3 instances (the canonical address depends only on the salt, not on initcode) and no live deployment receives in-place facet swaps across the change. The append-only tail-shard discipline for NEW state remains in force; layout drift between the diamond and any facet is caught by `script/check_storage_layout.sh`.
 
 | Slot | Field | Type | Source |
 |------|-------|------|--------|
@@ -83,68 +83,103 @@ Six dead fields that were previously "retained as storage gaps" were deleted and
 | 61 | `isSweeper` | mapping(address ⇒ bool) | SweeperDeclaration |
 | 62 | `depositWindowPrevTotal` | mapping(address ⇒ uint256) | DepositAccumPrevDeclaration |
 | 63 | `interestRemainder` | mapping(address ⇒ uint256) | InterestRemainderDeclaration |
-| 64 | `referrerOf` | mapping(address ⇒ address) | ReferralRegistryDeclaration |
-| 65 | `cohortSyncEnabled` | bool | CohortContributionDeclaration |
-| 66 | `trackedContribution` | mapping(address ⇒ uint256) | CohortContributionDeclaration |
-| 67 | `cohortBook` | mapping(address ⇒ uint256) | CohortBookDeclaration |
-| 68 | `cohortLastSettle` | mapping(address ⇒ uint256) | CohortBookDeclaration |
-| 69 | `cohortRingYear1` | mapping(address ⇒ uint64[52]) | CohortBookDeclaration |
-| 70 | `cohortRingYear2` | mapping(address ⇒ uint64[52]) | CohortBookDeclaration |
-| 71 | `cohortWeekLog` | mapping(address ⇒ mapping(uint256 ⇒ uint256)) | CohortBookDeclaration |
-| 72 | `cohortGapLog` | mapping(address ⇒ uint256[]) | CohortBookDeclaration |
-| 73 | `pendingReferralPayout` | uint256 | ReferralPayoutDeclaration |
-| 74 | `referralRegistry` | address | ReferralRegistryPointerDeclaration |
-| 75 | `proposedReferralRegistry` | address | ReferralRegistryPointerDeclaration |
-| 76 | `referralRegistryChangeQueuedAt` | uint256 | ReferralRegistryPointerDeclaration |
+| 64 | `isAutoCompoundBot` | mapping(address ⇒ bool) | AutoCompoundDeclaration |
+| 65 | `autoCompoundAllowed` | mapping(address ⇒ bool) | AutoCompoundDeclaration |
+| 66 | `autoCompoundFeeBps` | uint256 | AutoCompoundDeclaration |
+| 67 | `referrerOf` | mapping(address ⇒ address) | ReferralRegistryDeclaration |
+| 68 | `cohortSyncEnabled` | bool | CohortContributionDeclaration |
+| 69 | `trackedContribution` | mapping(address ⇒ uint256) | CohortContributionDeclaration |
+| 70 | `cohortBook` | mapping(address ⇒ uint256) | CohortBookDeclaration |
+| 71 | `cohortLastSettle` | mapping(address ⇒ uint256) | CohortBookDeclaration |
+| 72 | `cohortRingYear1` | mapping(address ⇒ uint64[52]) | CohortBookDeclaration |
+| 73 | `cohortRingYear2` | mapping(address ⇒ uint64[52]) | CohortBookDeclaration |
+| 74 | `cohortWeekLog` | mapping(address ⇒ mapping(uint256 ⇒ uint256)) | CohortBookDeclaration |
+| 75 | `cohortGapLog` | mapping(address ⇒ uint256[]) | CohortBookDeclaration |
+| 76 | `pendingReferralPayout` (retired, never written) | uint256 | ReferralPayoutDeclaration |
+| 77 | `referralRegistry` | address | ReferralRegistryPointerDeclaration |
+| 78 | `proposedReferralRegistry` | address | ReferralRegistryPointerDeclaration |
+| 79 | `referralRegistryChangeQueuedAt` | uint256 | ReferralRegistryPointerDeclaration |
+| 80 | `payoutHub` (retired, never written) | address | PayoutHubPointerDeclaration |
+| 81 | `proposedPayoutHub` (retired, never written) | address | PayoutHubPointerDeclaration |
+| 82 | `payoutHubChangeQueuedAt` (retired, never written) | uint256 | PayoutHubPointerDeclaration |
+| 83 (0..19) | `flushHub` | address | CohortFlushDeclaration |
+| 83 (20..27) | `flushHubChainSelector` | uint64 | CohortFlushDeclaration |
+| 84 (0..19) | `proposedFlushHub` | address | CohortFlushDeclaration |
+| 84 (20..27) | `proposedFlushHubChainSelector` | uint64 | CohortFlushDeclaration |
+| 85 | `flushHubChangeQueuedAt` | uint256 | CohortFlushDeclaration |
+| 86 | `flushedThroughWeek` | mapping(address ⇒ uint256) | CohortFlushDeclaration |
+| 87 | `flushGapCursor` | mapping(address ⇒ uint256) | CohortFlushDeclaration |
+| 88 | `allowedFlushBot` | mapping(address ⇒ bool) | CohortFlushDeclaration |
+| 89 (0) | `publicFlushEnabled` | bool | CohortFlushDeclaration |
+| 89 (1..8) | `flushGasLimit` | uint64 | CohortFlushDeclaration |
+| 90 | `attributedContribution` | mapping(address ⇒ uint256) | CohortAttributionDeclaration |
+| 91 (0..19) | `pendingDivestSync` | address | CohortDivestDeclaration |
+| 91 (20..27) | `pendingDivestParkedAt` | uint64 | CohortDivestDeclaration |
+| 92 | `cohortSelfCrumb` | mapping(address ⇒ uint256) | CohortSelfDeclaration |
+| 93 (0..7) | `cohortDisarmedAt` | uint64 | CohortDisarmDeclaration |
+| 93 (8..15) | `cohortRearmedAt` | uint64 | CohortDisarmDeclaration |
+| 93 (16..23) | `referralReopenStamp` | uint64 | CohortDisarmDeclaration |
+| 93 (24..31) | `referralPauseStamp` | uint64 | CohortDisarmDeclaration |
+| 94 (0..7) | `referralPauseGraceEnd` | uint64 | CohortDisarmDeclaration |
+| 94 (8..15) | `referralDisarmGraceEnd` | uint64 | CohortDisarmDeclaration |
+| 95 | `cohortSelfLog` | mapping(address ⇒ uint256[]) | CohortSelfLogDeclaration |
 
-`CrossChainDeclaration` is appended before `WiseDeclaration`, so `ccipRouter` packs into the free upper bytes of slot 34 alongside `negativeIncentivesNotAllowed` and the remaining cross-chain maps take fresh tail slots — no pre-existing slot moves. `WiseDeclaration` is appended last of the original shards, so `WISE_TOKEN` takes fresh tail slot 39 and likewise moves no pre-existing slot. `BridgeReplayDeclaration` is appended after it as a bridge-hardening tail shard: `processedMessageId` is the `ccipReceive` replay/idempotency guard, and `proposedCrossChainPeer` / `proposedCrossChainPeerDecimals` stage a pending cross-chain peer so repointing an already-enabled lane is timelocked like a first-time enable. Its three maps take fresh tail slots 40–42 and move no pre-existing slot. `ThirdPartyDeclaration` follows it as another tail shard backing the `setThirdPartyAddress` propose/execute timelock: `proposedThirdPartyAddress` and `thirdPartyChangeQueuedAt` take fresh tail slots 43–44 and move no pre-existing slot. `TransferHookDeclaration` follows it as the final tail shard backing the optional swappable transfer hook: `transferHookFacet` is the facet `transfer` / `transferFrom` (and the queue internal move) DELEGATECALL for their interest-move policy when set (zero = built-in inline default), and `proposedTransferHookFacet` / `transferHookChangeQueuedAt` back its 3-day propose/execute timelock. Its three fields take fresh tail slots 45–47 and move no pre-existing slot. `BurnWiseRotationDeclaration` follows it as the final tail shard backing the rotating percentage burn: `burnWiseIndex` is the global sequence cursor advanced and wrapped on every successful `burnWise`, and `lastBurnWiseAt` is the per-caller 1-day cooldown stamp. Its two fields take fresh tail slots 48–49 and move no pre-existing slot. `ReferralDeclaration` follows it as the final tail shard for cross-chain forward-prep: `referralEnabled` gates whether an inbound bridge surfaces a non-empty `referralData` payload via `BridgeReferral`, and `bridgeGasLimit` overrides the destination `ccipReceive` callback budget when non-zero (`0` falls back to `BRIDGE_GAS_LIMIT`). Both pack into fresh tail slot 50 (`referralEnabled` at byte 0, `bridgeGasLimit` at bytes 1..8) and move no pre-existing slot. `DepositGateDeclaration` follows it as the final tail shard backing the dormant-chain deposit gate: `depositsDisabled` blocks direct deposits, Permit2 deposits and queue joins when set by master while withdrawals, queue leaves, transfers and both bridge directions keep working. It packs into the free byte 9 of slot 50 alongside `referralEnabled` and `bridgeGasLimit` and moves no pre-existing slot. `GracePeriodDeclaration` follows it as the final tail shard backing the large-deposit grace period: a single deposit/compound call that grows a user's balance by `graceThresholdAmount` or more stamps `lastLargeDepositAt[user]`, and until `gracePeriodDuration` has elapsed that user cannot claim, compound or reassign interest while deposits, withdrawals and every exit path stay open. `graceThresholdAmount == 0` disables the trigger, so an upgraded diamond with zeroed tail storage behaves exactly as before until master calls the setters. `graceFreezeEnabled` (slot 54, default `false`) is the master on/off switch for the swappable freeze hook (`GraceFreezeHookFacet`): the transfer / queue freeze on a grace-locked address enforces only while it is `true`, flipped instantly (no timelock) via `setGraceFreezeEnabled`, independent of the always-on interest-extraction gate. Its four fields take fresh tail slots 51–54 and move no pre-existing slot. `DepositHookDeclaration` follows it as a tail shard backing the optional swappable deposit hook: `depositHookFacet` is the facet `_registerLargeDeposit` DELEGATECALLs with the decorated call's positive balance delta for its large-deposit detection policy when set (zero = built-in inline single-call default), and `proposedDepositHookFacet` / `depositHookChangeQueuedAt` back its 3-day propose/execute timelock (instant pre-finalize, like the transfer hook). `depositHookFacet` packs into the free bytes 1..20 of slot 54 alongside `graceFreezeEnabled` and the other two fields take fresh tail slots 55–56 — no pre-existing slot moves. `DepositAccumDeclaration` follows it as a tail shard backing the two-bucket deposit accumulator (`GraceAccumHookFacet`): `depositAccumWindow` (slot 57, default `0` = accumulator off, never seeded by constructor or scripts) is the master-set bucket length over which the per-user `depositWindowStart` / `depositWindowTotal` records sum sub-threshold deposits toward `graceThresholdAmount`, all window records cleared on every stamp. Its three fields take fresh tail slots 57–59 and move no pre-existing slot. `CashedInterestTotalDeclaration` follows it as a tail shard backing the global cashed-interest ledger: `totalCashedInterest` mirrors `Σ cashedInterest[user]` in lockstep (accrual adds the banked pending, claims subtract the debited amount, the constructor migration seed delta-adds, `moveMyInterestTo` is net-zero and untouched) and feeds `_calculateNeededBuffer` so `sweepOverhang` reserves the settled liability; it is `internal` (no auto-getter) and read externally via `CashedInterestFacet.getTotalCashedInterest()`. It takes fresh tail slot 60 and moves no pre-existing slot. `SweeperDeclaration` follows it as the final tail shard backing the sweeper allowlist: `isSweeper` gates who may trigger `sweepOverhang`. The constructor seeds the worker, the third party and the deployer (`_seedSweepers`; on the deterministic path the bootstrap shim also grants the pending master and revokes its own seed), and master can grant/revoke further sweepers via the instant `setSweeper` — the trigger needs no timelock because swept funds can only reach the 3-day-timelocked `workerAddress` and the reserve floor holds regardless of caller. It takes fresh tail slot 61 and moves no pre-existing slot. `DepositAccumPrevDeclaration` follows it as the final tail shard extending the deposit accumulator with its previous bucket, split out so the shards before it keep their slots: `depositWindowPrevTotal` carries a user's full previous accumulation bucket forward, and `applyDepositAccumHook` always tests it together with the current `depositWindowTotal`, so deposits within one `depositAccumWindow` of each other can never dodge the `graceThresholdAmount` sum by straddling a bucket boundary while co-counting never reaches back two full windows; it is cleared alongside the other window records on every stamp and on a two-window skip. Appended last, it takes fresh tail slot 62 and moves no pre-existing slot.
+`CrossChainDeclaration` is appended before `WiseDeclaration`, so `ccipRouter` packs into the free upper bytes of slot 34 alongside `negativeIncentivesNotAllowed` and the remaining cross-chain maps take fresh tail slots; no pre-existing slot moves. `WiseDeclaration` is appended last of the original shards, so `WISE_TOKEN` takes fresh tail slot 39 and likewise moves no pre-existing slot. `BridgeReplayDeclaration` is appended after it as a bridge-hardening tail shard: `processedMessageId` is the `ccipReceive` replay/idempotency guard, and `proposedCrossChainPeer` / `proposedCrossChainPeerDecimals` stage a pending cross-chain peer so repointing an already-enabled lane is timelocked like a first-time enable. Its three maps take fresh tail slots 40 to 42 and move no pre-existing slot. `ThirdPartyDeclaration` follows it as another tail shard backing the `setThirdPartyAddress` propose/execute timelock: `proposedThirdPartyAddress` and `thirdPartyChangeQueuedAt` take fresh tail slots 43 to 44 and move no pre-existing slot. `TransferHookDeclaration` follows it as the final tail shard backing the optional swappable transfer hook: `transferHookFacet` is the facet `transfer` / `transferFrom` (and the queue internal move) DELEGATECALL for their interest-move policy when set (zero = built-in inline default), and `proposedTransferHookFacet` / `transferHookChangeQueuedAt` back its 3-day propose/execute timelock. Its three fields take fresh tail slots 45 to 47 and move no pre-existing slot. `BurnWiseRotationDeclaration` follows it as the final tail shard backing the rotating percentage burn: `burnWiseIndex` is the global sequence cursor advanced and wrapped on every successful `burnWise`, and `lastBurnWiseAt` is the per-caller 1-day cooldown stamp. Its two fields take fresh tail slots 48 to 49 and move no pre-existing slot. `ReferralDeclaration` follows it as the final tail shard for cross-chain forward-prep: `referralEnabled` gates whether an inbound bridge surfaces a non-empty `referralData` payload via `BridgeReferral`, and `bridgeGasLimit` overrides the destination `ccipReceive` callback budget when non-zero (`0` falls back to `BRIDGE_GAS_LIMIT`). Both pack into fresh tail slot 50 (`referralEnabled` at byte 0, `bridgeGasLimit` at bytes 1..8) and move no pre-existing slot. `DepositGateDeclaration` follows it as the final tail shard backing the dormant-chain deposit gate: `depositsDisabled` blocks direct deposits, Permit2 deposits and queue joins when set by master while withdrawals, queue leaves, transfers and both bridge directions keep working. It packs into the free byte 9 of slot 50 alongside `referralEnabled` and `bridgeGasLimit` and moves no pre-existing slot. `GracePeriodDeclaration` follows it as the final tail shard backing the large-deposit grace period: a single deposit/compound call that grows a user's balance by `graceThresholdAmount` or more stamps `lastLargeDepositAt[user]`, and until `gracePeriodDuration` has elapsed that user cannot claim, compound or reassign interest while deposits, withdrawals and every exit path stay open. `graceThresholdAmount == 0` disables the trigger, so an upgraded diamond with zeroed tail storage behaves exactly as before until master calls the setters. `graceFreezeEnabled` (slot 54, default `false`) is the master on/off switch for the swappable freeze hook (`GraceFreezeHookFacet`): the transfer / queue freeze on a grace-locked address enforces only while it is `true`, flipped instantly (no timelock) via `setGraceFreezeEnabled`, independent of the always-on interest-extraction gate. Its four fields take fresh tail slots 51 to 54 and move no pre-existing slot. `DepositHookDeclaration` follows it as a tail shard backing the optional swappable deposit hook: `depositHookFacet` is the facet `_registerLargeDeposit` DELEGATECALLs with the decorated call's positive balance delta for its large-deposit detection policy when set (zero = built-in inline single-call default), and `proposedDepositHookFacet` / `depositHookChangeQueuedAt` back its 3-day propose/execute timelock (instant pre-finalize, like the transfer hook). `depositHookFacet` packs into the free bytes 1..20 of slot 54 alongside `graceFreezeEnabled` and the other two fields take fresh tail slots 55 to 56, so no pre-existing slot moves. `DepositAccumDeclaration` follows it as a tail shard backing the two-bucket deposit accumulator (`GraceAccumHookFacet`): `depositAccumWindow` (slot 57, default `0` = accumulator off, never seeded by constructor or scripts) is the master-set bucket length over which the per-user `depositWindowStart` / `depositWindowTotal` records sum sub-threshold deposits toward `graceThresholdAmount`, all window records cleared on every stamp. Its three fields take fresh tail slots 57 to 59 and move no pre-existing slot. `CashedInterestTotalDeclaration` follows it as a tail shard backing the global cashed-interest ledger: `totalCashedInterest` mirrors `Σ cashedInterest[user]` in lockstep (accrual adds the banked pending, claims subtract the debited amount, the constructor migration seed delta-adds, `moveMyInterestTo` is net-zero and untouched) and feeds `_calculateNeededBuffer` so `sweepOverhang` reserves the settled liability; it is `internal` (no auto-getter) and read externally via `CashedInterestFacet.getTotalCashedInterest()`. It takes fresh tail slot 60 and moves no pre-existing slot. `SweeperDeclaration` follows it as the final tail shard backing the sweeper allowlist: `isSweeper` gates who may trigger `sweepOverhang`. The constructor seeds the worker, the third party and the deployer (`_seedSweepers`; on the deterministic path the bootstrap shim also grants the pending master and revokes its own seed), and master can grant/revoke further sweepers via the instant `setSweeper`; the trigger needs no timelock because swept funds can only reach the 3-day-timelocked `workerAddress` and the reserve floor holds regardless of caller. It takes fresh tail slot 61 and moves no pre-existing slot. `DepositAccumPrevDeclaration` follows it as the final tail shard extending the deposit accumulator with its previous bucket, split out so the shards before it keep their slots: `depositWindowPrevTotal` carries a user's full previous accumulation bucket forward, and `applyDepositAccumHook` always tests it together with the current `depositWindowTotal`, so deposits within one `depositAccumWindow` of each other can never dodge the `graceThresholdAmount` sum by straddling a bucket boundary while co-counting never reaches back two full windows; it is cleared alongside the other window records on every stamp and on a two-window skip. Appended last, it takes fresh tail slot 62 and moves no pre-existing slot.
 
 ### 2026-07 cap-relocation removal
 
-The former tail shards `VaultBridgeFlowDeclaration` (`bridgedInflow`/`bridgedOutflow`, old slots 63–64) and `VaultGlobalCapDeclaration` (`globalSupplyCap`/`globalCapVaults`, old slots 65–66) were deleted together with the exemption-ledger cap model they backed. The deposit cap is now relocation-based: `_checkDepositCap` is the plain legacy `totalSupply() + amount > totalDepositCap`, relocation-out (`_executeMoveOut`, `_executeBridgeOut`) burns and lowers `totalDepositCap` by the burned amount via `_reduceDepositCap`, relocation-in (`_executeMintFromPeer`, `_executeBridgeReceive`) raises it via `_raiseDepositCap` before the uncapped mint, and `setTotalDepositCap` floors at the live `totalSupply()` — so `totalSupply() ≤ totalDepositCap` holds globally, per-chain room (`totalDepositCap − totalSupply()`) is invariant under every relocation, and the mesh-wide cap sum is conserved by user flows (making the chain-wide global cap redundant). Every relocation cap write emits `DepositCapRelocated`. Since all four fields were the layout tail, the layout truncates to slots 0–62 with no renumbering; the deletion is safe for the same pre-genesis reason as the slot compaction above.
+The former tail shards `VaultBridgeFlowDeclaration` (`bridgedInflow`/`bridgedOutflow`, old slots 63 to 64) and `VaultGlobalCapDeclaration` (`globalSupplyCap`/`globalCapVaults`, old slots 65 to 66) were deleted together with the exemption-ledger cap model they backed. The deposit cap is now relocation-based: `_checkDepositCap` is the plain legacy `totalSupply() + amount > totalDepositCap`, relocation-out (`_executeMoveOut`, `_executeBridgeOut`) burns and lowers `totalDepositCap` by the burned amount via `_reduceDepositCap`, relocation-in (`_executeMintFromPeer`, `_executeBridgeReceive`) raises it via `_raiseDepositCap` before the uncapped mint, and `setTotalDepositCap` floors at the live `totalSupply()`, so `totalSupply() ≤ totalDepositCap` holds globally, per-chain room (`totalDepositCap − totalSupply()`) is invariant under every relocation, and the mesh-wide cap sum is conserved by user flows (making the chain-wide global cap redundant). Every relocation cap write emits `DepositCapRelocated`. Since all four fields were the layout tail, the layout truncates to slots 0 through 62 with no renumbering; the deletion is safe for the same pre-genesis reason as the slot compaction above.
 
 ### 2026-07 hook-guard shard
 
-`HookGuardDeclaration` is appended after `DepositAccumPrevDeclaration` but declares a single **transient** flag `hookExecuting` (`bool internal transient`), so it occupies no persistent storage slot and does not appear in the table above — the persistent layout stays at slots 0–62. Set only by `_runDepositHook` / `_runTransferHook` around the hook DELEGATECALL and required by both hook facets, it makes a routed hook selector callable only through the internal decorated path (never by an external caller).
+`HookGuardDeclaration` is appended after `DepositAccumPrevDeclaration` but declares a single **transient** flag `hookExecuting` (`bool internal transient`), so it occupies no persistent storage slot and does not appear in the table above; the persistent layout stays at slots 0 through 62. Set only by `_runDepositHook` / `_runTransferHook` around the hook DELEGATECALL and required by both hook facets, it makes a routed hook selector callable only through the internal decorated path (never by an external caller).
 
 ### 2026-07 interest-remainder shard
 
 `InterestRemainderDeclaration` is appended last of all shards, after the transient `HookGuardDeclaration`: `interestRemainder` carries the sub-unit fraction of accrued interest that the floored `_calculateInterest` would otherwise discard when `_assignInterest` resets `lastSyncTimeStamp`. Each sync adds the scaled pending (the `_calculateInterest` numerator before the final `/ PRECISION_FACTOR_E18`) to the carried remainder, banks only the whole units into `cashedInterest`, and stores the leftover (always `< PRECISION_FACTOR_E18`, i.e. less than one base unit of interest) back here, so accrual is lossless across an arbitrary number of syncs and a hostile force-sync (a 1-wei transfer or `moveMyInterestTo` targeting the victim every block) can no longer floor a small holder's interest to zero. Never counted in `totalCashedInterest` until it crosses a whole unit and banks, so the `totalCashedInterest` accumulator identity holds. It takes fresh tail slot 63 and moves no pre-existing slot.
 
-### 2026-07 referral-registry shard — PERMANENTLY DORMANT since 2026-08-14
+### 2026-08 auto-compound shard
 
-`ReferralRegistryDeclaration` (slot 64, `referrerOf`) was designed as the in-diamond
+`AutoCompoundDeclaration` is appended after `InterestRemainderDeclaration`: `isAutoCompoundBot` is the master-set keeper allowlist, `autoCompoundAllowed` the per-user opt-in, and `autoCompoundFeeBps` the capped keeper fee for `AutoCompoundFacet.compoundInterestOnBehalf`: an allowlisted bot compounds an opted-in user's settled interest into shares and keeps the fee in USD. Its three fields take fresh tail slots 64 to 66 and move no pre-existing slot. Unlike every earlier shard this one is the first activated onto the ALREADY-LIVE diamonds via a routed facet rather than shipping in genesis bytecode: safe because the deployed layout ends at slot 63, so no live code reads or writes slots 64+ and the shard begins on untouched zero slots. That claim is anchored to the deployed code itself by `script/check_live_layout_prefix.sh` (fetches the Etherscan-verified source of a live vault, byte-compares its compiled runtime against the on-chain code of all 9 vaults, and asserts the deployed layout is an exact prefix of the committed snapshot). Because the frozen live dispatchers cannot serve the shard's compiler-generated getters, all seven `AutoCompoundFacet` selectors (four functions + three getters) are routed on live vaults; freshly-deployed diamonds serve the getters natively.
+
+### 2026-08-28 pending-shard rebase under the auto-compound shard
+
+The auto-compound shard was deployed to the live world (facet instances on all four chains, selector proposals queued on all nine vaults) while the referral/cohort shards in `declarations/pending/` were still unbroadcast, and both claimed the tail starting at slot 64. The live world wins: every pending shard was rebased to inherit AFTER `AutoCompoundDeclaration`, shifting the never-deployed pending block by exactly three slots: `referrerOf` 64→67, the cohort-contribution pair 65 to 66→68 to 69, the cohort book 67 to 72→70 to 75, `pendingReferralPayout` 73→76 and the registry pointer 74 to 76→77 to 79 (next free tail slot now 80). This is safe for the same reason pending shards are always free to move: their slots are virgin on every live diamond and no deployed bytecode was compiled against the old numbers; every facet in the tree recompiles against the rebased chain, and `check_storage_layout.sh` plus `check_live_layout_prefix.sh` prove the tree layout is internally identical and an exact extension of the deployed prefix.
+
+### 2026-07 referral-registry shard (PERMANENTLY DORMANT since 2026-08-14)
+
+`ReferralRegistryDeclaration` (slot 67, `referrerOf`) was designed as the in-diamond
 write-once referrer book, but it never went live (onchain-verified virgin on all 9 diamonds,
 2026-08-13); referrer truth moved instead to the per-chain standalone
-`ReferralRegistry` (`src/registry/pending/`) reached through the slot-74 pointer below. The
+`ReferralRegistry` (`src/registry/pending/`) reached through the slot-77 pointer below. The
 mapping is now declared but FOREVER VIRGIN: no shipped code path reads or writes it, the
 fork rehearsals assert a raw `vm.load` of zero even after assignments, and the field was
-flipped `public` → `internal` (layout-neutral — the check script compares label/slot/offset/
+flipped `public` → `internal` (layout-neutral, since the check script compares label/slot/offset/
 type only) so freshly compiled diamonds carry no auto-getter that would shadow the routed
 registry-reading `ReferralFacet.getReferrerOf`. The shard is kept solely to preserve the
-layout — removing it would renumber slots 65–73.
+layout; removing it would renumber slots 68 to 79.
 
 ### 2026-08 cohort-recorder shards
 
 `CohortContributionDeclaration` and `CohortBookDeclaration` are appended last of all shards,
-after `ReferralRegistryDeclaration` (slot 64), taking fresh tail slots 65–72 and moving no
+after `ReferralRegistryDeclaration` (slot 67), taking fresh tail slots 68 to 75 and moving no
 pre-existing slot. They back the cohort recorder of the referral commission system:
-`cohortSyncEnabled` (slot 65, default `false`) is the instant master switch — every recorder
+`cohortSyncEnabled` (slot 68, default `false`) is the instant master switch: every recorder
 touchpoint stub early-returns while it is off, so a live diamond with zeroed tail storage (and
 every intermediate state of the upgrade sequence) behaves byte-for-byte as before until master
 arms via `setCohortSyncEnabled` (which requires and probes the cohort-aware transfer hook).
-`trackedContribution` (66) is the per-user cumulative deposit/compound ledger, kept for every
+`trackedContribution` (69) is the per-user cumulative deposit/compound ledger, kept for every
 depositor and lazily clamped one-way to `min(tracked, balanceOf)` at every balance touchpoint.
-`cohortBook` (67) packs bookY1|bookY2|bookM as three 80-bit lanes in one word (the crumb-word
-geometry); `cohortLastSettle` (68) of zero means never-touched — the first credit stamps the
-current timestamp, no walk from week zero. `cohortRingYear1/2` (69/70) are the 52-slot uint64
+`cohortBook` (70) packs bookY1|bookY2|bookM as three 80-bit lanes in one word (the crumb-word
+geometry); `cohortLastSettle` (71) of zero means never-touched: the first credit stamps the
+current timestamp, no walk from week zero. `cohortRingYear1/2` (72/73) are the 52-slot uint64
 cohort rings (slot = week mod 52, four lanes per storage word, 13 words per referrer per
-ring); `cohortWeekLog` (71) holds the FROZEN crumb words (three 80-bit token-second lanes +
+ring); `cohortWeekLog` (74) holds the FROZEN crumb words (three 80-bit token-second lanes +
 written bit 252, versioned `CRUMB_VERSION = 1` for the future cross-chain flush envelope);
-`cohortGapLog` (72) packs dormant fast-forward spans. All fields are `internal`; the routed
-read surface lives on `CohortRecorderFacet` (`cohortRecorderSelectors`, post-launch group).
+`cohortGapLog` (75) packs dormant fast-forward spans. All fields are `internal`; the routed
+read surface lives on `CohortRecorderFacet` (`_cohortRecorderSelectors`, post-launch group).
 The recorder engine itself is compiled once into `CohortHookFacet` and reached exclusively
-through the `transferHookFacet` pointer (slot 45) — the hook swap and every touched facet
+through the `transferHookFacet` pointer (slot 45); the hook swap and every touched facet
 ship together via `UpgradeCohortRecorder`. Every lane write saturates and reports through
 `CohortLaneSaturated` instead of reverting: the engine runs inside the transfer hook, where a
 revert would veto the transfer (the recorder's never-block guarantee).
@@ -152,76 +187,447 @@ revert would veto the transfer (the recorder's never-block guarantee).
 ### 2026-08 referral-payout shard
 
 `ReferralPayoutDeclaration` is appended last of all shards, after `CohortBookDeclaration`
-(slots 67–72), taking fresh tail slot 73 and moving no pre-existing slot. It backs the
+(slots 70 to 75), taking fresh tail slot 76 and moving no pre-existing slot. It backs the
 vault half of the referral payout accounting: `pendingReferralPayout` is the ONE global USD
 liability the hub's priced verdicts have awarded against this vault but referrers have not yet
-claimed — no per-user breakdown, no separate pot (referral money and `sweepOverhang` draw from
+claimed, with no per-user breakdown and no separate pot (referral money and `sweepOverhang` draw from
 the same vault USD pool). It enters `_calculateNeededBuffer` at both return sites as one more
-additive liability term — the exact `totalCashedInterest` pattern — so `sweepOverhang` /
+additive liability term (the exact `totalCashedInterest` pattern), so `sweepOverhang` /
 `getOverhang` shrink by exactly the pending payout and a sweep can never take pre-funded
 payout cash. Zero means byte-for-byte prior behavior (default-off; `x + 0 = x` needs no arming
 switch). NO writer exists yet: the future hub payout intake is the designated writer (raise on
 accrual, lower on claim), must emit `PendingReferralPayoutChanged` on every mutation, and is
-bound by the shard's gas discipline — read only on the sweep surface, ONE batched storage
+bound by the shard's gas discipline: read only on the sweep surface, ONE batched storage
 write per hub delivery message and ONE per claim transaction, never writes inside user paths.
 The field is `internal`; the routed read surface is the pending
-`ReferralPayoutFacet.getPendingReferralPayout()` (`referralPayoutSelectors`, post-launch
+`ReferralPayoutFacet.getPendingReferralPayout()` (`_referralPayoutSelectors`, post-launch
 group, ships with the future payout upgrade round).
 
 ### 2026-08 registry-pointer shard
 
 `ReferralRegistryPointerDeclaration` is appended last of all shards, after
-`ReferralPayoutDeclaration` (slot 73), taking fresh tail slots 74–76 and moving no
+`ReferralPayoutDeclaration` (slot 76), taking fresh tail slots 77 to 79 and moving no
 pre-existing slot. It backs the referral commission system's registry pointer:
-`referralRegistry` (74) is the address of the chain's standalone `ReferralRegistry` — the
-single source of referrer truth for every vault on the chain — and
-`proposedReferralRegistry` (75) / `referralRegistryChangeQueuedAt` (76) back its 3-day
+`referralRegistry` (77) is the address of the chain's standalone `ReferralRegistry` (the
+single source of referrer truth for every vault on the chain), and
+`proposedReferralRegistry` (78) / `referralRegistryChangeQueuedAt` (79) back its 3-day
 propose/execute/cancel timelock, cloned from `TransferHookDeclaration` (instant
 pre-`finalizeSetup`, `code.length` check) plus a shape probe at execute (staticcall
-`referrerOf`, exactly 32 bytes of returndata required). While the pointer is zero — the
-virgin default and every intermediate state of the upgrade sequence — the feature is off in
+`referrerOf`, exactly 32 bytes of returndata required). While the pointer is zero (the
+virgin default and every intermediate state of the upgrade sequence) the feature is off in
 both directions: `...WithReferral` entrypoints revert `ReferralRegistryNotSet` (loud, never
-a silent referrer drop), the recorder's `_cohortReferrerOf` short-circuits to "unreferred"
-without an external call, and `setCohortSyncEnabled(true)` refuses to arm. With a pointer
+a silent referrer drop), the recorder's `_cohortReferrerOf` short-circuits without an
+external call (since 2026-09-28 to a FAILED lookup in both guarded seams, so an armed
+recorder whose pointer was cleared defers every clamp instead of reading "unreferred"), and
+`setCohortSyncEnabled(true)` refuses to arm. With a pointer
 set, `ReferralFacetBase._handleReferral` CALLs `assignReferrer` (write-once enforced
 registry-side, `ReferralAssigned` emitted by the registry with the vault identity) and the
 recorder resolves referrers through a guarded assembly staticcall bounded to a 32-byte
-returndata window — a FAILED lookup is distinguished from "no referrer" and each caller
+returndata window: a FAILED lookup is distinguished from "no referrer" and each caller
 skips its entire mutation unit (`CohortReferrerLookupFailed` anomaly event), keeping the
 tracked-equals-book identity exact and the hook path revert-free under ANY registry
 condition. All three fields are
 `internal`; the routed read surface is the `AdminFacet` getter trio
 (`getReferralRegistry` / `getProposedReferralRegistry` /
-`getReferralRegistryChangeQueuedAt`), and the writers are the `AdminFacet` pointer trio —
+`getReferralRegistryChangeQueuedAt`), and the writers are the `AdminFacet` pointer trio,
 six new admin selectors shipping with the registry round's AdminFacet redeploy
 (`UpgradeReferralRegistry`, which supersedes `UpgradeCohortRecorder`).
 
-### 2026-08-18 Same-chain move carry — NO diamond storage added
+### 2026-08-29 payout-hub pointer shard
+
+`PayoutHubPointerDeclaration` is appended after `ReferralRegistryPointerDeclaration` (slots
+77 to 79), taking fresh tail slots 80 to 82 and moving no pre-existing slot. It backs the vault
+half of the referral payout rail: `payoutHub` (slot 80) is the mainnet referral hub (the
+standalone scoreboard/paymaster), authorized to book payout liability into
+`pendingReferralPayout` (`raisePendingReferralPayout`, one batched raise per hub delivery
+message) and to pull the USD covering a claim (`fundReferralPayout`, which lowers the
+liability in the same call so the sweep buffer tracks the debt at every instant). Only ONE
+vault of the mesh is ever pointed at the hub; commissions earned mesh-wide settle against
+that vault's USD pool by design. While the pointer is zero (the virgin default and every
+intermediate state of any upgrade sequence) both writers revert `NotPayoutHub` and the
+vault behaves byte-for-byte as before (default-off convention). `proposedPayoutHub` (81) /
+`payoutHubChangeQueuedAt` (82) back the 3-day propose/execute/cancel timelock cloned from
+the registry-pointer shard (instant pre-`finalizeSetup`, zero = revert-to-off), with a
+shape probe at execute (staticcall `USD_TOKEN()`, returndata must decode to the vault's own
+USD token, so a hub built for a different asset cannot be wired). The timelocked pointer is
+the ONLY authorization for the payout writers, never an ERC-20 allowance, which would let
+USD leave without the liability accounting seeing it. All three fields are `internal`; the
+read surface is the routed `AdminFacet` getter trio (`getPayoutHub` / `getProposedPayoutHub`
+/ `getPayoutHubChangeQueuedAt`), the writers the `AdminFacet` pointer trio (six new admin
+selectors shipping with the payout round's AdminFacet redeploy). The next free tail slot
+moved to **83**, taken the same day by the cohort flush shard below.
+
+### 2026-08-29 cohort flush shard
+
+`CohortFlushDeclaration` is appended after `PayoutHubPointerDeclaration` (slots 80 to 82),
+taking fresh tail slots 83 to 89 and moving no pre-existing slot. It backs the cross-chain
+flush transport (`CohortFlushFacet`): `flushHub` + `flushHubChainSelector` pack into slot
+83 and name the mainnet referral hub the vault's cohort book flushes to. A nonzero
+selector sends a CCIP flush envelope, a zero selector with a nonzero hub delivers by
+direct local call (the hub-chain vaults). While `flushHub` is zero (the virgin default
+and every intermediate state of any upgrade sequence) every flush entrypoint reverts
+`FlushHubNotSet` and the vault behaves byte-for-byte as before (default-off convention).
+`proposedFlushHub` + `proposedFlushHubChainSelector` (84, packed) and
+`flushHubChangeQueuedAt` (85) back the 3-day propose/execute/cancel timelock cloned from
+the payout-hub pointer shard (instant pre-`finalizeSetup`, all-zero proposal = revert to
+off; no execute-time shape probe, because the hub usually lives on another chain, so the 3-day
+window is the review period and a zero hub with a nonzero selector is the one shape
+execute rejects). `flushedThroughWeek` (86) and `flushGapCursor` (87: gap-log index low
+128 bits, intra-record resume week high 128) are per-referrer send cursors: fee
+optimizations over the hub's idempotent paid-cursors on the referrer's own path, the start
+gate for third-party windows (a window from anyone but the referrer must start after both)
+and the write key for third-party batches (they write the cursors only once the referrer's
+own flush set the through-week cursor). `allowedFlushBot` (88) and
+`publicFlushEnabled` (89 byte 0) gate flushing other referrers' books (own-book flush is
+ungated forever); `flushGasLimit` (89 bytes 1..8) is the CCIP destination gas budget
+(zero = the 300k default). Nothing in this shard is touched by any deposit, transfer,
+compound, queue or bridge path. All fields are `internal`; the read surface is the routed
+`AdminFacet` getter trio for the pointer plus the `CohortFlushFacet` views, the writers
+the `AdminFacet` pointer trio (six new admin selectors shipping with the flush round's
+AdminFacet redeploy) and the `CohortFlushFacet` entrypoints and policy setters. The next
+free tail slot is now **90**.
+
+### 2026-09-03 cohort attribution shard
+
+`CohortAttributionDeclaration` is appended after `CohortFlushDeclaration` (slots 83 to 89),
+taking fresh tail slot 90 and moving no pre-existing slot. `attributedContribution` is the
+slice of a user's `trackedContribution` (slot 69) that was actually credited to a referrer's
+book: it rises inside a credit only when a referrer was credited (deposits made while
+unreferred or while the registry lookup failed track but attribute nothing), rises on a
+carry landing by the lanes the destination replants, and is the ONLY quantity a clamp may
+charge a referrer's book with (`min(deficit, attributed)`, the counter lowered by the
+charge). It closes the clamp over-charge: without it a referrer assigned after a user's
+uncredited deposits was charged the whole tracked deficit at the next clamp, so anyone
+could drain a chosen referrer's book with a plain deposit, a one-unit referral deposit and
+a transfer. `attributedContribution <= trackedContribution` holds at every touchpoint;
+`trackedContribution` keeps its self-stake ladder role untouched. Default-off convention:
+zeroed storage attributes nothing, so a clamp on a live diamond charges nothing until
+credits land after arming. The field is `internal`; the read surface is the routed
+`CohortRecorderFacet.getAttributedContribution` (recorder group 13 → 14, selector total
+159); every writer is an engine touchpoint reached through the hook pointer or the routed
+bridge-hook slice. The next free tail slot is now **91**.
+
+### 2026-09-03 cohort divest shard
+
+`CohortDivestDeclaration` is appended after `CohortAttributionDeclaration` (slot 90), taking
+fresh tail slot 91 and moving no pre-existing slot. `pendingDivestSync` is the one share
+sender whose divestment the recorder has not observed yet. The frozen entry contract runs the
+transfer hook BEFORE the balance moves and hands it only the two addresses, so a plain
+transfer left the sender's `trackedContribution` (slot 69) and the referrer's book untouched
+until some later touchpoint of that same sender, and nothing forced one: deposit under a
+referrer, transfer the shares away, sell them at par through the queue, repeat, and the book
+stacked one deposit per cycle on capital that came straight back. The hook now parks the
+sender here (only while they hold tracked contribution) and every hook-slice entrypoint
+except the bounded `applyCohortAdvance` drains the slot first (since 2026-09-28 the advance
+drains too, see the self-crumb section below), syncing the parked user at the
+exact post-transfer balance before doing its own work; every path that lets shares leave the
+vault is such an entrypoint, so the shares can never be sold on before the clamp. A drained
+sync that hits a failed registry lookup keeps the slot, an occupied slot skips a new park
+with `CohortDivestParkSkipped`, and a router-initiated receive never drains a parked third
+party (fixed CCIP gas budget; since 2026-10-02 it resolves a parked recipient at its own park
+instant before the mint, see `CohortRecorderBase`). Default-off convention: zeroed storage
+parks nothing and the slot is touched only while `cohortSyncEnabled`. The field is `internal`
+with no getter; the `CohortDivestParked` and `CohortDivestDrained` events carry it, and any
+touchpoint or the permissionless `syncReferee` clears it. No selector changes. The next free
+tail slot is now **92**.
+
+### 2026-09-28 cohort self-crumb shard and the divest park stamp
+
+`CohortSelfDeclaration` is appended after `CohortDivestDeclaration` (slot 91), taking fresh
+tail slot 92 and moving no pre-existing slot. `cohortSelfCrumb` holds one packed word per
+account that measures the account's own tracked stake over time: bits 0..79 are
+`currentWeekSeconds` (the token-seconds of the account's own `trackedContribution` accrued so
+far inside the week that contains the settle stamp), bits 80..159 `previousWeekSeconds` (the
+complete token-seconds of the week before that one), bits 160..223 `settledAt` (the uint64
+timestamp of the last settle, zero meaning never settled) and bits 224..255 stay zero. The
+engine settles the word before every change of `trackedContribution`, at the instant the
+change takes effect (the block time, or the park instant for a deferred divest), so the stake
+between two settles is constant and one word is exact for the completed previous week with no
+boundary walk. A settle inside the same week accrues the current lane; a settle in the next
+week completes the previous lane from the current lane plus the stake up to the boundary and
+restarts the current lane at the week start; a settle two or more weeks later writes the stake
+times one week as the previous lane, because a stake held through more than one boundary
+contributes exactly that to the week before the current one. The stake is clamped to the
+80-bit lane ceiling before any product and every lane saturates at it, so nothing overflows.
+The flush facet's self score reads the word as a floor: the reported self stake is the lower
+of the instant ledger value clamped to the held balance and the presence during the completed
+previous week divided by one week, so a same-block or flash-held deposit cannot lift it (a
+virgin word reads as the current ledger value held throughout, which is exact for a stake
+that predates the shard). The routed read surface is `CohortRecorderFacet.getCohortSelfCrumb`
+(recorder group 14 → 15, selector total 162), and `CohortSelfCrumbSettled` carries every write
+beside the tracked-change event of the same call.
+
+The same round packs `pendingDivestParkedAt` (uint64) into bytes 20 to 27 of slot 91 beside
+`pendingDivestSync`. The park stamps its own instant there, and the drain settles the
+referrer's book and the sender's self crumb to that instant at the unreduced principal before
+the clamp, so frozen crumbs and the self crumb count the departed principal only until the
+park (when another touch already settled the book past the park instant, the reduction
+applies at that later cursor instead). The drain clears both fields together, and the bounded
+`applyCohortAdvance` drains too. Default-off convention: zeroed storage reads as a virgin self
+word and an empty park, both fields are written only while `cohortSyncEnabled`, and a live
+diamond behaves exactly as before until master arms the recorder. Both fields are `internal`.
+
+The recorder engine now compiles into three slices that share the byte-identical layout: the
+hot clamp, credit and settle paths in `CohortHookFacet` behind the hook pointer, the same-chain
+move-carry pair in the dispatcher-routed `CohortMoveHookFacet` (the pointer facet forwards the
+two move selectors into it by selector), and the bridge-carry and referrer-flip closure in
+`CohortBridgeHookFacet`. `CohortMoveHookFacet` joins the facet list of
+`check_storage_layout.sh` (24 → 25 facets) and the snapshot grows from 102 to 104 entries.
+The next free tail slot is now **93**.
+
+### 2026-10-02 cohort disarm shard
+
+`CohortDisarmDeclaration` is appended after `CohortSelfDeclaration` (slot 92), taking fresh tail
+slot 93 and moving no pre-existing slot. It packs two uint64 stamps into that slot:
+`cohortDisarmedAt` (bytes 0 to 7), the instant the recorder was last disarmed, and
+`cohortRearmedAt` (bytes 8 to 15), the instant it was armed again after that disarm. While the
+recorder is disarmed no engine entrypoint runs, so a referrer book's settle cursor stays where the
+last settle before the disarm left it, and the first settle after the re-arm used to write crumbs
+for the whole span at the book it froze with: principal that left during the span (no hook saw it
+leave) earned commission for the span, and a stake that moved to another vault during the span
+was vouched by both vaults for the same weeks. The AdminFacet `setCohortSyncEnabled` wrapper now
+stamps `cohortDisarmedAt` with the block time and clears `cohortRearmedAt` on an actual disarm,
+and the hook slice's `applyCohortSync(address(0))`, the arming call the helper makes right after
+it sets the switch, stamps `cohortRearmedAt` while a disarm is stamped and the re-arm stamp is
+clear; each write emits `CohortDisarmSpanSet`. Every book settle and the bounded book advance
+then count only the seconds of each crumb segment outside `[cohortDisarmedAt, cohortRearmedAt)`
+and still rotate the rings at every boundary they cross, a dormant gap record is split around the
+span, and the self-crumb settle accrues the span at zero, so the span earns no commission and a
+stake that left during it is never vouched twice. Only the latest span is held; the operator
+settles every book past a re-arm before any planned disarm. Default-off convention: zeroed
+stamps describe no span, so a live diamond settles every segment in full exactly as before until
+master disarms an armed recorder and arms it again, and the first arming of a never-disarmed
+vault writes nothing. Both fields are `internal` with no getter: `CohortDisarmSpanSet` carries
+every write and the raw slot is readable with `cast storage <diamond> 93`. No selector changes and
+no new facet, so `check_storage_layout.sh` keeps its 25 facets; the snapshot grows from 104 to 106
+entries. The next free tail slot is now **94**.
+
+2026-10-11 addendum, no storage change: the read side now honours the same span. Both self arms of
+the flush score read one span weighted floor (`_spanWeightedFloorCohort`, sharing the engine's
+`CohortWeeks._liveSecondsCohort` split): when a completed span sits between the self crumb's stamp
+and the read, the priced week is rebuilt from the seconds the stake actually accrued, the crumb's
+current lane for the part before the stamp plus the tracked contribution times the live seconds
+with the span's own seconds weighing zero, so a mid week arrival counts only from its stamp, an
+intact holder keeps presence on both sides of the span, and a holder whose live balance fell below
+the tracked contribution (only an exit no hook saw can leave that divergence, every armed exit
+path runs the contribution clamp) counts no second past the disarm; a crumb stamped inside the
+read week carries the engine's own split already and is returned as written. The bare
+`advanceBook` and the flush entrypoints' pre-plan
+settle (`applyCohortSettle`, its target capped at the span start) park a book's settle cursor at a
+completed span's start and vouch no later week, so the weeks after the span stay unwritten
+until a referee event or a clamp poke settles the book, which is what re-voices the level a
+mid-span exit left stale in the lanes.
+
+### 2026-10-06 referral reopen stamp + the hub diamond layout
+
+The slot-93 `CohortDisarmDeclaration` packs a third uint64 stamp, `referralReopenStamp`
+(bytes 16 to 23): the latest instant the vault's referral intake reopened through an actual
+paused to unpaused transition (`AdminFacet.unpauseDeposits` stamps it after `_unpause()`;
+repeated unpause calls revert inside Pausable, and the re-arm path keeps stamping
+`cohortRearmedAt` only). The flush facet's third-party outage gate reads
+`max(referralReopenStamp, cohortRearmedAt while a disarm span stands)` and refuses, for one
+grace day, any third-party window or batch whose first week on either lane (the crumb scan
+or the dormant-gap walk) closed at or before that instant; the referrer's own flush is never
+gated. No new shard, no selector change and no new facet: the packed slot simply gains a
+named field, so the snapshot grows from 106 to 107 entries and the table above gains the
+`93 (16..23)` row.
+
+The referral hub is a diamond proxy now too, so `check_storage_layout.sh` grew a hub block
+beside the vault block: the hub chain (`ReferralHubDeclarations` over `OwnableMaster`) is
+inspected for the proxy and each of its five facets and diffed against the committed
+`test/hub/storage_snapshot/hub_layout.json` (31 entries), regenerated with
+`forge inspect src/hub/pending/ReferralHub.sol:ReferralHub storage-layout --json`.
+The hub layout: `OwnableMaster` holds slots 0 to 1 (`master`, `proposedMaster`), the
+declarations shard follows, `paidCursor` holds slot 9 and the per-lane remainder park
+`paidRemainder` (three 39-bit lanes keyed by (source, referrer, week), the sub-unit
+numerators the pricing carries between deliveries of the same week) holds slot 10 beside
+it, `USD_TOKEN` sits at slot 26 (it moved from an immutable to a
+storage field because immutables do not survive delegatecall), the selector tables
+(`selectorToFacet`, `proposedSelectorFacet`, `selectorChangeQueuedAt`) take slots 27 to 29
+and `initialized` slot 30. The hub is PENDING (never broadcast), so the renumbering against
+the retired monolith numbering (the `totalPayable` insertion after `totalBooked` shifted the
+report/aggregates block by one slot, the monolith tail `botShareBps` moved into the rate
+table, and the remainder park inserted beside `paidCursor` shifted every later field by one
+slot) breaks no live storage: every hub deploy rehearsal must start from this 31-entry
+snapshot, not the monolith numbering.
+
+### 2026-10-07 referral pause stamp
+
+The slot-93 `CohortDisarmDeclaration` packs a fourth uint64 stamp, `referralPauseStamp`
+(bytes 24 to 31): the latest instant the vault's referral intake actually paused
+(`AdminFacet.pauseDeposits` stamps it after `_pause()`; repeated pause calls revert inside
+Pausable, and the unpause path keeps stamping `referralReopenStamp` only). The stamp is the
+start twin of the reopen stamp: together they bound the pause span the way the disarm stamps
+bound theirs, and the flush facet's third-party outage gate holds one grace day plus the
+pause span past the unpause AND one grace day plus the disarm span past the re-arm (a later
+short outage of one class never voids the grace an earlier longer outage of the other
+earned, and equal-second stamps keep both spans), because a multi-week pause strands a
+multi-week backlog a single grace day could not clear; the gate also moved after the pre-plan settle in
+both entrypoints so it reads the gap log exactly as the planner will. No new shard, no
+selector change and no new facet: the packed slot simply gains a second named field, so the
+snapshot grows from 107 to 108 entries and the table above gains the `93 (24..31)` row. The
+next free tail slot stays **94**.
+
+
+### 2026-10-08 grace-end tail slot
+
+The slot-93 disarm shard is full (four uint64 stamps), so the grace-end tail takes fresh
+slot 94 inside `CohortDisarmDeclaration` as a second slot of the same shard:
+`referralPauseGraceEnd` (bytes 0 to 7) and `referralDisarmGraceEnd` (bytes 8 to 15) hold
+the LATEST grace end their class has ever earned. The unpause writes the pause word and
+the arming call the disarm word, each to the reopen instant plus the grace day plus the
+closed span, and only ever raised, so a second short outage of the SAME class can no
+longer overwrite a long first span the way the single stamp pair would; the stamps keep
+their role for the latest span (including one that closed before this tail existed) and
+the flush facet's outage gate walks both. The words are never cleared: once the clock has
+passed one it is an inert lower bound. Both fields are `internal` with no getter; the
+raise rides the existing span events. No selector change; the snapshot grows from 108 to
+110 entries and the table above gains the two `94` rows. The shard also gained the shared
+`FLUSH_OUTAGE_GRACE` constant (compile-time only, no storage effect).
+
+### 2026-10-10 hub remainder park
+
+The hub declarations gained the per-lane remainder park `paidRemainder`, a
+`mapping(bytes32 => mapping(address => mapping(uint256 => uint256)))` at slot 10, declared
+directly beside the `paidCursor` mapping it serves: each of its three 39-bit lanes holds
+the parked sub-unit numerator of the week's pricing (`increment x bps + carry` against
+`BPS_DENOMINATOR x CohortWeeks.YEAR`), released into the next delivery of the same
+(source, referrer, week) cell, so a lane increment below the one-unit floor parks instead
+of vanishing while the cursor consumes it. The field is `internal` with no getter, so no
+selector changes; because it was inserted beside `paidCursor` rather than appended at the
+shard tail, every later hub field shifted one slot (`USD_TOKEN` 25 to 26, the selector
+tables 26 to 28 to 27 to 29, `initialized` 29 to 30) and the hub snapshot grows from 30
+to 31 entries. The hub is PENDING and undeployed, so the shift breaks no live storage;
+every hub deploy rehearsal starts from the regenerated 31-entry snapshot.
+
+### 2026-10-15 cohort self log shard and the hub week buckets
+
+Superseded notes: the sections below that describe the flush facet's score words, the
+span-weighted floor and the hub remainder park describe retired state (codec v2 carries no
+score word, `paidRemainder` is declared but unused); their slot rows stand unchanged.
+
+`CohortSelfLogDeclaration` is appended last in `WiseTelecomNodesDeclarations` and in
+`CohortPinnedBase`, so `cohortSelfLog` takes fresh tail slot 95 and moves no pre-existing
+slot. It is the per-user week log of the self crumb: every self-settle piece that crosses a
+week boundary, for a user whose book exists or who has flushed before, pushes one record
+(the week the piece started in, the seconds it completed there, the stake it held), so the
+flush planner can report a realised average for every closed week instead of sampling the
+stake at flush time. On a live diamond the slot is virgin: the log starts empty and only
+grows once the upgraded facets run, so a zeroed tail behaves exactly as before until the
+cohort facets are rerouted. The field is `internal` with no getter; each push emits
+`CohortSelfLogged`. The vault snapshot grows from 110 to 111 entries and the table above gains
+the `95` row. The next free tail slot is **96**.
+
+The hub declarations append the week buckets after `sourceSystemOf`: `sourceWeekOf`
+(per source, referrer and week, the referred average in the low half and the paid units in
+the high half), `weekInputsOf` (per referrer and week, the referred sum low and the self
+sum high), `sourceSelfOf` (per source, referrer and week, the source's largest self average; the
+ladder input sums it over the sources),
+`sourceChainIdOf` (the chain a source credits, written once at its first delivery and
+public) and `sourceListedFor` (whether a source is already in a referrer's source list).
+The state the buckets retired (the score aggregates, checkpoints, freshness words and the
+remainder park) stays declared and unused, so the hub layout only grows at its tail. The
+hub is PENDING and undeployed; the hub snapshot grows from 33 to 38 entries.
+
+### 2026-10-16 hub lever timelock (hub slot 38)
+
+The hub declarations append `leverChangeQueuedAt` (slot 38, `mapping(bytes32 => uint256)`,
+public) after `sourceListedFor`: the proposal time of a queued master lever call, keyed by the
+hash of its full calldata. After `finalizeSetup` allowing a reporter, setting the router and
+setting a flush or designation source to a chain id run only as that exact call at least
+`SELECTOR_CHANGE_DELAY` after its proposal, and each proposal runs once; revocations and every
+call before `finalizeSetup` never read it. The hub is PENDING and undeployed; the hub snapshot
+grows from 38 to 39 entries. No vault storage changes.
+
+### 2026-10-14 slim cohort facets (NO diamond storage added)
+
+CohortHookFacet, CohortMoveHookFacet, CohortBridgeHookFacet (through
+CohortRecorderBase) and CohortFlushFacet no longer inherit the full declaration
+chain. They inherit `CohortPinnedBase`: slots 0 to 2 from the same OwnableMaster,
+Pausable and ReentrancyGuard bases, the genesis slots they read pinned by label
+(`_balances` 3, `selectorToFacet` 23, `ccipRouter` 34 offset 1,
+`transferHookFacet` 45, `gracePeriodDuration` 51, `lastLargeDepositAt` 53,
+`graceFreezeEnabled` 54) with `__gap` and `__pad` filler, and the tail shards from
+slot 67 inherited verbatim. Each facet drops about 9.3 KB of unrouted public
+surface. They join the pinned list of `check_storage_layout.sh`, which now also
+proves that no storage byte has two owners (the diamond entries pairwise, the
+entries of each slim facet pairwise, and every named slim entry against the
+diamond) and that the one transient variable, `hookExecuting`, is declared
+identically on both sides.
+
+### 2026-08-18 Same-chain move carry (NO diamond storage added)
 
 The same-chain move-carry round deliberately adds ZERO diamond storage: the committed
-snapshot stays byte-identical at 84 entries and slot 77 remains the next free
-tail slot (reserved in practice for a future cross-chain flush-cursor shard). The only additions
+snapshot stays byte-identical and slot 80 remained the next free
+tail slot at the time (taken 2026-08-29 by the payout-hub pointer shard; the flush-cursor
+reservation landed the same day as the cohort flush shard, slots 83 to 89). The only additions
 to the declaration chain are two `bytes4` selector CONSTANTS in
-`CohortContributionDeclaration` (`COHORT_MOVE_OUT_SELECTOR` / `COHORT_MOVE_IN_SELECTOR` —
+`CohortContributionDeclaration` (`COHORT_MOVE_OUT_SELECTOR` / `COHORT_MOVE_IN_SELECTOR`;
 constants take no slots), addressing the two new pointer-only `CohortHookFacet` entrypoints.
 The carry's persistent state lives in the standalone per-chain `ReferralRegistry` (its own
-slots 4–5, `carryPayload` / `carryStagedAt`), which owns its layout outright and is
-deliberately outside this document and `check_storage_layout.sh` — see the registry's
+slots 4 to 5, `carryPayload` / `carryStagedAt`), which owns its layout outright and is
+deliberately outside this document and `check_storage_layout.sh`; see the registry's
 declarations threat-model block.
+
+### 2026-08-20 Cross-chain bridge carry + referrer sync (NO diamond storage added)
+
+The cross-chain round (bridge-carry capture/apply, referrer-flip migration, registry sync)
+again adds ZERO diamond storage: the committed snapshot stays byte-identical
+and slot 80 remained the next free tail slot at the time (taken 2026-08-29 by the
+payout-hub pointer shard). Diamond-side additions are constants only
+(three `bytes4` selector constants in `CohortContributionDeclaration`, `COHORT_FLIP_SELECTOR`
+and the bridge-carry pair), plus a SECOND engine facet (`CohortBridgeHookFacet`, the full
+engine outgrew one EIP-170 deployment) whose three entrypoints are DISPATCHER-routed and
+looked up by the helper stubs in the existing `selectorToFacet` mapping, so no new pointer
+slot exists. All new persistent state lives in the standalone per-chain `ReferralRegistry`
+(its own slots 6 to 14: sync key, CCIP wiring, sync peer table, replay guard, pending-flip
+markers, tracked-vault mirror), which owns its layout outright and stays deliberately
+outside this document and `check_storage_layout.sh`.
 
 ### Legacy comparison
 
-Slots 0–7 are identical between legacy and diamond. They come from the same OZ base contracts inherited in the same order.
+Slots 0 to 7 are identical between legacy and diamond. They come from the same OZ base contracts inherited in the same order.
 
 Slot 8 differs:
 - **Legacy**: `interestRate` (because `USD_TOKEN` is `immutable` and lives in bytecode, not storage)
 - **Diamond**: `USD_TOKEN` (must be storage because `immutable` values are baked into facet bytecode at facet-deploy time and would not reflect the diamond's intended value when called via DELEGATECALL)
 
-Beyond that one-slot shift, the 2026-07 compaction removed six legacy-mirrored fields entirely (`autoCompoundIncentive`, `withdrawAllowed`, `interestRateProxyPermanent`, `autoCompoundAllowed`, `isWhiteListed`, `transferInterestWithTokens` — all dead in the diamond because their consuming surfaces were never carried over), so diamond slot numbers no longer track legacy positions at all. Parity is observed at the **functional level** — see `test/diamond/equivalence/LegacyVsDiamondParity.t.sol`, where `balanceOf`, `cashedInterest`, `proxyBalance`, `lastSyncTimeStamp`, and `totalSupply` are asserted equal across legacy and diamond for every action — not at the slot level. This matches the brief: "same data stored, verified via parity," not "slot-identical."
+Beyond that one-slot shift, the 2026-07 compaction removed six legacy-mirrored fields entirely (`autoCompoundIncentive`, `withdrawAllowed`, `interestRateProxyPermanent`, `autoCompoundAllowed`, `isWhiteListed`, `transferInterestWithTokens`; all dead in the diamond because their consuming surfaces were never carried over), so diamond slot numbers no longer track legacy positions at all. Parity is observed at the **functional level**, not at the slot level: see `test/diamond/equivalence/LegacyVsDiamondParity.t.sol`, where `balanceOf`, `cashedInterest`, `proxyBalance`, `lastSyncTimeStamp`, and `totalSupply` are asserted equal across legacy and diamond for every action. This matches the brief: "same data stored, verified via parity," not "slot-identical."
 
 ## QueContractDiamond (historical)
 
-The standalone `QueContractDiamond` was removed from the tree; the queue lives inside the vault diamond as the `VaultQueue*` facets sharing the single vault layout above (queue state at slots 27–33). The `QueContractDiamond*.t.sol` tests target the vault diamond's queue facets. The legacy `QueContract` remains under `src/legacy/` as the read-only migration oracle.
+The standalone `QueContractDiamond` was removed from the tree; the queue lives inside the vault diamond as the `VaultQueue*` facets sharing the single vault layout above (queue state at slots 27 to 33). The `QueContractDiamond*.t.sol` tests target the vault diamond's queue facets. The legacy `QueContract` remains under `src/legacy/` as the read-only migration oracle.
+
+### 2026-10-19 payout rail retired (the hub is its own pot)
+
+The vault half of the referral payout rail was removed before it shipped: the hub pays every
+claim from the USD it holds itself (funded by plain transfers) and never books liability on, or
+pulls USD from, a vault. On the vault side that removed `ReferralPayoutFacet` (its three
+selectors), the AdminFacet payout-hub pointer six (the admin group is 40 selectors again), the
+helper's pointer functions and the `pendingReferralPayout` term of `_calculateNeededBuffer`
+(SweepFacet needs no behavioral redeploy any more). The two shards stay in the chain so no
+later slot moves: `ReferralPayoutDeclaration` (slot 76) and `PayoutHubPointerDeclaration`
+(slots 80 to 82) are retired words, declared, never written and marked so in the table above;
+the vault snapshot is unchanged (111 entries) and `check_storage_layout.sh` lists 21 full chain
+facets. On the hub side `payoutVault` and `totalBooked` are deleted outright (the hub is pending,
+never broadcast), so every field after `totalClaimed` moves up one slot and every field after
+`dwellMinLog` another one: `USD_TOKEN` now sits at slot 24, the selector tables at 25 to 27 and
+`initialized` at 28; the hub snapshot is regenerated (37 entries). `PotClosed`,
+`InvalidPayoutVault`, `PayoutVaultSet`, `PayoutLiabilityBooked` and `PotClaimBooked` are gone;
+`PotDry` is the one funding revert. The same day the elevation whitelist appended two mappings at
+the hub tail (`elevatedFromWeek`, `elevatedUntilWeek`, after `leverChangeQueuedAt`), so the hub
+snapshot is 39 entries; no vault change.
+
+### 2026-10-21 hub elevation window history (hub slot 39)
+
+A grant after an end used to overwrite the one window pair a referrer had, so every week of the
+ended window lost its elevated verdict and a week of it delivered only after the re-grant was
+priced at the natural rate. The hub now keeps the history: `elevationWindowsOf` (hub slot 39, a
+per referrer array of words, the from week in the low half and the until week in the high half,
+zero while open, at most `MAX_ELEVATION_WINDOWS` of them) is appended by `elevateReferrer` and
+closed by `endElevation`, and `_isElevatedAt` answers true when any window holds the week.
+`elevatedFromWeek` and `elevatedUntilWeek` stay the mirror of the latest window, so no hub
+selector changes; the hub snapshot is 40 entries. No vault change.
 
 ## Snapshot & layout guard
 
@@ -230,4 +636,4 @@ The JSON layout is committed to `test/diamond/storage_snapshot/vault_diamond_lay
 forge inspect src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond storage-layout --json > test/diamond/storage_snapshot/vault_diamond_layout.json
 ```
 
-`script/check_storage_layout.sh` (run in CI next to the test suite) proves the diamond and all 22 facets compile to byte-identical storage layouts (label/slot/offset/type, AST ids normalized away) and that the committed snapshot still matches the compiled diamond. Any storage edit that lands outside the shared declaration chain — or forgets to regenerate the snapshot — fails the check with a unified diff.
+`script/check_storage_layout.sh` (run in CI next to the test suite) proves the diamond and all 22 full-chain facets compile to byte-identical storage layouts (label/slot/offset/type, AST ids normalized away) and that the committed snapshot (111 entries) still matches the compiled diamond; the same script proves the hub proxy and its five facets identical against the committed hub snapshot (40 entries). Any storage edit that lands outside the shared declaration chain, or that forgets to regenerate the snapshot, fails the check with a unified diff.

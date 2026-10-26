@@ -10,6 +10,8 @@ import {UserFacet} from "../../../src/diamond/vault/facets/UserFacet.sol";
 import {MoveFacet} from "../../../src/diamond/vault/facets/MoveFacet.sol";
 import {ReferralFacet} from "../../../src/diamond/vault/facets/pending/ReferralFacet.sol";
 import {CohortHookFacet} from "../../../src/diamond/vault/facets/pending/CohortHookFacet.sol";
+import {CohortBridgeHookFacet} from "../../../src/diamond/vault/facets/pending/CohortBridgeHookFacet.sol";
+import {CohortMoveHookFacet} from "../../../src/diamond/vault/facets/pending/CohortMoveHookFacet.sol";
 import {CohortRecorderFacet} from "../../../src/diamond/vault/facets/pending/CohortRecorderFacet.sol";
 import {ReferralRegistry} from "../../../src/registry/pending/ReferralRegistry.sol";
 
@@ -46,27 +48,41 @@ contract TwoVaultMockUSD is ERC20 {
 }
 
 /**
- * @dev Two-real-diamond scaffolding for the same-chain
- * move-carry suites: two fully wired vaults (all facets + queue +
- * referral + cohort recorder + {CohortHookFacet} as transfer hook)
- * sharing ONE {ReferralRegistry} — the production per-chain
- * topology — and peer-registered in both directions through
- * the real 3-day `PEER_VAULT_CHANGE_DELAY` (a single shared warp).
+ * @dev Two-real-diamond scaffolding for the two-vault cohort suites
+ * (same-chain move-carry, referrer-flip and bridge-carry): two fully
+ * wired vaults (all facets + queue + referral + cohort recorder +
+ * routed {CohortBridgeHookFacet} + routed {CohortMoveHookFacet} +
+ * {CohortHookFacet} as transfer hook) sharing ONE {ReferralRegistry}
+ * (the production per-chain topology) and peer-registered in both
+ * directions through the real 3-day `PEER_VAULT_CHANGE_DELAY` (a
+ * single shared warp).
  * The test contract is master of both diamonds and of the registry.
+ * `_unrouteMoveHook` zero-routes the move slice on one vault through
+ * the real selector timelock (one 3-day warp), so a degrade scenario
+ * can drive a move whose pointer facet finds no routed move slice.
  *
- * `CohortSnap` + `_assertScheduleEq` define the round-trip
- * equivalence set: rings (both, all 52 slots), book lanes and
- * `trackedContribution` must match byte for byte — while
+ * `CohortSnap` + `_assertScheduleEq` define the byte-for-byte
+ * schedule comparison a reverted move must leave behind: rings
+ * (both, all 52 slots), book lanes and
+ * `trackedContribution` must match byte for byte, while
  * `cohortLastSettle`, crumbs and the gap log are deliberately
  * EXCLUDED (they are honest per-vault history: settle cursors move
  * with the settles a move itself triggers, and time served on each
- * vault is recorded where it was served).
+ * vault is recorded where it was served). `_assertLandedTotals` is
+ * the relocation twin for a book whose whole content arrived through
+ * a referrer flip or a same-chain move: the book lanes equal the given
+ * totals and each ring sums to its lane total (every relocated pair
+ * keeps its own slot, which the tests pin slot by slot where it
+ * matters); with zero ring totals it doubles as the check that a book
+ * holds mature credit only.
  */
 abstract contract TwoVaultCohortHarness is DiamondTestHarness {
 
     uint256 internal constant BASE_TIME = 3_000 weeks + 1 hours;
 
     uint256 internal constant PEER_VAULT_CHANGE_DELAY = 3 days;
+
+    uint256 internal constant SELECTOR_CHANGE_DELAY = 3 days;
 
     WiseTelecomNodesDiamond internal vaultA;
 
@@ -99,7 +115,10 @@ abstract contract TwoVaultCohortHarness is DiamondTestHarness {
 
         usdB = new TwoVaultMockUSD();
 
-        registry = new ReferralRegistry();
+        registry = new ReferralRegistry(
+            address(this),
+            0
+        );
 
         vaultA = _deployCohortVault(
             address(usdA)
@@ -133,13 +152,25 @@ abstract contract TwoVaultCohortHarness is DiamondTestHarness {
         _wireOne(
             d,
             address(new ReferralFacet()),
-            WiseTelecomNodesDiamondSelectors.referralSelectors()
+            WiseTelecomNodesDiamondSelectors._referralSelectors()
         );
 
         _wireOne(
             d,
             address(new CohortRecorderFacet()),
-            WiseTelecomNodesDiamondSelectors.cohortRecorderSelectors()
+            WiseTelecomNodesDiamondSelectors._cohortRecorderSelectors()
+        );
+
+        _wireOne(
+            d,
+            address(new CohortBridgeHookFacet()),
+            WiseTelecomNodesDiamondSelectors._cohortBridgeHookSelectors()
+        );
+
+        _wireOne(
+            d,
+            address(new CohortMoveHookFacet()),
+            WiseTelecomNodesDiamondSelectors._cohortMoveHookSelectors()
         );
 
         AdminFacet(address(d)).proposeTransferHookFacet(
@@ -177,6 +208,27 @@ abstract contract TwoVaultCohortHarness is DiamondTestHarness {
 
         MoveFacet(address(vaultB)).executePeerVaultChange(
             address(vaultA)
+        );
+    }
+
+    function _unrouteMoveHook(
+        WiseTelecomNodesDiamond d
+    )
+        internal
+    {
+        bytes4[] memory sels = WiseTelecomNodesDiamondSelectors._cohortMoveHookSelectors();
+
+        d.proposeSelectors(
+            sels,
+            address(0)
+        );
+
+        vm.warp(
+            block.timestamp + SELECTOR_CHANGE_DELAY
+        );
+
+        d.executeSelectorChanges(
+            sels
         );
     }
 
@@ -339,19 +391,37 @@ abstract contract TwoVaultCohortHarness is DiamondTestHarness {
         internal
         pure
     {
-        assertEq(_left.tracked, _right.tracked);
+        assertEq(
+            _left.tracked,
+            _right.tracked
+        );
 
-        assertEq(_left.year1, _right.year1);
+        assertEq(
+            _left.year1,
+            _right.year1
+        );
 
-        assertEq(_left.year2, _right.year2);
+        assertEq(
+            _left.year2,
+            _right.year2
+        );
 
-        assertEq(_left.mature, _right.mature);
+        assertEq(
+            _left.mature,
+            _right.mature
+        );
 
         for (uint256 i; i < 52; ++i) {
 
-            assertEq(_left.ring1[i], _right.ring1[i]);
+            assertEq(
+                _left.ring1[i],
+                _right.ring1[i]
+            );
 
-            assertEq(_left.ring2[i], _right.ring2[i]);
+            assertEq(
+                _left.ring2[i],
+                _right.ring2[i]
+            );
         }
     }
 
@@ -361,19 +431,107 @@ abstract contract TwoVaultCohortHarness is DiamondTestHarness {
         internal
         pure
     {
-        assertEq(_snap.tracked, 0);
+        assertEq(
+            _snap.tracked,
+            0
+        );
 
-        assertEq(_snap.year1, 0);
+        assertEq(
+            _snap.year1,
+            0
+        );
 
-        assertEq(_snap.year2, 0);
+        assertEq(
+            _snap.year2,
+            0
+        );
 
-        assertEq(_snap.mature, 0);
+        assertEq(
+            _snap.mature,
+            0
+        );
 
         for (uint256 i; i < 52; ++i) {
 
-            assertEq(_snap.ring1[i], 0);
+            assertEq(
+                _snap.ring1[i],
+                0
+            );
 
-            assertEq(_snap.ring2[i], 0);
+            assertEq(
+                _snap.ring2[i],
+                0
+            );
         }
+    }
+
+    function _landingSlot()
+        internal
+        view
+        returns (uint256)
+    {
+        return (block.timestamp / 1 weeks + 1) % 52;
+    }
+
+    function _assertLandedTotals(
+        WiseTelecomNodesDiamond d,
+        address _referrer,
+        uint256 _year1,
+        uint256 _year2,
+        uint256 _mature
+    )
+        internal
+        view
+    {
+        (
+            uint256 year1,
+            uint256 year2,
+            uint256 mature,
+        ) = _recorderOf(d).getCohortBook(
+            _referrer
+        );
+
+        assertEq(
+            year1,
+            _year1
+        );
+
+        assertEq(
+            year2,
+            _year2
+        );
+
+        assertEq(
+            mature,
+            _mature
+        );
+
+        (
+            uint64[52] memory ring1,
+            uint64[52] memory ring2
+        ) = _recorderOf(d).getCohortRings(
+            _referrer
+        );
+
+        uint256 ring1Sum;
+
+        uint256 ring2Sum;
+
+        for (uint256 i; i < 52; ++i) {
+
+            ring1Sum += uint256(ring1[i]);
+
+            ring2Sum += uint256(ring2[i]);
+        }
+
+        assertEq(
+            ring1Sum,
+            _year1
+        );
+
+        assertEq(
+            ring2Sum,
+            _year2
+        );
     }
 }

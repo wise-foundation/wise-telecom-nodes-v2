@@ -5,42 +5,28 @@ pragma solidity =0.8.36;
 import {CohortRecorderBase} from "./CohortRecorderBase.sol";
 
 /**
- * @dev CohortHookFacet — the single deployment of the cohort recorder
- * engine. Installed as the `transferHookFacet` it
- * replaces {GraceFreezeHookFacet} while preserving its behavior
- * exactly: the grace-freeze check runs FIRST and may revert per
- * policy (`graceFreezeEnabled` gating, vault-escrow pass-through
- * because `address(this)` is never stamped, identical
- * `GracePeriodNotElapsed` revert); everything after it is the
- * revert-free recorder. With `cohortSyncEnabled` false this facet is
- * behaviorally identical to the grace-freeze hook, which is what
- * makes the hook swap safe to execute before arming.
- *
- * The five `applyCohort*` entrypoints are the targets of the
- * helper-chain stubs (`_cohortSync` / `_cohortCredit` /
- * `_cohortAdvance` / `_cohortMoveOut` / `_cohortMoveIn` in
- * {WiseTelecomNodesBaseHelper}), which reach this
- * facet through the same slot-45 pointer under the transient
- * `hookExecuting` bracket — so every recorder mutation, hook-driven
- * or stub-driven, executes this one compiled engine against diamond
- * storage. The stubs gate on `cohortSyncEnabled`; `applyTransferHook`
- * gates internally because `_runTransferHook` calls it whenever the
- * hook is installed. Direct facet calls are rejected by
- * `onlyDelegateCall`, non-bracketed delegatecalls by the
- * `hookExecuting` guard. The same-chain move pair
- * (`applyCohortMoveOut` / `applyCohortMoveIn`) runs only on the
- * `moveBetweenVaults` / `mintFromPeer` path — never inside the
- * transfer hook — and its registry CALLs are failure-tolerant, so
- * the move-path budget tolerates them while the hook path stays
- * external-call-free except the guarded referrer staticcall.
- *
- * All six entrypoints are `payable`: the stubs delegatecall this
- * facet from inside `bridgeToVault` / `bridgeToVaultWithReferral`,
- * the diamond's only payable functions, and a delegatecall inherits
- * the ambient `msg.value` — a non-payable target would revert on the
- * compiler's callvalue guard and DoS bridging out on every lane with
- * a nonzero CCIP fee. No ETH ever moves: under DELEGATECALL the value
- * stays with the diamond.
+ * @dev CohortHookFacet: the transfer hook slice of the cohort engine,
+ * installed as `transferHookFacet` in place of GraceFreezeHookFacet. The
+ * grace freeze check runs first and keeps its revert; everything after it
+ * is the revert-free recorder, and with `cohortSyncEnabled` false the
+ * facet behaves exactly like the grace freeze hook. The `applyCohort*`
+ * entrypoints are the targets of the helper chain stubs under the
+ * transient `hookExecuting` bracket, and each drains a parked sender
+ * first. The two move entrypoints forward by selector to the routed
+ * CohortMoveHookFacet; an unrouted move slice degrades a move to
+ * attribution loss and never blocks it. `applyCohortSync(address(0))` is
+ * the arming call and stamps the re-arm instant. `applyCohortSettle` (the
+ * flush's pre-plan settle) settles a referrer's book only once the book
+ * exists, so it never anchors an empty book for a referrer who only holds
+ * a self stake, and only such a book can be parked at a disarm. It always
+ * settles the self crumb to now, even while the book is parked at the
+ * disarm, so the flush ends the zero presence a disarm span leaves until
+ * the next settle; the settle logs every week the crumb rolls past. It
+ * then syncs the referrer's tracked stake down to its balance, so a stake
+ * that left during a disarm span is never logged again at its old size by
+ * a later flush. Every entrypoint is
+ * payable because a delegatecall from the bridge entrypoints inherits
+ * `msg.value`; no ETH moves.
  */
 contract CohortHookFacet is CohortRecorderBase {
 
@@ -51,12 +37,8 @@ contract CohortHookFacet is CohortRecorderBase {
         external
         payable
         onlyDelegateCall
+        onlyHookExecution
     {
-        require(
-            hookExecuting,
-            NotHookExecution()
-        );
-
         if (graceFreezeEnabled == true) {
             _checkGracePeriod(
                 _from
@@ -67,12 +49,22 @@ contract CohortHookFacet is CohortRecorderBase {
             return;
         }
 
-        _syncRefereeCohort(
-            _from
-        );
+        address drained = _drainPendingDivestCohort();
 
-        _syncRefereeCohort(
-            _to
+        if (drained != _from) {
+            _syncRefereeCohort(
+                _from
+            );
+        }
+
+        if (drained != _to) {
+            _syncRefereeCohort(
+                _to
+            );
+        }
+
+        _parkDivestCohort(
+            _from
         );
     }
 
@@ -82,13 +74,13 @@ contract CohortHookFacet is CohortRecorderBase {
         external
         payable
         onlyDelegateCall
+        onlyHookExecution
     {
-        require(
-            hookExecuting,
-            NotHookExecution()
-        );
+        if (_user == ZERO_ADDRESS) {
+            _stampRearmCohort();
+        }
 
-        _syncRefereeCohort(
+        _syncAfterDrainCohort(
             _user
         );
     }
@@ -100,11 +92,9 @@ contract CohortHookFacet is CohortRecorderBase {
         external
         payable
         onlyDelegateCall
+        onlyHookExecution
     {
-        require(
-            hookExecuting,
-            NotHookExecution()
-        );
+        _drainPendingDivestCohort();
 
         _creditContributionCohort(
             _user,
@@ -119,11 +109,9 @@ contract CohortHookFacet is CohortRecorderBase {
         external
         payable
         onlyDelegateCall
+        onlyHookExecution
     {
-        require(
-            hookExecuting,
-            NotHookExecution()
-        );
+        _drainPendingDivestCohort();
 
         _advanceBookCohort(
             _referrer,
@@ -131,28 +119,76 @@ contract CohortHookFacet is CohortRecorderBase {
         );
     }
 
-    function applyCohortMoveOut(
-        address _user,
-        address _dstVault,
-        uint256 _burnedAmount,
-        uint256 _scaleNumerator,
-        uint256 _scaleDenominator
+    function applyCohortSettle(
+        address _referrer
     )
         external
         payable
         onlyDelegateCall
+        onlyHookExecution
     {
-        require(
-            hookExecuting,
-            NotHookExecution()
+        _drainPendingDivestCohort();
+
+        uint256 disarmedAt = cohortDisarmedAt;
+
+        uint256 rearmedAt = cohortRearmedAt;
+
+        uint256 last = cohortLastSettle[_referrer];
+
+        uint256 target = block.timestamp;
+
+        if (last != 0) {
+
+            if (
+                _parkedAtDisarmCohort(
+                    last,
+                    disarmedAt,
+                    rearmedAt
+                )
+            ) {
+                target = disarmedAt;
+            }
+
+            _settleBookCohortTo(
+                _referrer,
+                target
+            );
+        }
+
+        _settleSelfCohort(
+            _referrer,
+            block.timestamp
         );
 
-        _captureMoveOutCohort(
+        _syncRefereeCohortAt(
+            _referrer,
+            target
+        );
+    }
+
+    function applyCohortMoveOut(
+        address _user,
+        address _dstVault,
+        uint256,
+        uint256,
+        uint256
+    )
+        external
+        payable
+        onlyDelegateCall
+        onlyHookExecution
+    {
+        if (_forwardCohortMoveHook() == true) {
+            return;
+        }
+
+        _syncAfterDrainCohort(
+            _user
+        );
+
+        emit CohortCarrySkipped(
             _user,
-            _dstVault,
-            _burnedAmount,
-            _scaleNumerator,
-            _scaleDenominator
+            _dstVault
         );
     }
 
@@ -163,15 +199,72 @@ contract CohortHookFacet is CohortRecorderBase {
         external
         payable
         onlyDelegateCall
+        onlyHookExecution
     {
-        require(
-            hookExecuting,
-            NotHookExecution()
+        if (_forwardCohortMoveHook() == true) {
+            return;
+        }
+
+        _drainPendingDivestCohort();
+
+        emit CohortCarryDiscarded(
+            _user,
+            _srcVault,
+            0
+        );
+    }
+
+    function _forwardCohortMoveHook()
+        internal
+        returns (bool)
+    {
+        address facet = selectorToFacet[msg.sig];
+
+        if (facet == ZERO_ADDRESS) {
+            return false;
+        }
+
+        (
+            bool success,
+            bytes memory returnData
+        ) = facet.delegatecall(
+            msg.data
         );
 
-        _applyMoveInCohort(
-            _user,
-            _srcVault
+        if (success == false) {
+            assembly {
+                revert(add(returnData, 0x20), mload(returnData))
+            }
+        }
+
+        return true;
+    }
+
+    function _stampRearmCohort()
+        internal
+    {
+        uint256 disarmedAt = cohortDisarmedAt;
+
+        if (disarmedAt == 0 || cohortRearmedAt != 0) {
+            return;
+        }
+
+        cohortRearmedAt = uint64(block.timestamp);
+
+        uint256 graceEnd = cohortRearmedAt
+            + FLUSH_OUTAGE_GRACE
+            + cohortRearmedAt
+            - disarmedAt;
+
+        if (graceEnd > referralDisarmGraceEnd) {
+            referralDisarmGraceEnd = uint64(
+                graceEnd
+            );
+        }
+
+        emit CohortDisarmSpanSet(
+            disarmedAt,
+            block.timestamp
         );
     }
 }

@@ -90,7 +90,9 @@ contract QueContractDiamondCoverageTest is Test {
 
     uint256 constant DELAY = 3 days;
 
-    bytes4 constant SEL_FAKE = bytes4(keccak256("doesNotExist()"));
+    bytes4 constant SEL_FAKE = bytes4(keccak256(
+        "doesNotExist()"
+    ));
 
     event JoinQue(
         address indexed member,
@@ -200,11 +202,11 @@ contract QueContractDiamondCoverageTest is Test {
             })
         );
 
-        bytes4[] memory adminS = WiseTelecomNodesDiamondSelectors.adminSelectors();
+        bytes4[] memory adminS = WiseTelecomNodesDiamondSelectors._adminSelectors();
 
-        bytes4[] memory proxyS = WiseTelecomNodesDiamondSelectors.proxySelectors();
+        bytes4[] memory proxyS = WiseTelecomNodesDiamondSelectors._proxySelectors();
 
-        bytes4[] memory userS = WiseTelecomNodesDiamondSelectors.userSelectors();
+        bytes4[] memory userS = WiseTelecomNodesDiamondSelectors._userSelectors();
 
         v.proposeSelectors(
             adminS,
@@ -222,22 +224,22 @@ contract QueContractDiamondCoverageTest is Test {
         );
 
         v.proposeSelectors(
-            WiseTelecomNodesDiamondSelectors.queueAdminSelectors(),
+            WiseTelecomNodesDiamondSelectors._queueAdminSelectors(),
             address(adminFacet)
         );
 
         v.proposeSelectors(
-            WiseTelecomNodesDiamondSelectors.queueJoinLeaveSelectors(),
+            WiseTelecomNodesDiamondSelectors._queueJoinLeaveSelectors(),
             address(joinLeaveFacet)
         );
 
         v.proposeSelectors(
-            WiseTelecomNodesDiamondSelectors.queueFulfillSelectors(),
+            WiseTelecomNodesDiamondSelectors._queueFulfillSelectors(),
             address(fulfillFacet)
         );
 
         v.proposeSelectors(
-            WiseTelecomNodesDiamondSelectors.queueViewSelectors(),
+            WiseTelecomNodesDiamondSelectors._queueViewSelectors(),
             address(viewFacet)
         );
 
@@ -254,19 +256,19 @@ contract QueContractDiamondCoverageTest is Test {
         );
 
         v.executeSelectorChanges(
-            WiseTelecomNodesDiamondSelectors.queueAdminSelectors()
+            WiseTelecomNodesDiamondSelectors._queueAdminSelectors()
         );
 
         v.executeSelectorChanges(
-            WiseTelecomNodesDiamondSelectors.queueJoinLeaveSelectors()
+            WiseTelecomNodesDiamondSelectors._queueJoinLeaveSelectors()
         );
 
         v.executeSelectorChanges(
-            WiseTelecomNodesDiamondSelectors.queueFulfillSelectors()
+            WiseTelecomNodesDiamondSelectors._queueFulfillSelectors()
         );
 
         v.executeSelectorChanges(
-            WiseTelecomNodesDiamondSelectors.queueViewSelectors()
+            WiseTelecomNodesDiamondSelectors._queueViewSelectors()
         );
 
         v.finalizeSetup();
@@ -344,12 +346,16 @@ contract QueContractDiamondCoverageTest is Test {
         );
 
         assertEq(
-            que.activeOrderCountByIncentive(500),
+            que.activeOrderCountByIncentive(
+                500
+            ),
             1
         );
 
         assertEq(
-            que.earliestValidQueMemberByIncentive(500),
+            que.earliestValidQueMemberByIncentive(
+                500
+            ),
             1
         );
 
@@ -384,12 +390,16 @@ contract QueContractDiamondCoverageTest is Test {
         );
 
         assertEq(
-            IERC20(address(vault)).balanceOf(address(que)),
+            IERC20(address(vault)).balanceOf(
+                address(que)
+            ),
             amount
         );
 
         assertEq(
-            vault.proxyBalance(user1),
+            vault.proxyBalance(
+                user1
+            ),
             amount
         );
     }
@@ -543,17 +553,23 @@ contract QueContractDiamondCoverageTest is Test {
         );
 
         assertEq(
-            que.activeOrderCountByIncentive(500),
+            que.activeOrderCountByIncentive(
+                500
+            ),
             3
         );
 
         assertEq(
-            que.earliestValidQueMemberByIncentive(500),
+            que.earliestValidQueMemberByIncentive(
+                500
+            ),
             3
         );
 
         assertEq(
-            que.currentOrderIdByIncentive(500),
+            que.currentOrderIdByIncentive(
+                500
+            ),
             0
         );
 
@@ -675,7 +691,9 @@ contract QueContractDiamondCoverageTest is Test {
         );
 
         assertEq(
-            que.activeOrderCountByIncentive(500),
+            que.activeOrderCountByIncentive(
+                500
+            ),
             0
         );
 
@@ -710,12 +728,16 @@ contract QueContractDiamondCoverageTest is Test {
         );
 
         assertEq(
-            IERC20(address(vault)).balanceOf(user1),
+            IERC20(address(vault)).balanceOf(
+                user1
+            ),
             vaultBalBefore + 100 * 1e6
         );
 
         assertEq(
-            vault.proxyBalance(user1),
+            vault.proxyBalance(
+                user1
+            ),
             0
         );
     }
@@ -792,7 +814,9 @@ contract QueContractDiamondCoverageTest is Test {
         );
 
         assertEq(
-            que.currentOrderIdByIncentive(500),
+            que.currentOrderIdByIncentive(
+                500
+            ),
             0
         );
 
@@ -864,12 +888,16 @@ contract QueContractDiamondCoverageTest is Test {
         );
 
         assertEq(
-            IERC20(address(vault)).balanceOf(user1),
+            IERC20(address(vault)).balanceOf(
+                user1
+            ),
             balBefore + 60 * 1e6
         );
 
         assertEq(
-            vault.proxyBalance(user1),
+            vault.proxyBalance(
+                user1
+            ),
             140 * 1e6
         );
     }
@@ -1050,12 +1078,16 @@ contract QueContractDiamondCoverageTest is Test {
         );
 
         assertEq(
-            usd.balanceOf(user1),
+            usd.balanceOf(
+                user1
+            ),
             user1UsdBefore + amount
         );
 
         assertEq(
-            IERC20(address(vault)).balanceOf(fulf),
+            IERC20(address(vault)).balanceOf(
+                fulf
+            ),
             fulfVaultBefore + amount
         );
 
@@ -1245,7 +1277,9 @@ contract QueContractDiamondCoverageTest is Test {
         );
 
         assertEq(
-            que.currentOrderIdByIncentive(0),
+            que.currentOrderIdByIncentive(
+                0
+            ),
             id2
         );
 
@@ -1410,7 +1444,9 @@ contract QueContractDiamondCoverageTest is Test {
         );
 
         assertEq(
-            que.currentOrderIdByIncentive(0),
+            que.currentOrderIdByIncentive(
+                0
+            ),
             id
         );
 
@@ -1485,7 +1521,9 @@ contract QueContractDiamondCoverageTest is Test {
         );
 
         assertEq(
-            que.currentOrderIdByIncentive(500),
+            que.currentOrderIdByIncentive(
+                500
+            ),
             2
         );
     }
@@ -3137,7 +3175,7 @@ contract QueContractDiamondCoverageTest is Test {
         );
     }
 
-    // ---- 6. Diamond machinery — selector routing ----
+    // ---- 6. Diamond machinery: selector routing ----
 
     function _bareQueue()
         internal
@@ -3239,17 +3277,23 @@ contract QueContractDiamondCoverageTest is Test {
         );
 
         assertEq(
-            q.proposedSelectorFacet(SEL_FAKE),
+            q.proposedSelectorFacet(
+                SEL_FAKE
+            ),
             address(adminFacet)
         );
 
         assertEq(
-            q.selectorChangeQueuedAt(SEL_FAKE),
+            q.selectorChangeQueuedAt(
+                SEL_FAKE
+            ),
             block.timestamp
         );
 
         assertEq(
-            q.selectorToFacet(SEL_FAKE),
+            q.selectorToFacet(
+                SEL_FAKE
+            ),
             address(0)
         );
     }
@@ -3300,17 +3344,23 @@ contract QueContractDiamondCoverageTest is Test {
         );
 
         assertEq(
-            q.selectorToFacet(SEL_FAKE),
+            q.selectorToFacet(
+                SEL_FAKE
+            ),
             address(adminFacet)
         );
 
         assertEq(
-            q.proposedSelectorFacet(SEL_FAKE),
+            q.proposedSelectorFacet(
+                SEL_FAKE
+            ),
             address(0)
         );
 
         assertEq(
-            q.selectorChangeQueuedAt(SEL_FAKE),
+            q.selectorChangeQueuedAt(
+                SEL_FAKE
+            ),
             0
         );
     }
@@ -3398,7 +3448,9 @@ contract QueContractDiamondCoverageTest is Test {
         );
 
         assertEq(
-            q.selectorToFacet(SEL_FAKE),
+            q.selectorToFacet(
+                SEL_FAKE
+            ),
             address(adminFacet)
         );
     }
@@ -3424,7 +3476,9 @@ contract QueContractDiamondCoverageTest is Test {
         );
 
         assertEq(
-            q.selectorToFacet(SEL_FAKE),
+            q.selectorToFacet(
+                SEL_FAKE
+            ),
             address(adminFacet)
         );
     }
@@ -3437,7 +3491,10 @@ contract QueContractDiamondCoverageTest is Test {
         bytes4[] memory sels = new bytes4[](2);
 
         sels[0] = SEL_FAKE;
-        sels[1] = bytes4(keccak256("another()"));
+
+        sels[1] = bytes4(keccak256(
+            "another()"
+        ));
 
         q.proposeSelectors(
             sels,
@@ -3455,12 +3512,16 @@ contract QueContractDiamondCoverageTest is Test {
         );
 
         assertEq(
-            q.selectorToFacet(sels[0]),
+            q.selectorToFacet(
+                sels[0]
+            ),
             address(adminFacet)
         );
 
         assertEq(
-            q.selectorToFacet(sels[1]),
+            q.selectorToFacet(
+                sels[1]
+            ),
             address(adminFacet)
         );
     }
@@ -3491,12 +3552,16 @@ contract QueContractDiamondCoverageTest is Test {
         );
 
         assertEq(
-            q.proposedSelectorFacet(SEL_FAKE),
+            q.proposedSelectorFacet(
+                SEL_FAKE
+            ),
             address(0)
         );
 
         assertEq(
-            q.selectorChangeQueuedAt(SEL_FAKE),
+            q.selectorChangeQueuedAt(
+                SEL_FAKE
+            ),
             0
         );
     }
@@ -3598,7 +3663,7 @@ contract QueContractDiamondCoverageTest is Test {
         );
     }
 
-    // ---- 7. onlyDelegateCall — direct facet calls revert ----
+    // ---- 7. onlyDelegateCall: direct facet calls revert ----
 
     function test_onlyDelegateCall_adminFacet_reverts()
         public
@@ -3638,7 +3703,7 @@ contract QueContractDiamondCoverageTest is Test {
         );
     }
 
-    // ---- 8. queue interest — member keeps earning and claiming while queued ----
+    // ---- 8. queue interest: member keeps earning and claiming while queued ----
 
     function _expectedInterest(
         uint256 _balance,
@@ -3669,17 +3734,23 @@ contract QueContractDiamondCoverageTest is Test {
         );
 
         assertEq(
-            vault.getPendingInterest(address(vault)),
+            vault.getPendingInterest(
+                address(vault)
+            ),
             0
         );
 
         assertEq(
-            vault.cashedInterest(address(vault)),
+            vault.cashedInterest(
+                address(vault)
+            ),
             0
         );
 
         assertEq(
-            vault.proxyBalance(address(vault)),
+            vault.proxyBalance(
+                address(vault)
+            ),
             0
         );
     }
@@ -3701,22 +3772,30 @@ contract QueContractDiamondCoverageTest is Test {
         );
 
         assertEq(
-            IERC20(address(vault)).balanceOf(user1),
+            IERC20(address(vault)).balanceOf(
+                user1
+            ),
             0
         );
 
         assertEq(
-            IERC20(address(vault)).balanceOf(address(vault)),
+            IERC20(address(vault)).balanceOf(
+                address(vault)
+            ),
             stake
         );
 
         assertEq(
-            vault.proxyBalance(user1),
+            vault.proxyBalance(
+                user1
+            ),
             stake
         );
 
         assertEq(
-            vault.getPendingInterest(user1),
+            vault.getPendingInterest(
+                user1
+            ),
             0
         );
 
@@ -3737,7 +3816,9 @@ contract QueContractDiamondCoverageTest is Test {
         );
 
         assertEq(
-            vault.getPendingInterest(user1),
+            vault.getPendingInterest(
+                user1
+            ),
             expected
         );
 
@@ -3759,17 +3840,23 @@ contract QueContractDiamondCoverageTest is Test {
         );
 
         assertEq(
-            usd.balanceOf(user1),
+            usd.balanceOf(
+                user1
+            ),
             usdBefore + expected
         );
 
         assertEq(
-            vault.cashedInterest(user1),
+            vault.cashedInterest(
+                user1
+            ),
             0
         );
 
         assertEq(
-            vault.proxyBalance(user1),
+            vault.proxyBalance(
+                user1
+            ),
             stake
         );
 
@@ -3780,7 +3867,9 @@ contract QueContractDiamondCoverageTest is Test {
         );
 
         assertEq(
-            vault.getPendingInterest(user1),
+            vault.getPendingInterest(
+                user1
+            ),
             expected
         );
 
@@ -3807,12 +3896,16 @@ contract QueContractDiamondCoverageTest is Test {
         );
 
         assertEq(
-            IERC20(address(vault)).balanceOf(user1),
+            IERC20(address(vault)).balanceOf(
+                user1
+            ),
             stake
         );
 
         assertEq(
-            vault.proxyBalance(user1),
+            vault.proxyBalance(
+                user1
+            ),
             0
         );
 
@@ -3822,7 +3915,9 @@ contract QueContractDiamondCoverageTest is Test {
         );
 
         assertEq(
-            usd.balanceOf(user1),
+            usd.balanceOf(
+                user1
+            ),
             usdBefore + expected + expected
         );
 
@@ -3845,7 +3940,9 @@ contract QueContractDiamondCoverageTest is Test {
         );
 
         assertEq(
-            IERC20(address(vault)).balanceOf(address(vault)),
+            IERC20(address(vault)).balanceOf(
+                address(vault)
+            ),
             15_000 * 1e6
         );
 
@@ -3854,12 +3951,16 @@ contract QueContractDiamondCoverageTest is Test {
         );
 
         assertGt(
-            vault.getPendingInterest(user1),
+            vault.getPendingInterest(
+                user1
+            ),
             0
         );
 
         assertGt(
-            vault.getPendingInterest(user2),
+            vault.getPendingInterest(
+                user2
+            ),
             0
         );
 
@@ -3909,14 +4010,35 @@ contract QueContractDiamondCoverageTest is Test {
         view
         returns (PathMetrics memory m)
     {
-        m.compVault = IERC20(address(vault)).balanceOf(comp);
-        m.compUsd = usd.balanceOf(comp);
-        m.user1Usd = usd.balanceOf(user1);
-        m.user2Usd = usd.balanceOf(user2);
-        m.thirdParty = usd.balanceOf(thirdPty);
-        m.contractUsd = usd.balanceOf(address(vault));
+        m.compVault = IERC20(address(vault)).balanceOf(
+            comp
+        );
+
+        m.compUsd = usd.balanceOf(
+            comp
+        );
+
+        m.user1Usd = usd.balanceOf(
+            user1
+        );
+
+        m.user2Usd = usd.balanceOf(
+            user2
+        );
+
+        m.thirdParty = usd.balanceOf(
+            thirdPty
+        );
+
+        m.contractUsd = usd.balanceOf(
+            address(vault)
+        );
+
         m.supply = IERC20(address(vault)).totalSupply();
-        m.cashed = vault.cashedInterest(comp);
+
+        m.cashed = vault.cashedInterest(
+            comp
+        );
     }
 
     function _assertSameMetrics(
@@ -3996,10 +4118,19 @@ contract QueContractDiamondCoverageTest is Test {
 
         uint256[] memory partials = new uint256[](0);
 
-        uint256 compVaultBefore = IERC20(address(vault)).balanceOf(comp);
+        uint256 compVaultBefore = IERC20(address(vault)).balanceOf(
+            comp
+        );
+
         uint256 supplyBefore = IERC20(address(vault)).totalSupply();
-        uint256 thirdPartyBefore = usd.balanceOf(thirdPty);
-        uint256 contractUsdBefore = usd.balanceOf(address(vault));
+
+        uint256 thirdPartyBefore = usd.balanceOf(
+            thirdPty
+        );
+
+        uint256 contractUsdBefore = usd.balanceOf(
+            address(vault)
+        );
 
         vm.prank(
             comp
@@ -4030,12 +4161,16 @@ contract QueContractDiamondCoverageTest is Test {
         uint256 remainder = interest - spent;
 
         assertEq(
-            vault.cashedInterest(comp),
+            vault.cashedInterest(
+                comp
+            ),
             0
         );
 
         assertEq(
-            IERC20(address(vault)).balanceOf(comp),
+            IERC20(address(vault)).balanceOf(
+                comp
+            ),
             compVaultBefore + received + remainder
         );
 
@@ -4045,22 +4180,30 @@ contract QueContractDiamondCoverageTest is Test {
         );
 
         assertEq(
-            usd.balanceOf(thirdPty),
+            usd.balanceOf(
+                thirdPty
+            ),
             thirdPartyBefore + remainder
         );
 
         assertEq(
-            usd.balanceOf(user1),
+            usd.balanceOf(
+                user1
+            ),
             100 * 1e6
         );
 
         assertEq(
-            usd.balanceOf(user2),
+            usd.balanceOf(
+                user2
+            ),
             150 * 1e6
         );
 
         assertEq(
-            usd.balanceOf(address(vault)),
+            usd.balanceOf(
+                address(vault)
+            ),
             contractUsdBefore - interest
         );
 
@@ -4089,7 +4232,10 @@ contract QueContractDiamondCoverageTest is Test {
         uint256[] memory partials = new uint256[](0);
 
         uint256 supplyBefore = IERC20(address(vault)).totalSupply();
-        uint256 thirdPartyBefore = usd.balanceOf(thirdPty);
+
+        uint256 thirdPartyBefore = usd.balanceOf(
+            thirdPty
+        );
 
         vm.prank(
             comp
@@ -4118,7 +4264,9 @@ contract QueContractDiamondCoverageTest is Test {
         );
 
         assertEq(
-            vault.cashedInterest(comp),
+            vault.cashedInterest(
+                comp
+            ),
             0
         );
 
@@ -4128,7 +4276,9 @@ contract QueContractDiamondCoverageTest is Test {
         );
 
         assertEq(
-            usd.balanceOf(thirdPty),
+            usd.balanceOf(
+                thirdPty
+            ),
             thirdPartyBefore
         );
     }
@@ -4654,9 +4804,18 @@ contract QueContractDiamondCoverageTest is Test {
 
         uint256[] memory partials = new uint256[](0);
 
-        uint256 contractUsdBefore = usd.balanceOf(address(vault));
-        uint256 attackerVaultBefore = IERC20(address(vault)).balanceOf(attacker);
-        uint256 user1UsdBefore = usd.balanceOf(user1);
+        uint256 contractUsdBefore = usd.balanceOf(
+            address(vault)
+        );
+
+        uint256 attackerVaultBefore = IERC20(address(vault)).balanceOf(
+            attacker
+        );
+
+        uint256 user1UsdBefore = usd.balanceOf(
+            user1
+        );
+
         uint256 supplyBefore = IERC20(address(vault)).totalSupply();
 
         vm.prank(
@@ -4675,17 +4834,23 @@ contract QueContractDiamondCoverageTest is Test {
         );
 
         assertEq(
-            usd.balanceOf(address(vault)),
+            usd.balanceOf(
+                address(vault)
+            ),
             contractUsdBefore
         );
 
         assertEq(
-            IERC20(address(vault)).balanceOf(attacker),
+            IERC20(address(vault)).balanceOf(
+                attacker
+            ),
             attackerVaultBefore
         );
 
         assertEq(
-            usd.balanceOf(user1),
+            usd.balanceOf(
+                user1
+            ),
             user1UsdBefore
         );
 
@@ -4695,12 +4860,16 @@ contract QueContractDiamondCoverageTest is Test {
         );
 
         assertEq(
-            vault.getPendingInterest(attacker),
+            vault.getPendingInterest(
+                attacker
+            ),
             100 * 1e6
         );
 
         assertEq(
-            vault.cashedInterest(attacker),
+            vault.cashedInterest(
+                attacker
+            ),
             0
         );
     }
@@ -4728,8 +4897,13 @@ contract QueContractDiamondCoverageTest is Test {
 
         uint256[] memory partials = new uint256[](0);
 
-        uint256 contractUsdBefore = usd.balanceOf(address(vault));
-        uint256 victimPendingBefore = vault.getPendingInterest(comp);
+        uint256 contractUsdBefore = usd.balanceOf(
+            address(vault)
+        );
+
+        uint256 victimPendingBefore = vault.getPendingInterest(
+            comp
+        );
 
         vm.prank(
             attacker
@@ -4747,22 +4921,30 @@ contract QueContractDiamondCoverageTest is Test {
         );
 
         assertEq(
-            IERC20(address(vault)).balanceOf(attacker),
+            IERC20(address(vault)).balanceOf(
+                attacker
+            ),
             0
         );
 
         assertEq(
-            usd.balanceOf(attacker),
+            usd.balanceOf(
+                attacker
+            ),
             0
         );
 
         assertEq(
-            usd.balanceOf(address(vault)),
+            usd.balanceOf(
+                address(vault)
+            ),
             contractUsdBefore
         );
 
         assertEq(
-            vault.getPendingInterest(comp),
+            vault.getPendingInterest(
+                comp
+            ),
             victimPendingBefore
         );
 
@@ -4821,8 +5003,13 @@ contract QueContractDiamondCoverageTest is Test {
 
         uint256[] memory partials = new uint256[](0);
 
-        uint256 contractUsdBefore = usd.balanceOf(address(vault));
-        uint256 attackerVaultBefore = IERC20(address(vault)).balanceOf(attacker);
+        uint256 contractUsdBefore = usd.balanceOf(
+            address(vault)
+        );
+
+        uint256 attackerVaultBefore = IERC20(address(vault)).balanceOf(
+            attacker
+        );
 
         vm.prank(
             attacker
@@ -4840,27 +5027,37 @@ contract QueContractDiamondCoverageTest is Test {
         );
 
         assertEq(
-            usd.balanceOf(address(vault)),
+            usd.balanceOf(
+                address(vault)
+            ),
             contractUsdBefore
         );
 
         assertEq(
-            usd.balanceOf(user1),
+            usd.balanceOf(
+                user1
+            ),
             0
         );
 
         assertEq(
-            usd.balanceOf(user2),
+            usd.balanceOf(
+                user2
+            ),
             0
         );
 
         assertEq(
-            usd.balanceOf(user3),
+            usd.balanceOf(
+                user3
+            ),
             0
         );
 
         assertEq(
-            IERC20(address(vault)).balanceOf(attacker),
+            IERC20(address(vault)).balanceOf(
+                attacker
+            ),
             attackerVaultBefore
         );
     }
@@ -4889,17 +5086,25 @@ contract QueContractDiamondCoverageTest is Test {
         uint256[] memory partials = new uint256[](0);
 
         assertEq(
-            usd.balanceOf(comp),
+            usd.balanceOf(
+                comp
+            ),
             0
         );
 
         assertEq(
-            usd.allowance(comp, address(vault)),
+            usd.allowance(
+                comp,
+                address(vault)
+            ),
             0
         );
 
         assertEq(
-            IERC20(address(vault)).allowance(comp, address(vault)),
+            IERC20(address(vault)).allowance(
+                comp,
+                address(vault)
+            ),
             0
         );
 

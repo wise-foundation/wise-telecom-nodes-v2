@@ -10,7 +10,7 @@ import {ReferralRegistryDeclarations} from "../../src/registry/pending/ReferralR
 import {CohortWeeks} from "../../src/diamond/shared/pending/CohortWeeks.sol";
 
 /**
- * @dev Carry-staging suite for {ReferralRegistry} — the
+ * @dev Carry-staging suite for {ReferralRegistry}: the
  * same-chain move-attribution mailbox. Covers the allowlist gate on
  * both writers (including the revoked-vault revert the vaults absorb
  * through their guarded CALL seams), the guard-class stage reverts
@@ -62,7 +62,10 @@ contract ReferralRegistryCarryTest is Test {
             BASE_TIME
         );
 
-        registry = new ReferralRegistry();
+        registry = new ReferralRegistry(
+            address(this),
+            0
+        );
 
         registry.setAllowedVault(
             vaultA,
@@ -348,9 +351,15 @@ contract ReferralRegistryCarryTest is Test {
             user1
         );
 
-        assertEq(stagedAt, BASE_TIME);
+        assertEq(
+            stagedAt,
+            BASE_TIME
+        );
 
-        assertEq(stored.length, CohortWeeks.MAX_CARRY_WORDS);
+        assertEq(
+            stored.length,
+            CohortWeeks.MAX_CARRY_WORDS
+        );
     }
 
     // ---- stage semantics ----
@@ -394,12 +403,21 @@ contract ReferralRegistryCarryTest is Test {
             user1
         );
 
-        assertEq(stagedAt, BASE_TIME);
+        assertEq(
+            stagedAt,
+            BASE_TIME
+        );
 
-        assertEq(stored.length, 3);
+        assertEq(
+            stored.length,
+            3
+        );
 
         for (uint256 i; i < 3; ++i) {
-            assertEq(stored[i], payload[i]);
+            assertEq(
+                stored[i],
+                payload[i]
+            );
         }
     }
 
@@ -441,12 +459,21 @@ contract ReferralRegistryCarryTest is Test {
             user1
         );
 
-        assertEq(stagedAt, BASE_TIME + 1 hours);
+        assertEq(
+            stagedAt,
+            BASE_TIME + 1 hours
+        );
 
-        assertEq(stored.length, 2);
+        assertEq(
+            stored.length,
+            2
+        );
 
         for (uint256 i; i < 2; ++i) {
-            assertEq(stored[i], shorter[i]);
+            assertEq(
+                stored[i],
+                shorter[i]
+            );
         }
     }
 
@@ -469,11 +496,20 @@ contract ReferralRegistryCarryTest is Test {
             user1
         );
 
-        assertEq(stagedAt, 0);
+        assertEq(
+            stagedAt,
+            0
+        );
 
-        assertEq(payload.length, 0);
+        assertEq(
+            payload.length,
+            0
+        );
 
-        assertEq(_consumedEventCount(), 0);
+        assertEq(
+            _consumedEventCount(),
+            0
+        );
     }
 
     function test_consumeCarry_drainsDeletesAndEmits()
@@ -518,12 +554,21 @@ contract ReferralRegistryCarryTest is Test {
             user1
         );
 
-        assertEq(stagedAt, BASE_TIME);
+        assertEq(
+            stagedAt,
+            BASE_TIME
+        );
 
-        assertEq(drained.length, 4);
+        assertEq(
+            drained.length,
+            4
+        );
 
         for (uint256 i; i < 4; ++i) {
-            assertEq(drained[i], payload[i]);
+            assertEq(
+                drained[i],
+                payload[i]
+            );
         }
 
         (
@@ -535,9 +580,15 @@ contract ReferralRegistryCarryTest is Test {
             user1
         );
 
-        assertEq(stagedAtAfter, 0);
+        assertEq(
+            stagedAtAfter,
+            0
+        );
 
-        assertEq(storedAfter.length, 0);
+        assertEq(
+            storedAfter.length,
+            0
+        );
 
         vm.prank(
             vaultB
@@ -551,9 +602,15 @@ contract ReferralRegistryCarryTest is Test {
             user1
         );
 
-        assertEq(stagedAtSecond, 0);
+        assertEq(
+            stagedAtSecond,
+            0
+        );
 
-        assertEq(drainedSecond.length, 0);
+        assertEq(
+            drainedSecond.length,
+            0
+        );
     }
 
     // ---- keying isolation ----
@@ -585,9 +642,15 @@ contract ReferralRegistryCarryTest is Test {
             user1
         );
 
-        assertEq(stagedAt, 0);
+        assertEq(
+            stagedAt,
+            0
+        );
 
-        assertEq(drained.length, 0);
+        assertEq(
+            drained.length,
+            0
+        );
 
         (
             uint256 stagedAtIntact,
@@ -598,9 +661,15 @@ contract ReferralRegistryCarryTest is Test {
             user1
         );
 
-        assertEq(stagedAtIntact, BASE_TIME);
+        assertEq(
+            stagedAtIntact,
+            BASE_TIME
+        );
 
-        assertEq(storedIntact.length, 2);
+        assertEq(
+            storedIntact.length,
+            2
+        );
     }
 
     function test_consumeCarry_isolatedPerUser()
@@ -644,9 +713,15 @@ contract ReferralRegistryCarryTest is Test {
             user2
         );
 
-        assertEq(stagedAt, BASE_TIME);
+        assertEq(
+            stagedAt,
+            BASE_TIME
+        );
 
-        assertEq(stored.length, 1);
+        assertEq(
+            stored.length,
+            1
+        );
     }
 
     function test_consumeCarry_isolatedPerSourceVault()
@@ -690,9 +765,15 @@ contract ReferralRegistryCarryTest is Test {
             user1
         );
 
-        assertEq(stagedAt, BASE_TIME);
+        assertEq(
+            stagedAt,
+            BASE_TIME
+        );
 
-        assertEq(stored.length, 1);
+        assertEq(
+            stored.length,
+            1
+        );
     }
 
     // ---- round trip ----
@@ -744,12 +825,21 @@ contract ReferralRegistryCarryTest is Test {
             user1
         );
 
-        assertEq(stagedAt, BASE_TIME + delay);
+        assertEq(
+            stagedAt,
+            BASE_TIME + delay
+        );
 
-        assertEq(drained.length, words);
+        assertEq(
+            drained.length,
+            words
+        );
 
         for (uint256 i; i < words; ++i) {
-            assertEq(drained[i], payload[i]);
+            assertEq(
+                drained[i],
+                payload[i]
+            );
         }
     }
 
@@ -781,8 +871,14 @@ contract ReferralRegistryCarryTest is Test {
             user1
         );
 
-        assertEq(stagedAt, BASE_TIME);
+        assertEq(
+            stagedAt,
+            BASE_TIME
+        );
 
-        assertEq(stored.length, 2);
+        assertEq(
+            stored.length,
+            2
+        );
     }
 }

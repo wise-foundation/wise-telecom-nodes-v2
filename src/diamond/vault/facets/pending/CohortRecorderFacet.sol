@@ -4,28 +4,20 @@ pragma solidity =0.8.36;
 
 import {FacetBase} from "../FacetBase.sol";
 import {CohortWeeks} from "../../../shared/pending/CohortWeeks.sol";
+import {IReferralRegistry} from "../../interfaces/pending/IReferralRegistry.sol";
 
 /**
- * @dev CohortRecorderFacet — the routed public surface of the cohort
- * recorder: two permissionless mutations and the view set the cohort
- * test suites, keepers and offchain monitoring read. The mutations do
- * NOT carry engine code: they bounce through the helper-chain stubs
- * into the one engine deployment at the `transferHookFacet` pointer,
- * so routed path and hook path can never diverge. Both
- * are gated no-ops while `cohortSyncEnabled` is false — on a live
- * diamond with virgin tail storage this facet reads zeros and mutates
- * nothing.
- *
- * `syncReferee` is the permissionless clamp poke (grief-safe: the
- * clamp is one-way and idempotent — a no-op unless the user's balance
- * is below their tracked contribution). `advanceBook` lets anyone
- * pre-walk a dormant referrer book in bounded chunks so the transfer
- * hook path stays cheap in practice. Views decode the
- * packed lanes via {CohortWeeks}; the referrer score is
- * definitionally the book lane sum, so `getCohortScore` cannot desync
- * from `getCohortBook`. Installed post-launch only, via the
- * `cohortRecorderSelectors()` group in the upgrade script — never by
- * the frozen genesis deploys.
+ * @dev CohortRecorderFacet: the routed public surface of the cohort
+ * recorder. Its mutations carry no engine code; they reach an engine slice
+ * through the helper chain stubs, so the routed path and the hook path
+ * cannot diverge. `syncReferee` (the one-way clamp poke) and `advanceBook`
+ * (a bounded pre-walk of a dormant book) are permissionless no-ops while
+ * the recorder is disarmed. `receiveReferrerFlip` is callable by the
+ * registry only; while disarmed it returns when the user holds no
+ * attributed contribution here and otherwise reverts, so the registry
+ * defers the flip. `seedCohortContribution` is the master-only retroactive
+ * credit of untracked balance, bounded by min(amount, held minus tracked),
+ * and dies with the registry's one-way seed latch.
  */
 contract CohortRecorderFacet is FacetBase {
 
@@ -41,6 +33,36 @@ contract CohortRecorderFacet is FacetBase {
         );
     }
 
+    function receiveReferrerFlip(
+        address _user,
+        address _oldReferrer,
+        address _newReferrer
+    )
+        external
+        onlyDelegateCall
+        nonReentrant
+    {
+        require(
+            msg.sender == referralRegistry,
+            NotReferralRegistry()
+        );
+
+        if (cohortSyncEnabled == false && attributedContribution[_user] == 0) {
+            return;
+        }
+
+        require(
+            cohortSyncEnabled,
+            CohortSyncDisabled()
+        );
+
+        _cohortFlip(
+            _user,
+            _oldReferrer,
+            _newReferrer
+        );
+    }
+
     function advanceBook(
         address _referrer,
         uint256 _maxBoundaries
@@ -52,6 +74,67 @@ contract CohortRecorderFacet is FacetBase {
         _cohortAdvance(
             _referrer,
             _maxBoundaries
+        );
+    }
+
+    function seedCohortContribution(
+        address _user,
+        uint256 _amount
+    )
+        external
+        onlyDelegateCall
+        onlyMaster
+        nonReentrant
+    {
+        require(
+            cohortSyncEnabled,
+            CohortSyncDisabled()
+        );
+
+        require(
+            transferHookFacet != ZERO_ADDRESS,
+            CohortHookNotInstalled()
+        );
+
+        require(
+            IReferralRegistry(referralRegistry).seedsLatched() == false,
+            SeedingLatched()
+        );
+
+        _cohortSync(
+            _user
+        );
+
+        uint256 tracked = trackedContribution[_user];
+
+        uint256 held = balanceOf(
+            _user
+        );
+
+        require(
+            held > tracked,
+            NothingToSeed()
+        );
+
+        uint256 delta = held - tracked;
+
+        if (_amount < delta) {
+            delta = _amount;
+        }
+
+        require(
+            delta > 0,
+            NothingToSeed()
+        );
+
+        _cohortCredit(
+            _user,
+            delta
+        );
+
+        emit CohortContributionSeeded(
+            _user,
+            delta
         );
     }
 
@@ -73,6 +156,42 @@ contract CohortRecorderFacet is FacetBase {
         return trackedContribution[_user];
     }
 
+    function getAttributedContribution(
+        address _user
+    )
+        external
+        view
+        returns (uint256)
+    {
+        return attributedContribution[_user];
+    }
+
+    function getCohortSelfCrumb(
+        address _user
+    )
+        external
+        view
+        returns (
+            uint256 settledAt,
+            uint256 currentWeekSeconds,
+            uint256 previousWeekSeconds
+        )
+    {
+        uint256 word = cohortSelfCrumb[_user];
+
+        return (
+            CohortWeeks._selfCrumbSettledAt(
+                word
+            ),
+            CohortWeeks._selfCrumbCurrent(
+                word
+            ),
+            CohortWeeks._selfCrumbPrevious(
+                word
+            )
+        );
+    }
+
     function getCohortBook(
         address _referrer
     )
@@ -88,9 +207,15 @@ contract CohortRecorderFacet is FacetBase {
         uint256 book = cohortBook[_referrer];
 
         return (
-            CohortWeeks.laneY1(book),
-            CohortWeeks.laneY2(book),
-            CohortWeeks.laneM(book),
+            CohortWeeks._laneY1(
+                book
+            ),
+            CohortWeeks._laneY2(
+                book
+            ),
+            CohortWeeks._laneM(
+                book
+            ),
             cohortLastSettle[_referrer]
         );
     }
@@ -104,9 +229,15 @@ contract CohortRecorderFacet is FacetBase {
     {
         uint256 book = cohortBook[_referrer];
 
-        return CohortWeeks.laneY1(book)
-            + CohortWeeks.laneY2(book)
-            + CohortWeeks.laneM(book);
+        return CohortWeeks._laneY1(
+            book
+        )
+            + CohortWeeks._laneY2(
+                book
+            )
+            + CohortWeeks._laneM(
+                book
+            );
     }
 
     function getCohortRings(
@@ -134,6 +265,24 @@ contract CohortRecorderFacet is FacetBase {
         returns (uint256)
     {
         return cohortWeekLog[_referrer][_week];
+    }
+
+    function getCohortWeekCrumbs(
+        address _referrer,
+        uint256 _fromWeek,
+        uint256 _count
+    )
+        external
+        view
+        returns (uint256[] memory crumbs)
+    {
+        crumbs = new uint256[](
+            _count
+        );
+
+        for (uint256 i; i < _count; ++i) {
+            crumbs[i] = cohortWeekLog[_referrer][_fromWeek + i];
+        }
     }
 
     function getCohortGapLogLength(

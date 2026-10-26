@@ -7,22 +7,11 @@ import {ReferralFacetBase} from "./ReferralFacetBase.sol";
 import {IReferralRegistry} from "../../interfaces/pending/IReferralRegistry.sol";
 
 /**
- * @dev Referral variants of the three plain deposit entrypoints.
- * Modifier stacks mirror {UserFacet} exactly; the write-once referral
- * assignment runs first (forwarded to the standalone
- * {ReferralRegistry}), then the flow is identical to
- * the non-referral path.
- * Also carries the routed referrer view surface `getReferrerOf` (the
- * post-genesis routed-getter naming, and a name the inherited slot-64
- * mapping identifier cannot shadow): an explicit getter reading
- * THROUGH the slot-74 pointer into the registry — never the
- * diamond's forever-virgin slot-64 mapping. With the pointer unset
- * it returns zero (byte-for-byte the virgin-slot read of the
- * pre-registry design); with a pointer set it uses a plain interface
- * staticcall that MAY revert against a hostile or detached registry
- * — a deliberate asymmetry against the cohort recorder's guarded
- * revert-free seam, because a view revert DoSes nothing and is more
- * informative to integrators than a fabricated zero.
+ * @dev ReferralFacet: the referral variants of the three plain deposit
+ * entrypoints, with the modifier stacks of UserFacet; the referral
+ * assignment runs first, then the flow is the plain deposit. `getReferrerOf`
+ * reads through the registry pointer (zero while it is unset) with a plain
+ * staticcall that may revert, because a view revert blocks nothing.
  */
 contract ReferralFacet is ReferralFacetBase {
 

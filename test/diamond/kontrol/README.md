@@ -1,8 +1,8 @@
-# Diamond invariants — fuzzed + formally verified
+# Diamond invariants: fuzzed + formally verified
 
 This suite proves properties of the non-legacy WiseTelecomNodes diamond:
 the interest engine, the queue cursor law and the bridge-receive atomicity
-law. Each property is stated in full where it is proved — the tables
+law. Each property is stated in full where it is proved; the tables
 below name every law this suite covers.
 
 The two headline interest guarantees
@@ -25,12 +25,12 @@ execution (every input, machine-checked).
 | File | Role |
 |------|------|
 | `InterestProofHarness.sol` | Inherits the real `WiseTelecomNodesDiamond`; exposes the internal accrual primitives (incl. `exposedMoveInterestTo`) + narrow storage setters. No logic is altered. |
-| `InterestProperties.t.sol` | 12 dual-engine properties (`testFuzz_*`) — the two interest guarantees, their adversarial boundaries, and the INT-1 `moveMyInterestTo` conservation laws. |
+| `InterestProperties.t.sol` | 12 dual-engine properties (`testFuzz_*`): the two interest guarantees, their adversarial boundaries, and the INT-1 `moveMyInterestTo` conservation laws. |
 | `InterestStatefulInvariant.t.sol` | Foundry stateful invariants: a handler drives the real facets (fallback + DELEGATECALL) through random sequences, including adversarial moves, asserting the contract never accrues and that interest moves never change the cashed ledger sum (INT-1). |
 | `SwitchProofHarness.sol` | Inherits the real queue helper chain; `exposedSwitchCore` replays the exact internal-helper sequence of `switchQueIncentive`. No logic is altered. |
-| `SwitchProperties.t.sol` | 2 dual-engine properties (`testFuzz_*`) for `switchQueIncentive` — value-neutrality and order/amount conservation, over all amounts. |
+| `SwitchProperties.t.sol` | 2 dual-engine properties (`testFuzz_*`) for `switchQueIncentive`: value-neutrality and order/amount conservation, over all amounts. |
 | `CursorProofHarness.sol` | Inherits the real queue helper chain; seeds live orders via the real insert path, replays the `leaveQue` mutation sequence and calls the real `_processOrder` (USD leg over a minimal `MockStable`). No logic is altered. |
-| `CursorProperties.t.sol` | 6 dual-engine properties for QUE-10, the strict-FIFO cursor law — one inductive lemma per queue mutation (join, leave-head, leave-mid, leave-last, full fulfill, partial fulfill), over all amounts. |
+| `CursorProperties.t.sol` | 6 dual-engine properties for QUE-10, the strict-FIFO cursor law: one inductive lemma per queue mutation (join, leave-head, leave-mid, leave-last, full fulfill, partial fulfill), over all amounts. |
 | `BridgeReceiveProofHarness.sol` | Inherits the real `WiseTelecomNodesDiamond`; forwards verbatim into `_executeBridgeReceive` + narrow storage writers that place a routed lane without walking the governance timelock. No logic is altered. |
 | `BridgeReceiveProperties.t.sol` | 5 dual-engine properties for QLV-5, the bridge-receive atomicity law `processedMessageId[id] ⟺ mint succeeded`; each also pins the cap-relocation delta (`totalDepositCap` raised by exactly the minted amount, untouched on any revert). |
 | `BridgeHeadroomProofHarness.sol` | Inherits the real `WiseTelecomNodesDiamond`; forwards verbatim into `_executeBridgeReceive` / `_executeBridgeOut` + writers that seed a routed lane and the deposit cap (`harnessSetCap`, bypassing only the setter's supply floor). No logic is altered. |
@@ -45,10 +45,10 @@ queues without the leave-then-rejoin token round-trip. `SwitchProperties.t.sol`
 proves, over **all** amounts (incentive tiers concrete `0 → 100` so mapping slots
 stay concrete for the symbolic engine):
 
-- `testFuzz_switchIsValueNeutral` — a switch mints/burns/transfers nothing and its
+- `testFuzz_switchIsValueNeutral`: a switch mints/burns/transfers nothing and its
   `-amount`/`+amount` proxy accounting round-trips, so `totalSupply`, the owner's
   token balance and the owner's `proxyBalance` are invariant.
-- `testFuzz_switchConservesOrders` — a switch moves exactly one order from the
+- `testFuzz_switchConservesOrders`: a switch moves exactly one order from the
   source count to the destination count, leaving `totalActiveOrders` and the moved
   amount unchanged (the queue-conservation invariant).
 
@@ -67,41 +67,41 @@ interest = base * interestRate * yearFac / PRECISION_RATE / 1e18
 ```
 
 At `interestRate = 2000` and `Δt = 1 year`, `yearFac = 1e18` and
-`interest = base * 2000 / 10000 = base / 5` exactly — 20%.
+`interest = base * 2000 / 10000 = base / 5` exactly, which is 20%.
 
 ## Proven properties (all PASSED in Kontrol)
 
-**Property 1 — contract never accrues**
+**Property 1: contract never accrues**
 
-- `testFuzz_ContractPendingInterestAlwaysZero` — for any contract balance,
+- `testFuzz_ContractPendingInterestAlwaysZero`: for any contract balance,
   proxy balance, last-sync, query timestamp and rate, `getPendingInterest(contract) == 0`.
-- `testFuzz_AssignInterestToContractKeepsCashedConstant` — running the proxy
+- `testFuzz_AssignInterestToContractKeepsCashedConstant`: running the proxy
   accrual path with the contract named as its **own benefactor** (the most
   dangerous configuration) leaves `cashedInterest[contract]` unchanged, for any
   balance / proxy balance / rate / pre-existing cashed amount.
-- `testFuzz_TransferTokensToContractAccruesNoInterest` — end-to-end through the
+- `testFuzz_TransferTokensToContractAccruesNoInterest`: end-to-end through the
   real ERC20 `transfer` override: a user pushes vault tokens to the contract, so
   it genuinely holds a balance; after any elapsed time it still owes 0 / 0.
 
-**Property 2 — 20% cap at a 20% rate**
+**Property 2: 20% cap at a 20% rate**
 
-- `testFuzz_PendingNeverExceeds20PercentWithinOneYear` — for any base and any
-  `Δt ≤ 1 year`, `pending ≤ base / 5`. *(Symbolic Δt — the nonlinear case.)*
-- `testFuzz_PendingExactlyTwentyPercentAtOneYear` — at exactly one year,
-  `pending == base / 5` exactly. The rate delivers precisely 20%/yr — never less
+- `testFuzz_PendingNeverExceeds20PercentWithinOneYear`: for any base and any
+  `Δt ≤ 1 year`, `pending ≤ base / 5`. *(Symbolic Δt, the nonlinear case.)*
+- `testFuzz_PendingExactlyTwentyPercentAtOneYear`: at exactly one year,
+  `pending == base / 5` exactly. The rate delivers precisely 20%/yr, never less
   through rounding, never more.
-- `testFuzz_InterestNeverExceedsNominalLinear` — over any `Δt ≤ 100 years`, the
+- `testFuzz_InterestNeverExceedsNominalLinear`: over any `Δt ≤ 100 years`, the
   credited interest never exceeds the exact linear entitlement
   `base * rate * Δt / (year * 10000)`. Integer flooring always rounds in the
   protocol's favour; no user is ever over-credited, even after decades.
 
 **Adversarial / boundary ("try to break it")**
 
-- `testFuzz_BoundaryTwoYearsExceedsTwentyPercent` — over two years the user is
+- `testFuzz_BoundaryTwoYearsExceedsTwentyPercent`: over two years the user is
   owed ~40% > 20%. The 20% guarantee is **per annum**; the one-year bound above
   is necessary, not incidental. (This is the counterexample Kontrol returns for
   an unbounded-time version of the cap.)
-- `testFuzz_BoundaryProxyBalanceBeatsBalanceOfBound` — with proxy balance
+- `testFuzz_BoundaryProxyBalanceBeatsBalanceOfBound`: with proxy balance
   present, one-year interest exceeds 20% of the plain token balance while still
   respecting 20% of the full base. The cap is on `balanceOf + proxyBalance`, not
   `balanceOf` alone.
@@ -111,14 +111,14 @@ At `interestRate = 2000` and `Δt = 1 year`, `yearFac = 1e18` and
 Over all ledger balances (≤ the overflow ceiling), all amounts and both move
 modes (exact-amount / move-all):
 
-- `testFuzz_INT1_moveConservesCashedSum` — a move debits the sender by exactly
+- `testFuzz_INT1_moveConservesCashedSum`: a move debits the sender by exactly
   the moved amount, credits the target by exactly the same amount, and never
   changes the total cashed interest.
-- `testFuzz_INT1_moveSelfIsNoOp` — a self-move touches nothing (the self-guard
+- `testFuzz_INT1_moveSelfIsNoOp`: a self-move touches nothing (the self-guard
   short-circuits before validation).
-- `testFuzz_INT1_moveToForbiddenTargetReverts` — the zero address and the
+- `testFuzz_INT1_moveToForbiddenTargetReverts`: the zero address and the
   InterestRateProxy can never be credited; the attempt reverts state-free.
-- `testFuzz_INT1_moveOverdrawReverts` — zero-moves and moves above the
+- `testFuzz_INT1_moveOverdrawReverts`: zero-moves and moves above the
   available balance revert state-free; the sender can never go negative.
 
 The stateful complement is `invariant_INT1_moveNeverChangesCashedSum`
@@ -132,7 +132,7 @@ that must stay zero.
 The strict-FIFO cursor law: per incentive lane,
 `currentOrderIdByIncentive == min{ id : amount(id) > 0 }`, and an empty lane
 parks the cursor exactly at `earliestValidQueMemberByIncentive`. The proof is
-the inductive step — one lemma per queue mutation, each seeding a small
+the inductive step: one lemma per queue mutation, each seeding a small
 concrete lane with fully symbolic amounts and asserting the predicate (plus
 the exact expected cursor) afterwards:
 
@@ -151,39 +151,39 @@ removals, is `test/diamond/invariant/QueueCursorInvariant.t.sol`.
 ## Bridge-receive proofs (QLV-5)
 
 The atomicity law `processedMessageId[id] == true ⟺ the mint for id
-succeeded` — the property that a share burned on the source chain can never
+succeeded`, the property that a share burned on the source chain can never
 be destroyed in flight (a failed delivery leaves no state, so CCIP manual
 re-execution can retry; a marked message can never mint again):
 
-- `testFuzz_QLV5_replayAlwaysReverts` — a marked id can never mint, for any
+- `testFuzz_QLV5_replayAlwaysReverts`: a marked id can never mint, for any
   payload.
-- `testFuzz_QLV5_successSetsFlagAndMintsExactly` — a routed, fresh, positive
+- `testFuzz_QLV5_successSetsFlagAndMintsExactly`: a routed, fresh, positive
   delivery marks the id and mints exactly the payload amount on top of any
   pre-existing balance.
-- `testFuzz_QLV5_flagAndMintAreAtomic` — the full ⟺ over symbolic gates
+- `testFuzz_QLV5_flagAndMintAreAtomic`: the full ⟺ over symbolic gates
   (lane-enabled × peer-match × already-processed × amount): success happens
   exactly when every gate passes, and either both effects land or neither
   does.
-- `testFuzz_QLV5_secondDeliverySameIdReverts` — at-most-once end to end.
-- `testFuzz_QLV5_referralShapeIsTransportOnly` — the referral-carrying payload
+- `testFuzz_QLV5_secondDeliverySameIdReverts`: at-most-once end to end.
+- `testFuzz_QLV5_referralShapeIsTransportOnly`: the referral-carrying payload
   shape obeys the same law and referral bytes never change the minted amount.
 
 The delivery gate set is the ENTIRE revert surface: router auth, lane
-enabled, peer match, replay flag, `amount > 0`. There is no economic gate —
+enabled, peer match, replay flag, `amount > 0`. There is no economic gate:
 the destination cap is raised by the minted amount before the mint
 (`_raiseDepositCap`), so a delivery can never exceed the deposit cap.
 
 ## Bridge room proofs (BRG-5)
 
-The cap-relocation law — relocations move `totalDepositCap` with the shares,
+The cap-relocation law (relocations move `totalDepositCap` with the shares,
 so room `totalDepositCap − totalSupply` is invariant under both bridge
-directions — proven in the underflow-safe all-addition form:
+directions), proven in the underflow-safe all-addition form:
 
-- `testFuzz_BRG5_receivePreservesRoom` — a delivered `ccipReceive` raises
+- `testFuzz_BRG5_receivePreservesRoom`: a delivered `ccipReceive` raises
   `totalDepositCap` and `totalSupply` by the same `amount` (all-addition room
   equation `cap' + supplyBefore == cap + supply'`, exact mint to the payload
   user), or reverts wholesale leaving cap and supply untouched.
-- `testFuzz_BRG5_bridgeOutPreservesRoom` — a burn-and-send lowers
+- `testFuzz_BRG5_bridgeOutPreservesRoom`: a burn-and-send lowers
   `totalDepositCap` and `totalSupply` by the same `amount` (addition form
   `cap' + amount == cap`), or reverts wholesale. Both lemmas pin the
   reachable-state precondition `supply ≤ cap` (the `setTotalDepositCap`
@@ -196,14 +196,14 @@ peer; pending interest is banked to `cashedInterest` by the facet's
 `assignInterest` modifier ABOVE the helper under proof, so `_executeMoveOut`
 itself must touch no interest state:
 
-- `testFuzz_MOV1_moveOutRelocatesCapWithPrincipal` — for any balance, move
+- `testFuzz_MOV1_moveOutRelocatesCapWithPrincipal`: for any balance, move
   amount and reachable cap (`cap ≥ supply`), a successful move gives
   `cap' == cap − amount`, `supply' == supply − amount` (room invariant,
   `supply' ≤ cap'`) with `cashedInterest(mover)` still zero (no compound
   mint, no banking at this layer); a reverting move touches neither. The
   concrete one-year warp keeps a nonzero pending ready so any residual
   compound mint would break the exact supply delta.
-- `test_MOV1_atCapMoveOutSucceedsRoomStaysZero` — concrete discriminator:
+- `test_MOV1_atCapMoveOutSucceedsRoomStaysZero`: concrete discriminator:
   at-cap move-out succeeds with room staying exactly 0 and the cap reduced
   by the full amount. Fails against an implementation that forgets
   `_reduceDepositCap`, cap-gates the move like a deposit, or reduces the cap
@@ -220,7 +220,7 @@ itself must touch no interest state:
 - **Symbolic-address scope**: `MoveInterestGuard` and `AssignInterest` fix the
   *counterparty/benefactor* address to a concrete representative (Kontrol does
   not terminate on a fully symbolic mapping key) while proving over all numeric
-  state, all flags and — for the move guard — all destinations. The address
+  state, all flags and (for the move guard) all destinations. The address
   dimension is covered by the fuzz campaign and the stateful invariant.
 - **Constructor migration edge (not covered, flagged):** `_migrateInterest`
   (`WiseTelecomNodesDeclarations`) writes `cashedInterest[addr]` directly, and only
@@ -234,8 +234,8 @@ itself must touch no interest state:
   `MockStable`. The all-tier, arbitrary-shape coverage comes from the
   stateful invariant.
 - **Bridge payload shapes and message id:** `_message.data` is pinned to its
-  two length shapes — the 64-byte legacy `(address, uint256)` encoding and
-  one referral-carrying `(address, uint256, bytes)` encoding — because the
+  two length shapes (the 64-byte legacy `(address, uint256)` encoding and
+  one referral-carrying `(address, uint256, bytes)` encoding), because the
   decode branch is selected purely by payload length; a fully
   symbolic-length `bytes` is intractable in KEVM. The message id is a
   concrete representative for the same reason the interest proofs use
@@ -246,9 +246,9 @@ itself must touch no interest state:
   directly (bypassing the governance timelock, which is proof-orthogonal)
   and `harnessSetRouter` bypasses only the set-once guard.
 - **Move-out proof (MOV-1):** the mover is a concrete address (mapping keys stay
-  concrete) holding a symbolic balance; a nonzero pending — pinned to
+  concrete) holding a symbolic balance; a nonzero pending (pinned to
   `floor(balance/5)` via concrete `interestRate` 2000 and a concrete one-year
-  sync delta — stands ready so any residual interest mint inside the helper
+  sync delta) stands ready so any residual interest mint inside the helper
   would break the exact supply delta (the banking happens at the facet
   modifier, above the helper under proof, so the helper must touch no
   interest state and no USD moves). The destination peer is a minimal

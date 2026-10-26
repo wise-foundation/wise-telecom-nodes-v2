@@ -34,10 +34,16 @@ jobs:
       - name: Install tools dependencies
         run: npm ci --prefix tools
 
+      # Pinned to the toolchain the repo is developed against: the gas-budget
+      # suites measure with gasleft() and their ceilings are calibrated to
+      # 1.7.1's metering — forge 1.8+ meters call-frame warmth differently and
+      # trips six ceilings. Re-baseline every gas cell when bumping this pin.
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: v1.7.1
 
-      # forge 1.7.1 (the current stable) predates solc 0.8.36 and cannot
+      # forge 1.7.1 predates solc 0.8.36 and cannot
       # auto-resolve it on a clean machine; see the script header.
       - name: Install solc 0.8.36
         run: bash script/install_solc_0836.sh
@@ -56,4 +62,4 @@ jobs:
       # CI holds no RPC credentials, so it runs everything else; see the
       # README for running the full suite locally.
       - name: Run Forge tests (offline suites)
-        run: forge test -vvv --no-match-path "test/{MoneyForward.t.sol,MoneyForwardViewParity.t.sol,diamond/WiseTelecomNodesBurnWiseFacet.t.sol,diamond/fork/DiamondLiveUsageFork.t.sol,diamond/fork/ReferralRegistryUpgradeFork.t.sol,diamond/fork/UniswapV4FlashLoanFork.t.sol,diamond/fork/WiseBurnFork.t.sol,diamond/fork/WiseTelecomNodesPermitFork.t.sol,migration/DiamondMigrationForkE2E.t.sol,migration/PostDeployMigrationFork.t.sol}"
+        run: forge test -vvv --no-match-path "test/{MoneyForward.t.sol,MoneyForwardViewParity.t.sol,diamond/WiseTelecomNodesBurnWiseFacet.t.sol,diamond/fork/CcipBridgeFork.t.sol,diamond/fork/CcipCarryUpgradeRehearsalFork.t.sol,diamond/fork/CcipLaneDiscoveryFork.t.sol,diamond/fork/CcipRobinhoodBridgeFork.t.sol,diamond/fork/CcipUsdgPeeringRehearsalFork.t.sol,diamond/fork/CohortBridgeAttributionMatrixFork.t.sol,diamond/fork/CohortBridgeAttributionMatrixForkRollout.t.sol,diamond/fork/CohortBridgeAttributionMatrixForkStates.t.sol,diamond/fork/CohortFlushUpgradeFork.t.sol,diamond/fork/DiamondLiveUsageFork.t.sol,diamond/fork/ReferralBotOpsFork.t.sol,diamond/fork/ReferralHubClaimFork.t.sol,diamond/fork/ReferralPreflightFork.t.sol,diamond/fork/ReferralRegistryUpgradeFork.t.sol,diamond/fork/SovrenReferralFork.t.sol,diamond/fork/UniswapV4FlashLoanFork.t.sol,diamond/fork/WiseBurnFork.t.sol,diamond/fork/WiseTelecomNodesPermitFork.t.sol,migration/DiamondMigrationForkE2E.t.sol,migration/PostDeployMigrationFork.t.sol}"

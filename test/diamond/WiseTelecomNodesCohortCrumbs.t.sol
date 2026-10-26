@@ -45,11 +45,11 @@ contract MockUSD is ERC20 {
 }
 
 /**
- * @dev Crumb suite for the cohort recorder — the FROZEN word format
+ * @dev Crumb suite for the cohort recorder: the FROZEN word format
  * the mainnet hub consumes. Every assertion is an exact
  * full-word equality (written bit | three 80-bit token-second lanes),
- * so a stray bit anywhere in the word — including the reserved
- * regions bits 240..251 and 253..255 — fails loudly. Covered: exact
+ * so a stray bit anywhere in the word (including the reserved
+ * regions bits 240..251 and 253..255) fails loudly. Covered: exact
  * amount x seconds lane weights across full weeks; the lane shift as
  * a cohort graduates Y1 -> Y2 at its 52-week boundary (segment
  * recorded BEFORE the boundary rotation, so the graduation week
@@ -58,9 +58,17 @@ contract MockUSD is ERC20 {
  * across a reduction; the dormant fast-forward gap record (packed
  * fromWeek | toWeekExclusive << 32 | mature << 64) after the capped
  * 104-boundary walk; the mixed case where `advanceBook` pre-walked
- * part of a dormant span and the gap covers the rest; and
- * finalized-crumb immutability — once the walk crosses a week's
- * closing boundary its word never changes again.
+ * part of a dormant span and the gap covers the rest; the weekly
+ * `advanceBook` poke that keeps a book in the crumb channel for 110
+ * weeks (every crumb word of the span exact across both graduations)
+ * while an unpoked twin book over the same span compresses into one
+ * gap record; and
+ * finalized-crumb immutability: once the walk crosses a week's
+ * closing boundary its word never changes again. The batched window
+ * read `getCohortWeekCrumbs` returns element for element exactly what
+ * the single getter serves across a window mixing written and
+ * untouched weeks; and a zero-count window returns an empty array
+ * without reverting.
  */
 contract WiseTelecomNodesCohortCrumbsTest is DiamondTestHarness {
 
@@ -96,13 +104,13 @@ contract WiseTelecomNodesCohortCrumbsTest is DiamondTestHarness {
         _wireOne(
             diamond,
             address(new ReferralFacet()),
-            WiseTelecomNodesDiamondSelectors.referralSelectors()
+            WiseTelecomNodesDiamondSelectors._referralSelectors()
         );
 
         _wireOne(
             diamond,
             address(new CohortRecorderFacet()),
-            WiseTelecomNodesDiamondSelectors.cohortRecorderSelectors()
+            WiseTelecomNodesDiamondSelectors._cohortRecorderSelectors()
         );
 
         AdminFacet(address(diamond)).proposeTransferHookFacet(
@@ -576,6 +584,123 @@ contract WiseTelecomNodesCohortCrumbsTest is DiamondTestHarness {
         );
     }
 
+    function test_crumbs_weeklyAdvance_recordsCrumbsInsteadOfGap()
+        public
+    {
+        address user2 = address(0xA2);
+
+        address refB = address(0xB2);
+
+        _depositWithReferralAs(
+            user1,
+            AMOUNT,
+            refA
+        );
+
+        _depositWithReferralAs(
+            user2,
+            AMOUNT,
+            refB
+        );
+
+        for (uint256 week = 3_001; week <= 3_110; ++week) {
+
+            vm.warp(
+                week * 1 weeks + 1 hours
+            );
+
+            vm.prank(
+                poker
+            );
+
+            _recorder().advanceBook(
+                refA,
+                1
+            );
+        }
+
+        _depositWithReferralAs(
+            user2,
+            50 * 1e6,
+            refB
+        );
+
+        assertEq(
+            _recorder().getCohortGapLogLength(
+                refA
+            ),
+            0
+        );
+
+        uint256[] memory crumbs = _recorder().getCohortWeekCrumbs(
+            refA,
+            3_001,
+            109
+        );
+
+        for (uint256 i; i < crumbs.length; ++i) {
+
+            uint256 week = 3_001 + i;
+
+            uint256 expected = _crumbWord(
+                0,
+                0,
+                AMOUNT * 1 weeks
+            );
+
+            if (week < 3_052) {
+                expected = _crumbWord(
+                    AMOUNT * 1 weeks,
+                    0,
+                    0
+                );
+            } else if (week < 3_104) {
+                expected = _crumbWord(
+                    0,
+                    AMOUNT * 1 weeks,
+                    0
+                );
+            }
+
+            assertEq(
+                crumbs[i],
+                expected
+            );
+        }
+
+        assertEq(
+            _recorder().getCohortScore(
+                refA
+            ),
+            AMOUNT
+        );
+
+        assertEq(
+            _recorder().getCohortGapLogLength(
+                refB
+            ),
+            1
+        );
+
+        assertEq(
+            _recorder().getCohortGapLogEntry(
+                refB,
+                0
+            ),
+            3_104
+                | (3_110 << CohortWeeks.GAP_TO_SHIFT)
+                | (AMOUNT << CohortWeeks.GAP_MATURE_SHIFT)
+        );
+
+        assertEq(
+            _recorder().getCohortWeekCrumb(
+                refB,
+                3_105
+            ),
+            0
+        );
+    }
+
     // ---- finalized-crumb immutability ----
 
     function testFuzz_crumbs_finalizedWeekWordNeverChanges(
@@ -692,5 +817,106 @@ contract WiseTelecomNodesCohortCrumbsTest is DiamondTestHarness {
                 finalized
             );
         }
+    }
+
+    // ---- batched window read ----
+
+    function test_getCohortWeekCrumbs_matchesSingleGetterAcrossWindow()
+        public
+    {
+        _depositWithReferralAs(
+            user1,
+            AMOUNT,
+            refA
+        );
+
+        vm.warp(
+            BASE_TIME + 3 weeks
+        );
+
+        _recorder().advanceBook(
+            refA,
+            104
+        );
+
+        uint256[] memory crumbs = _recorder().getCohortWeekCrumbs(
+            refA,
+            2_999,
+            6
+        );
+
+        assertEq(
+            crumbs.length,
+            6
+        );
+
+        for (uint256 i; i < crumbs.length; ++i) {
+
+            assertEq(
+                crumbs[i],
+                _recorder().getCohortWeekCrumb(
+                    refA,
+                    2_999 + i
+                )
+            );
+        }
+
+        assertEq(
+            crumbs[0],
+            0
+        );
+
+        assertEq(
+            crumbs[1],
+            _crumbWord(
+                AMOUNT * (1 weeks - 1 hours),
+                0,
+                0
+            )
+        );
+
+        assertEq(
+            crumbs[2],
+            _crumbWord(
+                AMOUNT * 1 weeks,
+                0,
+                0
+            )
+        );
+
+        assertEq(
+            crumbs[5],
+            0
+        );
+    }
+
+    function test_getCohortWeekCrumbs_zeroCount_returnsEmpty()
+        public
+    {
+        _depositWithReferralAs(
+            user1,
+            AMOUNT,
+            refA
+        );
+
+        vm.warp(
+            BASE_TIME + 3 weeks
+        );
+
+        _recorder().advanceBook(
+            refA,
+            104
+        );
+
+        uint256[] memory crumbs = _recorder().getCohortWeekCrumbs(
+            refA,
+            3_000,
+            0
+        );
+
+        assertEq(
+            crumbs.length,
+            0
+        );
     }
 }

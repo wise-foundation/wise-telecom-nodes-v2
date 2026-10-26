@@ -50,7 +50,7 @@ contract MockUSD is ERC20 {
  * the sender's whole cashed interest to the recipient (tolerant of a
  * zero balance). Proves the DELEGATECALL plumbing is transparent AND
  * that a delegatecalled hook writes the correct diamond storage slots.
- * Test-only — never added to src/, a deploy script, or a selector
+ * Test-only: never added to src/, a deploy script, or a selector
  * list.
  */
 contract IdentityTransferHookFacet is FacetBase {
@@ -162,7 +162,9 @@ contract WiseTelecomNodesTransferHookFacetTest is DiamondTestHarness {
     uint256 constant HOOK_DELAY = 3 days;
 
     bytes4 constant HOOK_SELECTOR = bytes4(
-        keccak256("applyTransferHook(address,address)")
+        keccak256(
+            "applyTransferHook(address,address)"
+        )
     );
 
     event HookRan(
@@ -360,12 +362,16 @@ contract WiseTelecomNodesTransferHookFacetTest is DiamondTestHarness {
         );
 
         assertGt(
-            diamond.cashedInterest(user1),
+            diamond.cashedInterest(
+                user1
+            ),
             0
         );
 
         assertEq(
-            diamond.cashedInterest(user3),
+            diamond.cashedInterest(
+                user3
+            ),
             0
         );
 
@@ -388,12 +394,16 @@ contract WiseTelecomNodesTransferHookFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.cashedInterest(user1),
+            diamond.cashedInterest(
+                user1
+            ),
             0
         );
 
         assertGt(
-            diamond.cashedInterest(user3),
+            diamond.cashedInterest(
+                user3
+            ),
             0
         );
 
@@ -426,12 +436,16 @@ contract WiseTelecomNodesTransferHookFacetTest is DiamondTestHarness {
         );
 
         assertGt(
-            diamond.cashedInterest(user1),
+            diamond.cashedInterest(
+                user1
+            ),
             0
         );
 
         assertEq(
-            diamond.cashedInterest(user2),
+            diamond.cashedInterest(
+                user2
+            ),
             0
         );
     }
@@ -858,7 +872,9 @@ contract WiseTelecomNodesTransferHookFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.cashedInterest(user3),
+            diamond.cashedInterest(
+                user3
+            ),
             strangerCashed
         );
 

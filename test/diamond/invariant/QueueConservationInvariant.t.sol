@@ -125,11 +125,19 @@ contract QueueInvariantHandler is Test {
     )
         external
     {
-        address actor = _actor(_actorSeed);
-        int256 incentive = _tier(_tierSeed);
+        address actor = _actor(
+            _actorSeed
+        );
+
+        int256 incentive = _tier(
+            _tierSeed
+        );
 
         uint256 minDep = diamond.minDepositAmount();
-        uint256 bal = diamond.balanceOf(actor);
+
+        uint256 bal = diamond.balanceOf(
+            actor
+        );
 
         if (bal < minDep) {
             return;
@@ -154,10 +162,17 @@ contract QueueInvariantHandler is Test {
     )
         external
     {
-        address actor = _actor(_actorSeed);
-        int256 incentive = _tier(_tierSeed);
+        address actor = _actor(
+            _actorSeed
+        );
 
-        uint256 id = diamond.currentOrderIdByIncentive(incentive);
+        int256 incentive = _tier(
+            _tierSeed
+        );
+
+        uint256 id = diamond.currentOrderIdByIncentive(
+            incentive
+        );
 
         vm.prank(
             actor
@@ -173,10 +188,17 @@ contract QueueInvariantHandler is Test {
     )
         external
     {
-        address actor = _actor(_actorSeed);
-        int256 incentive = _tier(_tierSeed);
+        address actor = _actor(
+            _actorSeed
+        );
 
-        uint256 id = diamond.currentOrderIdByIncentive(incentive);
+        int256 incentive = _tier(
+            _tierSeed
+        );
+
+        uint256 id = diamond.currentOrderIdByIncentive(
+            incentive
+        );
 
         uint256 reduceBy = bound(
             _reduceSeed,
@@ -197,10 +219,17 @@ contract QueueInvariantHandler is Test {
     )
         external
     {
-        address actor = _actor(_actorSeed);
-        int256 incentive = _tier(_tierSeed);
+        address actor = _actor(
+            _actorSeed
+        );
 
-        uint256 id = diamond.currentOrderIdByIncentive(incentive);
+        int256 incentive = _tier(
+            _tierSeed
+        );
+
+        uint256 id = diamond.currentOrderIdByIncentive(
+            incentive
+        );
 
         vm.prank(
             actor
@@ -216,15 +245,25 @@ contract QueueInvariantHandler is Test {
     )
         external
     {
-        address actor = _actor(_actorSeed);
-        int256 incentiveA = _tier(_tierSeedA);
-        int256 incentiveB = _tier(_tierSeedB);
+        address actor = _actor(
+            _actorSeed
+        );
+
+        int256 incentiveA = _tier(
+            _tierSeedA
+        );
+
+        int256 incentiveB = _tier(
+            _tierSeedB
+        );
 
         if (incentiveA == incentiveB) {
             return;
         }
 
-        uint256 id = diamond.currentOrderIdByIncentive(incentiveA);
+        uint256 id = diamond.currentOrderIdByIncentive(
+            incentiveA
+        );
 
         vm.prank(
             actor
@@ -241,15 +280,25 @@ contract QueueInvariantHandler is Test {
     )
         external
     {
-        address actor = _actor(_actorSeed);
-        int256 incentiveA = _tier(_tierSeedA);
-        int256 incentiveB = _tier(_tierSeedB);
+        address actor = _actor(
+            _actorSeed
+        );
+
+        int256 incentiveA = _tier(
+            _tierSeedA
+        );
+
+        int256 incentiveB = _tier(
+            _tierSeedB
+        );
 
         if (incentiveA == incentiveB) {
             return;
         }
 
-        uint256 id = diamond.currentOrderIdByIncentive(incentiveA);
+        uint256 id = diamond.currentOrderIdByIncentive(
+            incentiveA
+        );
 
         uint256 amount = bound(
             _amountSeed,
@@ -268,7 +317,7 @@ contract QueueInvariantHandler is Test {
 /**
  * @dev Stateful-fuzz invariant: the global `totalActiveOrders` counter
  * must always equal the sum of the per-incentive counters, and each
- * bucket's current-order pointer must stay within its allocation range —
+ * bucket's current-order pointer must stay within its allocation range,
  * across any sequence of join / leave / reduce / fulfill.
  */
 contract QueueConservationInvariantTest is DiamondTestHarness {
@@ -391,8 +440,12 @@ contract QueueConservationInvariantTest is DiamondTestHarness {
 
         for (uint256 i = 0; i < tiers.length; i++) {
             assertLe(
-                diamond.currentOrderIdByIncentive(tiers[i]),
-                diamond.earliestValidQueMemberByIncentive(tiers[i]),
+                diamond.currentOrderIdByIncentive(
+                    tiers[i]
+                ),
+                diamond.earliestValidQueMemberByIncentive(
+                    tiers[i]
+                ),
                 "current order pointer beyond allocation"
             );
         }
@@ -409,8 +462,13 @@ contract QueueConservationInvariantTest is DiamondTestHarness {
         for (uint256 i = 0; i < tiers.length; i++) {
             int256 incentive = tiers[i];
 
-            uint256 earliest = diamond.earliestValidQueMemberByIncentive(incentive);
-            uint256 cur = diamond.currentOrderIdByIncentive(incentive);
+            uint256 earliest = diamond.earliestValidQueMemberByIncentive(
+                incentive
+            );
+
+            uint256 cur = diamond.currentOrderIdByIncentive(
+                incentive
+            );
 
             uint256 walked;
             uint256 guard;
@@ -436,7 +494,9 @@ contract QueueConservationInvariantTest is DiamondTestHarness {
 
             assertEq(
                 walked,
-                diamond.activeOrderCountByIncentive(incentive),
+                diamond.activeOrderCountByIncentive(
+                    incentive
+                ),
                 "linked-list live-order walk desynced from activeOrderCount"
             );
         }
@@ -453,7 +513,9 @@ contract QueueConservationInvariantTest is DiamondTestHarness {
             + diamond.proxyBalance(user3);
 
         assertEq(
-            diamond.balanceOf(address(diamond)),
+            diamond.balanceOf(
+                address(diamond)
+            ),
             sumProxy,
             "escrowed vault shares desynced from sum of proxy balances"
         );
@@ -466,19 +528,25 @@ contract QueueConservationInvariantTest is DiamondTestHarness {
         view
     {
         assertEq(
-            diamond.getPendingInterest(address(diamond)),
+            diamond.getPendingInterest(
+                address(diamond)
+            ),
             0,
             "contract accrued pending interest"
         );
 
         assertEq(
-            diamond.cashedInterest(address(diamond)),
+            diamond.cashedInterest(
+                address(diamond)
+            ),
             0,
             "contract accrued cashed interest"
         );
 
         assertEq(
-            diamond.proxyBalance(address(diamond)),
+            diamond.proxyBalance(
+                address(diamond)
+            ),
             0,
             "contract holds a proxy balance"
         );

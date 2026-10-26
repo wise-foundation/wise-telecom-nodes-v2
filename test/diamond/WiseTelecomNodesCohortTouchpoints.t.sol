@@ -11,6 +11,7 @@ import {AdminFacet} from "../../src/diamond/vault/facets/AdminFacet.sol";
 import {UserFacet} from "../../src/diamond/vault/facets/UserFacet.sol";
 import {QueueJoinLeaveFacet} from "../../src/diamond/vault/facets/QueueJoinLeaveFacet.sol";
 import {GraceFreezeHookFacet} from "../../src/diamond/vault/facets/GraceFreezeHookFacet.sol";
+import {AutoCompoundFacet} from "../../src/diamond/vault/facets/AutoCompoundFacet.sol";
 import {ReferralFacet} from "../../src/diamond/vault/facets/pending/ReferralFacet.sol";
 import {Permit2ReferralFacet} from "../../src/diamond/vault/facets/pending/Permit2ReferralFacet.sol";
 import {CohortHookFacet} from "../../src/diamond/vault/facets/pending/CohortHookFacet.sol";
@@ -81,7 +82,7 @@ contract MockPermit2 is IPermit2 {
  * default-off arming discipline (sections 0), the contribution credit
  * paths through every deposit and compound variant including the
  * all-depositor tracking of unreferred users (section 1), and the
- * one-way lazy clamp — transfer deficits landing on the NEXT sync,
+ * one-way lazy clamp: transfer deficits landing on the NEXT sync,
  * two-party hook sync, the permissionless poke, and clamp-before-credit
  * ordering (section 2). The recorder engine lives in one deployment
  * ({CohortHookFacet}) installed as the transfer hook; the suite wires
@@ -146,6 +147,7 @@ contract WiseTelecomNodesCohortTouchpointsTest is DiamondTestHarness {
     address internal refB = address(0xB2);
     address internal outsider = address(0xC1);
     address internal poker = address(0xD1);
+    address internal bot = address(0xE1);
 
     WiseTelecomNodesDiamond internal diamond;
     MockUSD internal usd;
@@ -182,19 +184,25 @@ contract WiseTelecomNodesCohortTouchpointsTest is DiamondTestHarness {
         _wireOne(
             diamond,
             address(new ReferralFacet()),
-            WiseTelecomNodesDiamondSelectors.referralSelectors()
+            WiseTelecomNodesDiamondSelectors._referralSelectors()
         );
 
         _wireOne(
             diamond,
             address(new Permit2ReferralFacet()),
-            WiseTelecomNodesDiamondSelectors.permit2ReferralSelectors()
+            WiseTelecomNodesDiamondSelectors._permit2ReferralSelectors()
         );
 
         _wireOne(
             diamond,
             address(new CohortRecorderFacet()),
-            WiseTelecomNodesDiamondSelectors.cohortRecorderSelectors()
+            WiseTelecomNodesDiamondSelectors._cohortRecorderSelectors()
+        );
+
+        _wireOne(
+            diamond,
+            address(new AutoCompoundFacet()),
+            WiseTelecomNodesDiamondSelectors._autoCompoundSelectors()
         );
 
         AdminFacet(address(diamond)).proposeTransferHookFacet(
@@ -333,6 +341,42 @@ contract WiseTelecomNodesCohortTouchpointsTest is DiamondTestHarness {
         );
     }
 
+    function _botCompound(
+        address _user
+    )
+        internal
+        returns (uint256 netAmount)
+    {
+        AutoCompoundFacet(address(diamond)).setAutoCompoundBot(
+            bot,
+            true
+        );
+
+        AutoCompoundFacet(address(diamond)).setAutoCompoundFeeBps(
+            100
+        );
+
+        vm.prank(
+            _user
+        );
+
+        AutoCompoundFacet(address(diamond)).setAutoCompoundAllowed(
+            true
+        );
+
+        vm.warp(
+            block.timestamp + 30 days
+        );
+
+        vm.prank(
+            bot
+        );
+
+        netAmount = AutoCompoundFacet(address(diamond)).compoundInterestOnBehalf(
+            _user
+        );
+    }
+
     function _currentRingSlot()
         internal
         view
@@ -364,7 +408,9 @@ contract WiseTelecomNodesCohortTouchpointsTest is DiamondTestHarness {
         view
     {
         assertEq(
-            _recorder().getTrackedContribution(_user),
+            _recorder().getTrackedContribution(
+                _user
+            ),
             0
         );
 
@@ -375,13 +421,30 @@ contract WiseTelecomNodesCohortTouchpointsTest is DiamondTestHarness {
             uint256 lastSettle
         ) = _recorder().getCohortBook(_referrer);
 
-        assertEq(year1, 0);
-        assertEq(year2, 0);
-        assertEq(mature, 0);
-        assertEq(lastSettle, 0);
+        assertEq(
+            year1,
+            0
+        );
 
         assertEq(
-            _recorder().getCohortScore(_referrer),
+            year2,
+            0
+        );
+
+        assertEq(
+            mature,
+            0
+        );
+
+        assertEq(
+            lastSettle,
+            0
+        );
+
+        assertEq(
+            _recorder().getCohortScore(
+                _referrer
+            ),
             0
         );
     }
@@ -398,7 +461,9 @@ contract WiseTelecomNodesCohortTouchpointsTest is DiamondTestHarness {
         );
 
         assertEq(
-            ReferralFacet(address(diamond)).getReferrerOf(user1),
+            ReferralFacet(address(diamond)).getReferrerOf(
+                user1
+            ),
             refA
         );
 
@@ -656,7 +721,9 @@ contract WiseTelecomNodesCohortTouchpointsTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             DEPOSIT
         );
 
@@ -667,13 +734,30 @@ contract WiseTelecomNodesCohortTouchpointsTest is DiamondTestHarness {
             uint256 lastSettle
         ) = _recorder().getCohortBook(refA);
 
-        assertEq(year1, DEPOSIT);
-        assertEq(year2, 0);
-        assertEq(mature, 0);
-        assertEq(lastSettle, block.timestamp);
+        assertEq(
+            year1,
+            DEPOSIT
+        );
 
         assertEq(
-            _recorder().getCohortScore(refA),
+            year2,
+            0
+        );
+
+        assertEq(
+            mature,
+            0
+        );
+
+        assertEq(
+            lastSettle,
+            block.timestamp
+        );
+
+        assertEq(
+            _recorder().getCohortScore(
+                refA
+            ),
             DEPOSIT
         );
 
@@ -740,17 +824,23 @@ contract WiseTelecomNodesCohortTouchpointsTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user2),
+            _recorder().getTrackedContribution(
+                user2
+            ),
             DEPOSIT
         );
 
         assertEq(
-            _recorder().getCohortScore(refA),
+            _recorder().getCohortScore(
+                refA
+            ),
             0
         );
 
         assertEq(
-            _recorder().getCohortScore(refB),
+            _recorder().getCohortScore(
+                refB
+            ),
             0
         );
 
@@ -795,12 +885,18 @@ contract WiseTelecomNodesCohortTouchpointsTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
-            diamond.balanceOf(user1)
+            _recorder().getTrackedContribution(
+                user1
+            ),
+            diamond.balanceOf(
+                user1
+            )
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             2 * DEPOSIT
         );
     }
@@ -840,17 +936,25 @@ contract WiseTelecomNodesCohortTouchpointsTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
-            diamond.balanceOf(user1)
+            _recorder().getTrackedContribution(
+                user1
+            ),
+            diamond.balanceOf(
+                user1
+            )
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             2 * DEPOSIT + compounded
         );
 
         assertEq(
-            _recorder().getCohortScore(refA),
+            _recorder().getCohortScore(
+                refA
+            ),
             2 * DEPOSIT + compounded
         );
     }
@@ -882,12 +986,16 @@ contract WiseTelecomNodesCohortTouchpointsTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             DEPOSIT + compounded
         );
 
         assertEq(
-            _recorder().getCohortScore(refA),
+            _recorder().getCohortScore(
+                refA
+            ),
             DEPOSIT + compounded
         );
     }
@@ -918,12 +1026,16 @@ contract WiseTelecomNodesCohortTouchpointsTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user2),
+            _recorder().getTrackedContribution(
+                user2
+            ),
             DEPOSIT + compounded
         );
 
         assertEq(
-            _recorder().getCohortScore(refA),
+            _recorder().getCohortScore(
+                refA
+            ),
             0
         );
     }
@@ -951,12 +1063,16 @@ contract WiseTelecomNodesCohortTouchpointsTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             DEPOSIT
         );
 
         assertEq(
-            _recorder().getCohortScore(refA),
+            _recorder().getCohortScore(
+                refA
+            ),
             DEPOSIT
         );
     }
@@ -1005,12 +1121,16 @@ contract WiseTelecomNodesCohortTouchpointsTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             2 * DEPOSIT + compounded
         );
 
         assertEq(
-            _recorder().getCohortScore(refA),
+            _recorder().getCohortScore(
+                refA
+            ),
             2 * DEPOSIT + compounded
         );
     }
@@ -1047,7 +1167,9 @@ contract WiseTelecomNodesCohortTouchpointsTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getCohortScore(refA),
+            _recorder().getCohortScore(
+                refA
+            ),
             DEPOSIT + 2_000 * 1e6
         );
     }
@@ -1069,13 +1191,166 @@ contract WiseTelecomNodesCohortTouchpointsTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             DEPOSIT
         );
 
         assertEq(
-            _recorder().getCohortScore(refA),
+            _recorder().getCohortScore(
+                refA
+            ),
             DEPOSIT
+        );
+    }
+
+    function test_compoundInterestOnBehalf_creditsReferrerWithNet()
+        public
+    {
+        _arm();
+
+        _depositWithReferralAs(
+            user1,
+            DEPOSIT,
+            refA
+        );
+
+        vm.recordLogs();
+
+        uint256 net = _botCompound(
+            user1
+        );
+
+        assertGt(
+            net,
+            0
+        );
+
+        assertEq(
+            _countTopic(
+                vm.getRecordedLogs(),
+                CREDITED_TOPIC
+            ),
+            1
+        );
+
+        assertEq(
+            diamond.balanceOf(
+                user1
+            ),
+            DEPOSIT + net
+        );
+
+        assertEq(
+            _recorder().getTrackedContribution(
+                user1
+            ),
+            DEPOSIT + net
+        );
+
+        assertEq(
+            _recorder().getAttributedContribution(
+                user1
+            ),
+            DEPOSIT + net
+        );
+
+        assertEq(
+            _recorder().getCohortScore(
+                refA
+            ),
+            DEPOSIT + net
+        );
+    }
+
+    function test_compoundInterestOnBehalf_unreferred_tracksOnly()
+        public
+    {
+        _arm();
+
+        _depositAs(
+            user2,
+            DEPOSIT
+        );
+
+        uint256 net = _botCompound(
+            user2
+        );
+
+        assertGt(
+            net,
+            0
+        );
+
+        assertEq(
+            _recorder().getTrackedContribution(
+                user2
+            ),
+            DEPOSIT + net
+        );
+
+        assertEq(
+            _recorder().getAttributedContribution(
+                user2
+            ),
+            0
+        );
+
+        assertEq(
+            _recorder().getCohortScore(
+                refA
+            ),
+            0
+        );
+    }
+
+    function test_compoundInterestOnBehalf_afterDeficit_clampsBeforeCredit()
+        public
+    {
+        _arm();
+
+        _depositWithReferralAs(
+            user1,
+            DEPOSIT,
+            refA
+        );
+
+        _transferAs(
+            user1,
+            outsider,
+            2_000 * 1e6
+        );
+
+        uint256 net = _botCompound(
+            user1
+        );
+
+        assertEq(
+            diamond.balanceOf(
+                user1
+            ),
+            DEPOSIT
+                - 2_000 * 1e6
+                + net
+        );
+
+        assertEq(
+            _recorder().getTrackedContribution(
+                user1
+            ),
+            DEPOSIT
+                - 2_000 * 1e6
+                + net
+        );
+
+        assertEq(
+            _recorder().getCohortScore(
+                refA
+            ),
+            DEPOSIT
+                - 2_000 * 1e6
+                + net
         );
     }
 
@@ -1099,7 +1374,9 @@ contract WiseTelecomNodesCohortTouchpointsTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             DEPOSIT
         );
 
@@ -1112,12 +1389,16 @@ contract WiseTelecomNodesCohortTouchpointsTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             3_000 * 1e6
         );
 
         assertEq(
-            _recorder().getCohortScore(refA),
+            _recorder().getCohortScore(
+                refA
+            ),
             3_000 * 1e6
         );
     }
@@ -1151,12 +1432,16 @@ contract WiseTelecomNodesCohortTouchpointsTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user2),
+            _recorder().getTrackedContribution(
+                user2
+            ),
             3_000 * 1e6
         );
 
         assertEq(
-            _recorder().getCohortScore(refB),
+            _recorder().getCohortScore(
+                refB
+            ),
             3_000 * 1e6
         );
     }
@@ -1198,7 +1483,9 @@ contract WiseTelecomNodesCohortTouchpointsTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             3_000 * 1e6
         );
     }
@@ -1229,7 +1516,9 @@ contract WiseTelecomNodesCohortTouchpointsTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             3_000 * 1e6
         );
 
@@ -1254,7 +1543,9 @@ contract WiseTelecomNodesCohortTouchpointsTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             3_000 * 1e6
         );
     }
@@ -1343,7 +1634,9 @@ contract WiseTelecomNodesCohortTouchpointsTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user2),
+            _recorder().getTrackedContribution(
+                user2
+            ),
             3_000 * 1e6
         );
 
@@ -1383,7 +1676,9 @@ contract WiseTelecomNodesCohortTouchpointsTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             DEPOSIT
         );
 
@@ -1396,12 +1691,16 @@ contract WiseTelecomNodesCohortTouchpointsTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             3_000 * 1e6
         );
 
         assertEq(
-            _recorder().getCohortScore(refA),
+            _recorder().getCohortScore(
+                refA
+            ),
             3_000 * 1e6
         );
     }
@@ -1429,17 +1728,23 @@ contract WiseTelecomNodesCohortTouchpointsTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             DEPOSIT
         );
 
         assertEq(
-            diamond.balanceOf(user1),
+            diamond.balanceOf(
+                user1
+            ),
             DEPOSIT
         );
 
         assertEq(
-            _recorder().getCohortScore(refA),
+            _recorder().getCohortScore(
+                refA
+            ),
             DEPOSIT
         );
     }
@@ -1542,12 +1847,16 @@ contract WiseTelecomNodesCohortTouchpointsTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             DEPOSIT
         );
 
         assertEq(
-            _recorder().getCohortScore(refA),
+            _recorder().getCohortScore(
+                refA
+            ),
             DEPOSIT
         );
 
@@ -1561,12 +1870,16 @@ contract WiseTelecomNodesCohortTouchpointsTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             3_000 * 1e6
         );
 
         assertEq(
-            _recorder().getCohortScore(refA),
+            _recorder().getCohortScore(
+                refA
+            ),
             3_000 * 1e6
         );
     }
@@ -1602,12 +1915,16 @@ contract WiseTelecomNodesCohortTouchpointsTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             DEPOSIT + 2_000 * 1e6
         );
 
         assertEq(
-            _recorder().getCohortScore(refA),
+            _recorder().getCohortScore(
+                refA
+            ),
             DEPOSIT
         );
 
@@ -1651,7 +1968,9 @@ contract WiseTelecomNodesCohortTouchpointsTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             DEPOSIT
         );
 
@@ -1672,13 +1991,585 @@ contract WiseTelecomNodesCohortTouchpointsTest is DiamondTestHarness {
         );
 
         assertEq(
-            _recorder().getTrackedContribution(user1),
+            _recorder().getTrackedContribution(
+                user1
+            ),
             DEPOSIT
         );
 
         assertEq(
-            _recorder().getCohortScore(refA),
+            _recorder().getCohortScore(
+                refA
+            ),
             DEPOSIT
+        );
+    }
+
+    // ---- moved-amount pins: transfer sides, self-transfer, partial claim, admin burn ----
+
+    function _assertSelfCrumb(
+        address _user,
+        uint256 _settledAt,
+        uint256 _current
+    )
+        internal
+        view
+    {
+        (
+            uint256 settledAt,
+            uint256 current,
+        ) = _recorder().getCohortSelfCrumb(
+            _user
+        );
+
+        assertEq(
+            settledAt,
+            _settledAt
+        );
+
+        assertEq(
+            current,
+            _current
+        );
+    }
+
+    function _assertZeroAddressBookEmpty()
+        internal
+        view
+    {
+        (
+            uint256 year1,
+            uint256 year2,
+            uint256 mature,
+            uint256 lastSettle
+        ) = _recorder().getCohortBook(
+            address(0)
+        );
+
+        assertEq(
+            year1 + year2 + mature + lastSettle,
+            0
+        );
+    }
+
+    function test_transfer_selfTransfer_neverClampsOrSettles()
+        public
+    {
+        _arm();
+
+        uint256 depositAt = block.timestamp;
+
+        _depositWithReferralAs(
+            user1,
+            DEPOSIT,
+            refA
+        );
+
+        vm.warp(
+            block.timestamp + 1 days
+        );
+
+        vm.recordLogs();
+
+        _transferAs(
+            user1,
+            user1,
+            1_000 * 1e6
+        );
+
+        vm.prank(
+            poker
+        );
+
+        _recorder().syncReferee(
+            user1
+        );
+
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        assertEq(
+            _countTopic(
+                logs,
+                SYNCED_TOPIC
+            ),
+            0
+        );
+
+        assertEq(
+            _countTopic(
+                logs,
+                REDUCED_TOPIC
+            ),
+            0
+        );
+
+        assertEq(
+            _recorder().getTrackedContribution(
+                user1
+            ),
+            DEPOSIT
+        );
+
+        assertEq(
+            _recorder().getAttributedContribution(
+                user1
+            ),
+            DEPOSIT
+        );
+
+        assertEq(
+            _recorder().getCohortScore(
+                refA
+            ),
+            DEPOSIT
+        );
+
+        _assertSelfCrumb(
+            user1,
+            depositAt,
+            0
+        );
+    }
+
+    function test_transfer_selfTransfer_unreferred_neverClampsOrSettles()
+        public
+    {
+        _arm();
+
+        uint256 depositAt = block.timestamp;
+
+        _depositAs(
+            user2,
+            DEPOSIT
+        );
+
+        vm.warp(
+            block.timestamp + 1 days
+        );
+
+        vm.recordLogs();
+
+        _transferAs(
+            user2,
+            user2,
+            1_000 * 1e6
+        );
+
+        vm.prank(
+            poker
+        );
+
+        _recorder().syncReferee(
+            user2
+        );
+
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        assertEq(
+            _countTopic(
+                logs,
+                SYNCED_TOPIC
+            ),
+            0
+        );
+
+        assertEq(
+            _recorder().getTrackedContribution(
+                user2
+            ),
+            DEPOSIT
+        );
+
+        assertEq(
+            _recorder().getAttributedContribution(
+                user2
+            ),
+            0
+        );
+
+        _assertSelfCrumb(
+            user2,
+            depositAt,
+            0
+        );
+
+        _assertZeroAddressBookEmpty();
+    }
+
+    function test_transfer_referredToReferred_debitsSenderReferrerOnly()
+        public
+    {
+        _arm();
+
+        uint256 depositAt = block.timestamp;
+
+        _depositWithReferralAs(
+            user1,
+            DEPOSIT,
+            refA
+        );
+
+        _depositWithReferralAs(
+            user2,
+            DEPOSIT,
+            refB
+        );
+
+        vm.warp(
+            block.timestamp + 1 days
+        );
+
+        uint256 transferAt = block.timestamp;
+
+        _transferAs(
+            user1,
+            user2,
+            2_000 * 1e6
+        );
+
+        vm.prank(
+            poker
+        );
+
+        _recorder().syncReferee(
+            user1
+        );
+
+        assertEq(
+            _recorder().getTrackedContribution(
+                user1
+            ),
+            3_000 * 1e6
+        );
+
+        assertEq(
+            _recorder().getAttributedContribution(
+                user1
+            ),
+            3_000 * 1e6
+        );
+
+        assertEq(
+            _recorder().getCohortScore(
+                refA
+            ),
+            3_000 * 1e6
+        );
+
+        assertEq(
+            _recorder().getTrackedContribution(
+                user2
+            ),
+            DEPOSIT
+        );
+
+        assertEq(
+            _recorder().getAttributedContribution(
+                user2
+            ),
+            DEPOSIT
+        );
+
+        assertEq(
+            _recorder().getCohortScore(
+                refB
+            ),
+            DEPOSIT
+        );
+
+        (
+            ,
+            ,
+            ,
+            uint256 lastSettleB
+        ) = _recorder().getCohortBook(
+            refB
+        );
+
+        assertEq(
+            lastSettleB,
+            depositAt
+        );
+
+        _assertSelfCrumb(
+            user2,
+            depositAt,
+            0
+        );
+
+        _assertSelfCrumb(
+            user1,
+            transferAt,
+            DEPOSIT * 1 days
+        );
+    }
+
+    function test_transfer_referredToUnreferred_recipientStaysUntracked()
+        public
+    {
+        _arm();
+
+        _depositWithReferralAs(
+            user1,
+            DEPOSIT,
+            refA
+        );
+
+        vm.warp(
+            block.timestamp + 1 days
+        );
+
+        _transferAs(
+            user1,
+            outsider,
+            2_000 * 1e6
+        );
+
+        vm.prank(
+            poker
+        );
+
+        _recorder().syncReferee(
+            user1
+        );
+
+        assertEq(
+            _recorder().getTrackedContribution(
+                outsider
+            ),
+            0
+        );
+
+        assertEq(
+            _recorder().getAttributedContribution(
+                outsider
+            ),
+            0
+        );
+
+        _assertSelfCrumb(
+            outsider,
+            0,
+            0
+        );
+    }
+
+    function test_transfer_unreferredSender_settlesSelfCrumbAtParkOnly()
+        public
+    {
+        _arm();
+
+        _depositWithReferralAs(
+            user1,
+            DEPOSIT,
+            refB
+        );
+
+        _depositAs(
+            user2,
+            DEPOSIT
+        );
+
+        vm.warp(
+            block.timestamp + 1 days
+        );
+
+        uint256 transferAt = block.timestamp;
+
+        _transferAs(
+            user2,
+            user1,
+            2_000 * 1e6
+        );
+
+        vm.warp(
+            block.timestamp + 1 hours
+        );
+
+        vm.prank(
+            poker
+        );
+
+        _recorder().syncReferee(
+            user2
+        );
+
+        assertEq(
+            _recorder().getTrackedContribution(
+                user2
+            ),
+            3_000 * 1e6
+        );
+
+        assertEq(
+            _recorder().getAttributedContribution(
+                user2
+            ),
+            0
+        );
+
+        assertEq(
+            _recorder().getTrackedContribution(
+                user1
+            ),
+            DEPOSIT
+        );
+
+        assertEq(
+            _recorder().getCohortScore(
+                refB
+            ),
+            DEPOSIT
+        );
+
+        _assertSelfCrumb(
+            user2,
+            transferAt,
+            DEPOSIT * 1 days
+        );
+
+        _assertZeroAddressBookEmpty();
+    }
+
+    function test_deposit_unreferredUser_attributesNothingAndStampsCrumb()
+        public
+    {
+        _arm();
+
+        _depositAs(
+            user2,
+            DEPOSIT
+        );
+
+        assertEq(
+            _recorder().getAttributedContribution(
+                user2
+            ),
+            0
+        );
+
+        _assertSelfCrumb(
+            user2,
+            block.timestamp,
+            0
+        );
+
+        _assertZeroAddressBookEmpty();
+    }
+
+    function test_claimInterestPartiallyAndCompound_creditsCompoundedRemainder()
+        public
+    {
+        _arm();
+
+        _depositWithReferralAs(
+            user1,
+            DEPOSIT,
+            refA
+        );
+
+        vm.warp(
+            block.timestamp + 30 days
+        );
+
+        uint256 balanceBefore = diamond.balanceOf(
+            user1
+        );
+
+        vm.recordLogs();
+
+        vm.prank(
+            user1
+        );
+
+        UserFacet(address(diamond)).claimInterestPartiallyAndCompound(
+            1e6
+        );
+
+        uint256 compounded = diamond.balanceOf(
+            user1
+        ) - balanceBefore;
+
+        assertGt(
+            compounded,
+            0
+        );
+
+        assertEq(
+            _recorder().getTrackedContribution(
+                user1
+            ),
+            DEPOSIT + compounded
+        );
+
+        assertEq(
+            _recorder().getAttributedContribution(
+                user1
+            ),
+            DEPOSIT + compounded
+        );
+
+        assertEq(
+            _recorder().getCohortScore(
+                refA
+            ),
+            DEPOSIT + compounded
+        );
+
+        assertEq(
+            _countTopic(
+                vm.getRecordedLogs(),
+                CREDITED_TOPIC
+            ),
+            1
+        );
+    }
+
+    function test_burnSupply_selfCrumbCountsBurnedStakeUntilPoke()
+        public
+    {
+        _arm();
+
+        uint256 depositAt = block.timestamp;
+
+        _depositWithReferralAs(
+            user1,
+            DEPOSIT,
+            refA
+        );
+
+        vm.warp(
+            depositAt + 1 days
+        );
+
+        AdminFacet(address(diamond)).burnSupply(
+            user1,
+            2_000 * 1e6
+        );
+
+        vm.warp(
+            depositAt + 3 days
+        );
+
+        vm.prank(
+            poker
+        );
+
+        _recorder().syncReferee(
+            user1
+        );
+
+        assertEq(
+            _recorder().getTrackedContribution(
+                user1
+            ),
+            3_000 * 1e6
+        );
+
+        _assertSelfCrumb(
+            user1,
+            depositAt + 3 days,
+            DEPOSIT * 3 days
         );
     }
 }

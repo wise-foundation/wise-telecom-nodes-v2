@@ -53,7 +53,7 @@ contract MockUSD is ERC20 {
 
 /**
  * @dev Fee-quoting sink for outbound bridges: `getFee` returns a flat
- * fee and `ccipSend` just mints a message id. No relay — the gate
+ * fee and `ccipSend` just mints a message id. No relay: the gate
  * tests only assert that outbound bridging stays open while the
  * deposit gate is closed.
  */
@@ -97,9 +97,9 @@ contract MockRouterSink {
 /**
  * @dev Tests for the master-gated `depositsDisabled` flag: every
  * share-minting deposit entrypoint (direct, combos, Permit2) must
- * revert while the gate is closed, and everything else — inbound
+ * revert while the gate is closed, and everything else (inbound
  * `ccipReceive` mints, outbound bridging, queue joins, incentive
- * switches, queue leaves and transfers — must keep working, so a
+ * switches, queue leaves and transfers) must keep working, so a
  * dormant chain stays fully wired into the mesh. Queue operations
  * only move already-minted shares, not new capital, so they are
  * never gated. Re-enabling restores deposits.
@@ -141,7 +141,7 @@ contract WiseTelecomNodesDepositGateTest is DiamondTestHarness {
         _wireOne(
             diamond,
             address(new BridgeFacet()),
-            WiseTelecomNodesDiamondSelectors.bridgeSelectors()
+            WiseTelecomNodesDiamondSelectors._bridgeSelectors()
         );
 
         BridgeFacet(address(diamond)).setCcipRouter(
@@ -410,12 +410,16 @@ contract WiseTelecomNodesDepositGateTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.balanceOf(user1),
+            diamond.balanceOf(
+                user1
+            ),
             500 * 1e6
         );
 
         assertEq(
-            diamond.balanceOf(address(diamond)),
+            diamond.balanceOf(
+                address(diamond)
+            ),
             500 * 1e6
         );
     }
@@ -462,7 +466,9 @@ contract WiseTelecomNodesDepositGateTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.balanceOf(address(diamond)),
+            diamond.balanceOf(
+                address(diamond)
+            ),
             500 * 1e6
         );
     }
@@ -491,7 +497,9 @@ contract WiseTelecomNodesDepositGateTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.balanceOf(user1),
+            diamond.balanceOf(
+                user1
+            ),
             500 * 1e6
         );
     }
@@ -525,7 +533,9 @@ contract WiseTelecomNodesDepositGateTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.balanceOf(user1),
+            diamond.balanceOf(
+                user1
+            ),
             600 * 1e6
         );
     }
@@ -564,7 +574,9 @@ contract WiseTelecomNodesDepositGateTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.balanceOf(user1),
+            diamond.balanceOf(
+                user1
+            ),
             1_000 * 1e6
         );
     }
@@ -591,7 +603,9 @@ contract WiseTelecomNodesDepositGateTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.balanceOf(user2),
+            diamond.balanceOf(
+                user2
+            ),
             250 * 1e6
         );
     }
@@ -633,7 +647,9 @@ contract WiseTelecomNodesDepositGateTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.balanceOf(user1),
+            diamond.balanceOf(
+                user1
+            ),
             1_000 * 1e6
         );
     }

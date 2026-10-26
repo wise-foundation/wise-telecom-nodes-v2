@@ -2,273 +2,255 @@
 
 pragma solidity =0.8.36;
 
-import {ReferralHubIntake} from "./ReferralHubIntake.sol";
-import {CohortWeeks} from "../../diamond/shared/pending/CohortWeeks.sol";
+import {ReferralHubDeclarations} from "./ReferralHubDeclarations.sol";
 import {OwnableMaster} from "../../diamond/shared/OwnableMaster.sol";
 
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
+import {
+    FacetNotFound,
+    AlreadyInitialized,
+    NoSelectorChangeQueued,
+    SelectorTimelockNotElapsed
+} from "../../diamond/shared/DiamondErrors.sol";
+
 /**
- * @dev The mainnet hub (scoreboard + paymaster) of the
- * referral commission system — ONE standalone deployed contract
- * closing the chain Declarations → Checkpoints → Rates →
- * Intake. It ships the structural groundwork: everything the frozen
- * recorder interface exercises (score aggregation, weekly
- * checkpoint history, crumb/gap pricing into claimable balances) is
- * live and fully tested; everything still undecided is a
- * documented seam, not code. Year-1 pays the tier ladder capped at
- * 10%; year-2 (500 bps) and mature (100 bps) rates pay only in weeks
- * where the referrer's uncapped ladder sum reaches the cap — all
- * three knobs week-versioned behind `pushRateTable`.
- *
- * Completion register (the open seams):
- * - Sybil countermeasure: attaches inside `_weeklyRates` —
- *   policy-module change only.
- * - Payout asset/funding: NO `claim()` exists — `claimable` is
- *   accrual-only accounting. A value-less claim would zero balances
- *   against nothing; the entrypoint ships with the funding decision.
- *   `totalAccrued` is the anchor the hub→vault
- *   `pendingReferralPayout` message will read (raise = accrual
- *   delta, lower = claims once claiming lands).
- * - Payout addresses: `setPayoutAddress` registry stub ships
- *   (default self); claim pays there when it exists.
- * - Cross-chain transport: reporters are the single trust boundary —
- *   the mailbox becomes an allowed reporter with `keccak256(chainId,
- *   vault)` source keys; envelope and crumbVersion checks live in
- *   that mailbox; the 10% bot share attaches at the accrual site
- *   when cross-chain transport makes a non-100% deliverer
- *   reachable, and the keeper-bot policy matrix gates that flush
- *   path, not this intake.
- * - Mainnet-vault inline reporting: the vault becomes an allowed
- *   reporter calling `reportScores`/`deliverCrumbs` from its own
- *   flows — zero new hub surface.
- *
- * Threat model: master (two-step {OwnableMaster}) governs the
- * reporter allowlist, future rate tables and the future-week-only
- * dwell-min schedule — every rate lever is week-versioned and
- * future-only, so the pricing of any week whose opening boundary has
- * passed is a pure function of frozen data and can never change,
- * even for master. Master can NEVER
- * touch scores, cursors, checkpoints or claimables
- * directly. Reporters are trusted for their OWN source's data only —
- * cursors and per-source score diffs contain a malicious reporter's
- * blast radius to its own source key.
+ * @dev ReferralHub: the mainnet hub of the referral commission system, a
+ * diamond whose five facets share the ReferralHubDeclarations layout. This
+ * contract holds the constructor seeds, the two-step ownership, the
+ * selector changes (timelocked after `finalizeSetup`), the lever change
+ * proposals (a proposal carries the exact setter call it queues, so the
+ * pending grant is public for the whole delay) and the fallback
+ * dispatcher. Master can never write scores, cursors, week buckets or
+ * claimables. Referrers claim the hub's own USD here per (source chain,
+ * referrer), so money earned on a chain moves only to the payout address
+ * proven on that chain; the hub is funded by plain USD transfers and never
+ * draws on a vault. Claims follow checks, effects, interactions.
  */
-contract ReferralHub is ReferralHubIntake {
+contract ReferralHub is ReferralHubDeclarations {
 
-    modifier onlyReporter() {
-        require(
-            allowedReporter[msg.sender],
-            NotReporter()
-        );
-        _;
-    }
-
-    constructor()
+    constructor(
+        address _usdToken
+    )
         OwnableMaster(
             msg.sender
         )
     {
-        _seedGenesisDwellMin();
+        require(
+            _usdToken != ZERO_ADDRESS,
+            ZeroAddress()
+        );
+
+        USD_TOKEN = IERC20(
+            _usdToken
+        );
 
         _seedGenesisRateTable();
     }
 
-    function reportScores(
-        address _referrer,
-        uint256 _referredScore,
-        uint256 _selfScore
-    )
+    // ---- Setup finalization ----
+
+    function finalizeSetup()
         external
-        onlyReporter
+        onlyMaster
     {
         require(
-            _referrer != ZERO_ADDRESS,
-            ZeroAddress()
+            initialized == false,
+            AlreadyInitialized()
         );
 
-        _applyScoreReport(
-            _sourceKey(msg.sender),
-            _referrer,
-            _referredScore,
-            _selfScore
+        initialized = true;
+
+        emit SetupFinalized();
+    }
+
+    // ---- Selector propose / execute / cancel ----
+
+    function proposeSelector(
+        bytes4 _selector,
+        address _facet
+    )
+        external
+        onlyMaster
+    {
+        proposedSelectorFacet[_selector] = _facet;
+
+        selectorChangeQueuedAt[_selector] = block.timestamp;
+
+        emit SelectorProposed(
+            _selector,
+            _facet,
+            block.timestamp + SELECTOR_CHANGE_DELAY
         );
     }
 
-    function deliverCrumbs(
-        address _referrer,
-        uint256[] calldata _weeks,
-        uint256[] calldata _words
+    function proposeSelectors(
+        bytes4[] calldata _selectors,
+        address _facet
     )
         external
-        onlyReporter
+        onlyMaster
     {
-        require(
-            _weeks.length == _words.length,
-            LengthMismatch()
+        for (uint256 i; i < _selectors.length; ++i) {
+
+            proposedSelectorFacet[_selectors[i]] = _facet;
+
+            selectorChangeQueuedAt[_selectors[i]] = block.timestamp;
+        }
+
+        emit SelectorsProposed(
+            _selectors,
+            _facet,
+            block.timestamp + SELECTOR_CHANGE_DELAY
         );
+    }
 
-        require(
-            _weeks.length <= CohortWeeks.MAX_SETTLE_BOUNDARIES,
-            BatchTooLarge()
+    function executeSelectorChange(
+        bytes4 _selector
+    )
+        external
+        onlyMaster
+    {
+        _applySelectorChange(
+            _selector
         );
+    }
 
-        bytes32 source = _sourceKey(
-            msg.sender
-        );
+    function executeSelectorChanges(
+        bytes4[] calldata _selectors
+    )
+        external
+        onlyMaster
+    {
+        for (uint256 i; i < _selectors.length; ++i) {
 
-        for (uint256 i; i < _weeks.length; ++i) {
-
-            _deliverCrumb(
-                source,
-                _referrer,
-                _weeks[i],
-                _words[i]
+            _applySelectorChange(
+                _selectors[i]
             );
         }
     }
 
-    function deliverGap(
-        address _referrer,
-        uint256 _record,
-        uint256 _fromWeek,
-        uint256 _maxWeeks
+    function _applySelectorChange(
+        bytes4 _selector
     )
-        external
-        onlyReporter
+        internal
     {
-        _deliverGap(
-            _sourceKey(msg.sender),
-            _referrer,
-            _record,
-            _fromWeek,
-            _maxWeeks
+        require(
+            selectorChangeQueuedAt[_selector] > 0,
+            NoSelectorChangeQueued()
+        );
+
+        if (initialized) {
+
+            require(
+                block.timestamp >= selectorChangeQueuedAt[_selector] + SELECTOR_CHANGE_DELAY,
+                SelectorTimelockNotElapsed()
+            );
+        }
+
+        address newFacet = proposedSelectorFacet[_selector];
+
+        require(
+            newFacet == ZERO_ADDRESS
+                || newFacet.code.length > 0,
+            ZeroAddress()
+        );
+
+        selectorToFacet[_selector] = newFacet;
+
+        proposedSelectorFacet[_selector] = ZERO_ADDRESS;
+
+        selectorChangeQueuedAt[_selector] = 0;
+
+        emit SelectorUpdated(
+            _selector,
+            newFacet
         );
     }
 
-    function pushRateTable(
-        RateTable calldata _table
-    )
-        external
-        onlyMaster
-    {
-        _pushRateTable(
-            _table
-        );
-    }
-
-    function setAllowedReporter(
-        address _reporter,
-        bool _allowed
+    function cancelSelectorProposal(
+        bytes4 _selector
     )
         external
         onlyMaster
     {
         require(
-            _reporter != ZERO_ADDRESS,
-            ZeroAddress()
+            selectorChangeQueuedAt[_selector] > 0,
+            NoSelectorChangeQueued()
         );
 
-        allowedReporter[_reporter] = _allowed;
+        proposedSelectorFacet[_selector] = ZERO_ADDRESS;
 
-        emit ReporterAllowedSet(
-            _reporter,
-            _allowed
+        selectorChangeQueuedAt[_selector] = 0;
+
+        emit SelectorProposalCancelled(
+            _selector
         );
     }
 
-    function scheduleDwellMin(
-        uint256 _effectiveFromWeek,
-        bool _enabled
+    // ---- Lever propose / cancel ----
+
+    function proposeLeverChange(
+        bytes calldata _call
     )
         external
         onlyMaster
     {
-        _scheduleDwellMin(
-            _effectiveFromWeek,
-            _enabled
+        require(
+            initialized,
+            SetupNotFinalized()
+        );
+
+        bytes32 changeHash = keccak256(
+            _call
+        );
+
+        leverChangeQueuedAt[changeHash] = block.timestamp;
+
+        emit LeverChangeProposed(
+            changeHash,
+            _call,
+            block.timestamp + SELECTOR_CHANGE_DELAY
         );
     }
 
-    function setPayoutAddress(
-        address _payout
+    function cancelLeverChange(
+        bytes32 _changeHash
     )
         external
+        onlyMaster
     {
-        payoutAddress[msg.sender] = _payout;
+        require(
+            leverChangeQueuedAt[_changeHash] > 0,
+            LeverChangeNotQueued()
+        );
 
-        emit PayoutAddressSet(
-            msg.sender,
-            _payout
+        leverChangeQueuedAt[_changeHash] = 0;
+
+        emit LeverChangeCancelled(
+            _changeHash
         );
     }
 
-    function payoutAddressOf(
-        address _owner
-    )
+    // ---- Fallback dispatcher ----
+
+    fallback()
         external
-        view
-        returns (address)
     {
-        address payout = payoutAddress[_owner];
+        address facet = selectorToFacet[msg.sig];
 
-        return payout == ZERO_ADDRESS
-            ? _owner
-            : payout;
-    }
-
-    function lastReportOf(
-        address _reporter,
-        address _referrer
-    )
-        external
-        view
-        returns (
-            uint256 referredScore,
-            uint256 selfScore
-        )
-    {
-        uint256 packed = lastSourceReport[_sourceKey(_reporter)][_referrer];
-
-        return (
-            packed >> REPORT_REFERRED_SHIFT,
-            packed & REPORT_VALUE_MASK
+        require(
+            facet != ZERO_ADDRESS,
+            FacetNotFound()
         );
-    }
 
-    function paidCursorAt(
-        address _reporter,
-        address _referrer,
-        uint256 _week
-    )
-        external
-        view
-        returns (
-            uint256 y1Cursor,
-            uint256 y2Cursor,
-            uint256 mCursor
-        )
-    {
-        uint256 word = paidCursor[_sourceKey(_reporter)][_referrer][_week];
-
-        return (
-            CohortWeeks.laneY1(word),
-            CohortWeeks.laneY2(word),
-            CohortWeeks.laneM(word)
-        );
-    }
-
-    function _sourceKey(
-        address _reporter
-    )
-        internal
-        pure
-        returns (bytes32)
-    {
-        return bytes32(
-            uint256(
-                uint160(
-                    _reporter
-                )
-            )
-        );
+        assembly {
+            calldatacopy(0, 0, calldatasize())
+            let result := delegatecall(gas(), facet, 0, calldatasize(), 0, 0)
+            returndatacopy(0, 0, returndatasize())
+            switch result
+            case 0 { revert(0, returndatasize()) }
+            default { return(0, returndatasize()) }
+        }
     }
 }

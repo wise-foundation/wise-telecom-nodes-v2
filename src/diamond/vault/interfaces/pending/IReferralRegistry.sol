@@ -3,20 +3,12 @@
 pragma solidity =0.8.36;
 
 /**
- * @dev Subset of the per-chain standalone {ReferralRegistry} surface
- * the vault reaches through the slot-74 `referralRegistry` pointer:
- * `assignReferrer` from the write-once referral deposit path
- * ({ReferralFacetBase}, plain CALL — registry reverts bubble into
- * the deposit) and `referrerOf` from the cohort recorder's guarded
- * staticcall seam ({CohortRecorderBase}), the routed {ReferralFacet}
- * view getter and the pointer shape probe. The
- * same-chain move-carry mailbox pair: `stageCarry` from the source
- * vault's move-out capture and `consumeCarry` from the destination's
- * move-in replant — both reached ONLY through failure-tolerant
- * guarded CALLs ({CohortRecorderBase}), so registry reverts degrade
- * to attribution loss and never block the move. The registry's
- * master/allowlist admin surface is deliberately absent — it is
- * operated directly on the registry, never through the diamonds.
+ * @dev The ReferralRegistry surface a vault calls: the write-once assign,
+ * the plain and flip-aware referrer reads, the same-chain carry mailbox,
+ * the bridge pair read and merge, the payout designation read, the seed
+ * latch and the sync quarantine flag. The engine reaches the mutating and
+ * cohort reads through guarded calls; the admin surface is operated on the
+ * registry directly.
  */
 interface IReferralRegistry {
 
@@ -32,6 +24,33 @@ interface IReferralRegistry {
         external
         view
         returns (address);
+
+    function effectiveReferrerOf(
+        address _user,
+        address _vault
+    )
+        external
+        view
+        returns (address);
+
+    function getReferrerPair(
+        address _user
+    )
+        external
+        view
+        returns (
+            address referrer,
+            uint256 assignedAt,
+            uint256 rank
+        );
+
+    function mergeReferrer(
+        address _user,
+        address _referrer,
+        uint256 _assignedAt,
+        uint256 _rank
+    )
+        external;
 
     function stageCarry(
         address _dstVault,
@@ -49,4 +68,26 @@ interface IReferralRegistry {
             uint256 stagedAt,
             uint256[] memory payload
         );
+
+    function getPayoutDesignation(
+        address _owner
+    )
+        external
+        view
+        returns (
+            address payout,
+            uint256 stamp
+        );
+
+    function seedsLatched()
+        external
+        view
+        returns (bool);
+
+    function syncPeerQuarantined(
+        uint64 _chainSelector
+    )
+        external
+        view
+        returns (bool);
 }

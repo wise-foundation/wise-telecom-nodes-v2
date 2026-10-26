@@ -2,62 +2,63 @@
 
 pragma solidity =0.8.36;
 
-import {ReferralRegistryDeclarations} from "./ReferralRegistryDeclarations.sol";
+import {ReferralRegistryAdmin} from "./ReferralRegistryAdmin.sol";
 import {OwnableMaster} from "../../diamond/shared/OwnableMaster.sol";
 import {CohortWeeks} from "../../diamond/shared/pending/CohortWeeks.sol";
 
+import {Client} from "@chainlink/contracts-ccip/contracts/libraries/Client.sol";
+import {IAny2EVMMessageReceiver} from "@chainlink/contracts-ccip/contracts/interfaces/IAny2EVMMessageReceiver.sol";
+import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
+
 /**
- * @dev The per-chain referral registry — ONE standalone
- * deployed contract closing the chain over
- * {ReferralRegistryDeclarations}. `assignReferrer` is the single
- * write path: allowlisted vaults forward `(user, referrer)` from
- * their referral deposit entrypoints (and, once cross-chain carry
- * ships, from the bridge-receive carry-set), and this contract alone
- * enforces the assignment semantics — zero rejected, self rejected,
- * first assignment sticks forever, later different referrers
- * silently ignored, event only on the actual first-set transition.
- * Validation runs BEFORE the write-once check so a zero/self
- * referrer reverts even for an already-assigned user, preserving
- * the vaults' revert priority. The hardening pair rejects the calling
- * vault and this registry as referrers so cohort credit can never be
- * laundered into system addresses. `assignReferrer` performs a pure
- * storage write plus event and makes NO external call — the vaults'
- * reentrancy reasoning relies on this staying true.
- *
- * `setAllowedVault` is the master kill-switch for NEW assignments
- * from one vault; it is deliberately instant (no timelock) and
- * deliberately asymmetric: reads stay permissionless, so a revoked
- * vault's cohort recorder keeps resolving existing referrers and
- * only fresh `...WithReferral` deposits on that vault revert.
- *
- * Carry staging: `stageCarry`/`consumeCarry` are the
- * same-chain move-attribution mailbox (threat model and lifecycle in
- * the declarations block). `stageCarry`'s guards are guard-class only
- * — reachable solely through a buggy allowlisted vault, since the
- * vaults construct payloads from their own storage: nonzero
- * endpoints, no self-destination, payload length within
- * `(0, MAX_CARRY_WORDS]`. `consumeCarry` is deliberately guard-free:
- * an empty key returns an empty payload, the natural answer, and the
- * destination's `stagedAt == block.timestamp` check rejects
- * everything else. Consume keys the destination as `msg.sender`, so
- * a rogue allowlisted vault can only ever drain payloads addressed
- * to itself.
+ * @dev ReferralRegistry: the write-once referrer registry of one chain.
+ * An allowed vault assigns a user's referrer once; afterwards only the
+ * strictly decreasing cross-chain min-merge and the dual consent
+ * correction lane can change it. The correction lane also assigns a
+ * referrer to a user who has none: master proposes on any chain of the
+ * mesh, the user may cancel for three days, and the execute mints the
+ * same mirrored key a correction mints, so a master assignment wins
+ * every later merge and marks no flip (there is no old book to move).
+ * A mutual dissolve that clears a user's record drops that user's
+ * pending correction proposal with it, so no proposal revives on a key
+ * that returns to zero. Sync keys travel over CCIP to the peer
+ * registries, a flip is marked per tracked vault and delivered by a
+ * permissionless poke, payout designations are set by the referrer and
+ * pushed to the hub, and the same-chain carry mailbox is keyed by the
+ * staging vault. Assign, merge, stage and consume make no external call,
+ * and the read paths never revert.
  */
-contract ReferralRegistry is ReferralRegistryDeclarations {
+contract ReferralRegistry is
+    ReferralRegistryAdmin,
+    IAny2EVMMessageReceiver,
+    IERC165
+{
 
-    modifier onlyAllowedVault() {
-        require(
-            allowedVault[msg.sender],
-            NotAllowedVault()
-        );
-        _;
-    }
+    uint256 public immutable LOCAL_CHAIN_RANK;
 
-    constructor()
+    constructor(
+        address _master,
+        uint256 _localChainRank
+    )
         OwnableMaster(
-            msg.sender
+            _master
         )
-    {}
+    {
+        require(
+            _localChainRank <= MAX_CHAIN_RANK,
+            InvalidChainRank()
+        );
+
+        LOCAL_CHAIN_RANK = _localChainRank;
+
+        maxSyncRank = _localChainRank > DEFAULT_MAX_SYNC_RANK
+            ? _localChainRank
+            : DEFAULT_MAX_SYNC_RANK;
+
+        emit MaxSyncRankRaised(
+            maxSyncRank
+        );
+    }
 
     function assignReferrer(
         address _user,
@@ -67,12 +68,8 @@ contract ReferralRegistry is ReferralRegistryDeclarations {
         onlyAllowedVault
     {
         require(
-            _user != ZERO_ADDRESS,
-            ZeroAddress()
-        );
-
-        require(
-            _referrer != ZERO_ADDRESS,
+            _user != ZERO_ADDRESS
+                && _referrer != ZERO_ADDRESS,
             ZeroAddress()
         );
 
@@ -81,21 +78,22 @@ contract ReferralRegistry is ReferralRegistryDeclarations {
             SelfReferral()
         );
 
-        require(
-            _referrer != msg.sender,
-            InvalidReferrer()
-        );
-
-        require(
-            _referrer != address(this),
-            InvalidReferrer()
-        );
-
         if (referrerOf[_user] != ZERO_ADDRESS) {
             return;
         }
 
+        _requireReferrerIdentity(
+            _referrer
+        );
+
+        _requireNoReferralCycle(
+            _user,
+            _referrer
+        );
+
         referrerOf[_user] = _referrer;
+
+        referrerKey[_user] = _localSyncKey();
 
         emit ReferralAssigned(
             _user,
@@ -104,24 +102,567 @@ contract ReferralRegistry is ReferralRegistryDeclarations {
         );
     }
 
-    function setAllowedVault(
-        address _vault,
-        bool _allowed
+    function getReferrerPair(
+        address _user
+    )
+        external
+        view
+        returns (
+            address referrer,
+            uint256 assignedAt,
+            uint256 rank
+        )
+    {
+        referrer = referrerOf[_user];
+
+        uint256 key = referrerKey[_user];
+
+        assignedAt = key >> KEY_RANK_SHIFT;
+
+        rank = key & KEY_RANK_MASK;
+    }
+
+    function effectiveReferrerOf(
+        address _user,
+        address _vault
+    )
+        external
+        view
+        returns (address)
+    {
+        address old = pendingFlip[_vault][_user];
+
+        if (old != ZERO_ADDRESS) {
+            return old;
+        }
+
+        return referrerOf[_user];
+    }
+
+    function mergeReferrer(
+        address _user,
+        address _referrer,
+        uint256 _assignedAt,
+        uint256 _rank
+    )
+        external
+        onlyAllowedVault
+    {
+        _mergeReferrerPair(
+            _user,
+            _referrer,
+            _assignedAt,
+            _rank
+        );
+    }
+
+    function ccipReceive(
+        Client.Any2EVMMessage calldata _message
+    )
+        external
+    {
+        require(
+            msg.sender == ccipRouter,
+            NotCcipRouter()
+        );
+
+        uint64 srcChainSelector = _message.sourceChainSelector;
+
+        address srcPeer = abi.decode(
+            _message.sender,
+            (address)
+        );
+
+        require(
+            syncPeerEnabled[srcChainSelector] == true,
+            SyncPeerNotEnabled()
+        );
+
+        require(
+            syncPeer[srcChainSelector] == srcPeer,
+            SyncPeerMismatch()
+        );
+
+        require(
+            processedSyncMessageId[_message.messageId] == false,
+            SyncAlreadyProcessed()
+        );
+
+        processedSyncMessageId[_message.messageId] = true;
+
+        require(
+            _message.data.length == SYNC_PAYLOAD_LENGTH,
+            SyncPayloadInvalid()
+        );
+
+        (
+            uint256 version,
+            address user,
+            address referrer,
+            uint256 assignedAt,
+            uint256 rank
+        ) = abi.decode(
+            _message.data,
+            (
+                uint256,
+                address,
+                address,
+                uint256,
+                uint256
+            )
+        );
+
+        require(
+            version == SYNC_VERSION,
+            SyncPayloadInvalid()
+        );
+
+        _mergeReferrerPair(
+            user,
+            referrer,
+            assignedAt,
+            rank
+        );
+
+        emit SyncReceived(
+            srcChainSelector,
+            _message.messageId,
+            user
+        );
+    }
+
+    function supportsInterface(
+        bytes4 _interfaceId
+    )
+        external
+        pure
+        returns (bool)
+    {
+        return _interfaceId == type(IAny2EVMMessageReceiver).interfaceId
+            || _interfaceId == type(IERC165).interfaceId;
+    }
+
+    function broadcastSync(
+        address _user,
+        uint64[] calldata _selectors
+    )
+        external
+        payable
+    {
+        (
+            uint256 key,
+            address router,
+            address referrer
+        ) = _syncLanePrelude(
+            _user,
+            _selectors
+        );
+
+        uint256 spentFee;
+
+        for (uint256 i; i < _selectors.length; ++i) {
+
+            uint64 selector = _selectors[i];
+
+            Client.EVM2AnyMessage memory message = _syncLaneMessage(
+                selector,
+                _user,
+                referrer,
+                key
+            );
+
+            uint256 fee = _routerFee(
+                router,
+                selector,
+                message
+            );
+
+            spentFee += fee;
+
+            require(
+                msg.value >= spentFee,
+                InsufficientSyncFee()
+            );
+
+            bytes32 messageId = _routerSend(
+                router,
+                selector,
+                message,
+                fee
+            );
+
+            emit SyncBroadcast(
+                _user,
+                selector,
+                referrer,
+                key,
+                messageId
+            );
+        }
+
+        _refundExcess(
+            spentFee,
+            false
+        );
+    }
+
+    function quoteSyncFee(
+        address _user,
+        uint64[] calldata _selectors
+    )
+        external
+        view
+        returns (uint256 totalFee)
+    {
+        (
+            uint256 key,
+            address router,
+            address referrer
+        ) = _syncLanePrelude(
+            _user,
+            _selectors
+        );
+
+        for (uint256 i; i < _selectors.length; ++i) {
+            totalFee += _routerFee(
+                router,
+                _selectors[i],
+                _syncLaneMessage(
+                    _selectors[i],
+                    _user,
+                    referrer,
+                    key
+                )
+            );
+        }
+    }
+
+    function setPayoutAddress(
+        address _payout
+    )
+        external
+    {
+        require(
+            everAllowedVault[msg.sender] == false,
+            InvalidPayoutOwner()
+        );
+
+        uint256 stamp = _localSyncKey();
+
+        require(
+            stamp > payoutStamp[msg.sender],
+            PayoutStampNotNewer()
+        );
+
+        payoutAddress[msg.sender] = _payout;
+
+        payoutStamp[msg.sender] = stamp;
+
+        emit PayoutAddressSet(
+            msg.sender,
+            _payout,
+            stamp
+        );
+    }
+
+    function pushPayoutAddress(
+        address _owner
+    )
+        external
+        payable
+    {
+        (
+            uint256 stamp,
+            address hub,
+            address router
+        ) = _payoutPushPrelude(
+            _owner
+        );
+
+        uint64 destChainSelector = payoutHubChainSelector;
+
+        address payout = payoutAddress[_owner];
+
+        Client.EVM2AnyMessage memory message = _payoutPushMessage(
+            hub,
+            _owner,
+            stamp
+        );
+
+        uint256 fee = _routerFee(
+            router,
+            destChainSelector,
+            message
+        );
+
+        require(
+            msg.value >= fee,
+            InsufficientPushFee()
+        );
+
+        bytes32 messageId = _routerSend(
+            router,
+            destChainSelector,
+            message,
+            fee
+        );
+
+        emit PayoutPushed(
+            _owner,
+            destChainSelector,
+            payout,
+            stamp,
+            messageId
+        );
+
+        _refundExcess(
+            fee,
+            true
+        );
+    }
+
+    function quotePushPayoutFee(
+        address _owner
+    )
+        external
+        view
+        returns (uint256)
+    {
+        (
+            uint256 stamp,
+            address hub,
+            address router
+        ) = _payoutPushPrelude(
+            _owner
+        );
+
+        return _routerFee(
+            router,
+            payoutHubChainSelector,
+            _payoutPushMessage(
+                hub,
+                _owner,
+                stamp
+            )
+        );
+    }
+
+    function getPayoutDesignation(
+        address _owner
+    )
+        external
+        view
+        returns (
+            address payout,
+            uint256 stamp
+        )
+    {
+        return (
+            payoutAddress[_owner],
+            payoutStamp[_owner]
+        );
+    }
+
+    function pokeMigration(
+        address _user
+    )
+        external
+    {
+        uint256 count = trackedVaults.length;
+
+        for (uint256 i; i < count; ++i) {
+
+            _pokeVault(
+                trackedVaults[i],
+                _user
+            );
+        }
+    }
+
+    function pokeMigrationAt(
+        address _user,
+        address _vault
+    )
+        external
+    {
+        _pokeVault(
+            _vault,
+            _user
+        );
+    }
+
+    function proposeCorrectReferrer(
+        address _user,
+        address _newReferrer
     )
         external
         onlyMaster
     {
         require(
-            _vault != ZERO_ADDRESS,
+            correctionsLatched == false,
+            CorrectionsDisabled()
+        );
+
+        require(
+            _newReferrer != ZERO_ADDRESS,
             ZeroAddress()
         );
 
-        allowedVault[_vault] = _allowed;
-
-        emit VaultAllowedSet(
-            _vault,
-            _allowed
+        require(
+            _newReferrer != _user,
+            SelfReferral()
         );
+
+        _requireReferrerIdentity(
+            _newReferrer
+        );
+
+        _requireNoReferralCycle(
+            _user,
+            _newReferrer
+        );
+
+        address current = referrerOf[_user];
+
+        require(
+            _newReferrer != current,
+            NothingToCorrect()
+        );
+
+        require(
+            current == ZERO_ADDRESS
+                || (referrerKey[_user] & KEY_RANK_MASK) == LOCAL_CHAIN_RANK,
+            WrongCorrectionChain()
+        );
+
+        proposedCorrection[_user] = _newReferrer;
+
+        correctionQueuedAt[_user] = block.timestamp;
+
+        proposedCorrectionKey[_user] = referrerKey[_user];
+
+        emit ReferralCorrectionProposed(
+            _user,
+            current,
+            _newReferrer,
+            block.timestamp
+        );
+    }
+
+    function cancelCorrectReferrer(
+        address _user
+    )
+        external
+    {
+        require(
+            msg.sender == _user || msg.sender == master,
+            NotCorrectionParty()
+        );
+
+        require(
+            correctionQueuedAt[_user] > 0,
+            NoCorrectionProposed()
+        );
+
+        _dropCorrectionProposal(
+            _user,
+            msg.sender
+        );
+    }
+
+    function executeCorrectReferrer(
+        address _user
+    )
+        external
+        onlyMaster
+    {
+        require(
+            correctionsLatched == false,
+            CorrectionsDisabled()
+        );
+
+        uint256 queuedAt = correctionQueuedAt[_user];
+
+        require(
+            queuedAt > 0,
+            NoCorrectionProposed()
+        );
+
+        require(
+            block.timestamp >= queuedAt + REFERRER_CORRECTION_DELAY,
+            CorrectionTimelockNotElapsed()
+        );
+
+        address newReferrer = proposedCorrection[_user];
+
+        _requireReferrerIdentity(
+            newReferrer
+        );
+
+        _requireNoReferralCycle(
+            _user,
+            newReferrer
+        );
+
+        uint256 currentKey = referrerKey[_user];
+
+        require(
+            currentKey == proposedCorrectionKey[_user],
+            NothingToCorrect()
+        );
+
+        uint256 correctedKey = block.timestamp < SYNC_KEY_MIRROR
+            ? _packSyncKey(
+                SYNC_KEY_MIRROR - block.timestamp,
+                LOCAL_CHAIN_RANK
+            )
+            : 0;
+
+        require(
+            correctedKey != 0
+                && (currentKey == 0 || correctedKey < currentKey),
+            CorrectionKeyNotLower()
+        );
+
+        address oldReferrer = referrerOf[_user];
+
+        delete proposedCorrection[_user];
+
+        delete correctionQueuedAt[_user];
+
+        delete proposedCorrectionKey[_user];
+
+        referrerOf[_user] = newReferrer;
+
+        referrerKey[_user] = correctedKey;
+
+        if (oldReferrer != ZERO_ADDRESS) {
+            _markPendingFlips(
+                _user,
+                oldReferrer
+            );
+        }
+
+        emit ReferralCorrectionExecuted(
+            _user,
+            oldReferrer,
+            newReferrer,
+            correctedKey
+        );
+    }
+
+    function latchCorrections()
+        external
+        onlyMaster
+    {
+        require(
+            correctionsLatched == false,
+            CorrectionsAlreadyLatched()
+        );
+
+        correctionsLatched = true;
+
+        emit CorrectionsLatched();
     }
 
     function stageCarry(
@@ -133,31 +674,17 @@ contract ReferralRegistry is ReferralRegistryDeclarations {
         onlyAllowedVault
     {
         require(
-            _dstVault != ZERO_ADDRESS,
+            _dstVault != ZERO_ADDRESS
+                && _user != ZERO_ADDRESS,
             ZeroAddress()
         );
 
         require(
-            _user != ZERO_ADDRESS,
-            ZeroAddress()
-        );
-
-        require(
-            _dstVault != msg.sender,
+            _dstVault != msg.sender
+                && _payload.length > 0
+                && _payload.length <= CohortWeeks.MAX_CARRY_WORDS,
             CarryPayloadInvalid()
         );
-
-        require(
-            _payload.length > 0,
-            CarryPayloadInvalid()
-        );
-
-        require(
-            _payload.length <= CohortWeeks.MAX_CARRY_WORDS,
-            CarryPayloadInvalid()
-        );
-
-        delete carryPayload[msg.sender][_dstVault][_user];
 
         carryPayload[msg.sender][_dstVault][_user] = _payload;
 
@@ -220,5 +747,16 @@ contract ReferralRegistry is ReferralRegistryDeclarations {
         stagedAt = carryStagedAt[_srcVault][_dstVault][_user];
 
         payload = carryPayload[_srcVault][_dstVault][_user];
+    }
+
+    function _localSyncKey()
+        internal
+        view
+        returns (uint256)
+    {
+        return _packSyncKey(
+            block.timestamp,
+            LOCAL_CHAIN_RANK
+        );
     }
 }

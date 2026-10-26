@@ -212,22 +212,30 @@ contract WiseTelecomNodesDeterministicDeployTest is Test, DeployWiseTelecomNodes
         );
 
         assertEq(
-            diamond.isSweeper(pendingMaster),
+            diamond.isSweeper(
+                pendingMaster
+            ),
             true
         );
 
         assertEq(
-            diamond.isSweeper(address(shim)),
+            diamond.isSweeper(
+                address(shim)
+            ),
             false
         );
 
         assertEq(
-            diamond.isSweeper(address(0xD00D)),
+            diamond.isSweeper(
+                address(0xD00D)
+            ),
             true
         );
 
         assertEq(
-            diamond.isSweeper(address(0xCAFE)),
+            diamond.isSweeper(
+                address(0xCAFE)
+            ),
             true
         );
 
@@ -290,7 +298,9 @@ contract WiseTelecomNodesDeterministicDeployTest is Test, DeployWiseTelecomNodes
         pure
     {
         assertEq(
-            keccak256(CREATE3_PROXY_INITCODE),
+            keccak256(
+                CREATE3_PROXY_INITCODE
+            ),
             CREATE3_PROXY_INITCODE_HASH
         );
     }

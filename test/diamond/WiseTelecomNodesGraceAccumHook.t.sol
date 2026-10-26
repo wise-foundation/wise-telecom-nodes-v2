@@ -53,7 +53,7 @@ contract MockUSD is ERC20 {
  * single-call grace stamp exactly; once master arms the window,
  * sub-threshold deposits inside the rolling per-user window sum
  * toward `graceThresholdAmount` and stamp the same grace lock a lone
- * large deposit does — closing the split-deposit dodge end to end
+ * large deposit does, closing the split-deposit dodge end to end
  * (interest gate + freeze hook both read the one stamp). Covers the
  * timelocked propose/execute wiring, the never-routed hook selector,
  * dormant byte-equivalence, armed accumulation and window expiry,
@@ -98,7 +98,9 @@ contract WiseTelecomNodesGraceAccumHookTest is DiamondTestHarness {
     uint256 internal constant MAX_GRACE = 365 days;
 
     bytes4 internal constant ACCUM_HOOK_SELECTOR = bytes4(
-        keccak256("applyDepositAccumHook(address,uint256)")
+        keccak256(
+            "applyDepositAccumHook(address,uint256)"
+        )
     );
 
     address internal user1 = address(0xA1);
@@ -261,7 +263,9 @@ contract WiseTelecomNodesGraceAccumHookTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.lastLargeDepositAt(user1),
+            diamond.lastLargeDepositAt(
+                user1
+            ),
             0
         );
     }
@@ -303,7 +307,9 @@ contract WiseTelecomNodesGraceAccumHookTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.lastLargeDepositAt(user1),
+            diamond.lastLargeDepositAt(
+                user1
+            ),
             0
         );
 
@@ -314,7 +320,9 @@ contract WiseTelecomNodesGraceAccumHookTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.lastLargeDepositAt(user1),
+            diamond.lastLargeDepositAt(
+                user1
+            ),
             block.timestamp
         );
     }
@@ -635,12 +643,16 @@ contract WiseTelecomNodesGraceAccumHookTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.lastLargeDepositAt(user1),
+            diamond.lastLargeDepositAt(
+                user1
+            ),
             0
         );
 
         assertEq(
-            diamond.depositWindowTotal(user1),
+            diamond.depositWindowTotal(
+                user1
+            ),
             0
         );
     }
@@ -723,7 +735,9 @@ contract WiseTelecomNodesGraceAccumHookTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.balanceOf(user1),
+            diamond.balanceOf(
+                user1
+            ),
             1_000 * 1e6
         );
     }
@@ -791,22 +805,30 @@ contract WiseTelecomNodesGraceAccumHookTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.lastLargeDepositAt(user1),
+            diamond.lastLargeDepositAt(
+                user1
+            ),
             0
         );
 
         assertEq(
-            diamond.depositWindowStart(user1),
+            diamond.depositWindowStart(
+                user1
+            ),
             0
         );
 
         assertEq(
-            diamond.depositWindowPrevTotal(user1),
+            diamond.depositWindowPrevTotal(
+                user1
+            ),
             0
         );
 
         assertEq(
-            diamond.depositWindowTotal(user1),
+            diamond.depositWindowTotal(
+                user1
+            ),
             0
         );
     }
@@ -843,22 +865,30 @@ contract WiseTelecomNodesGraceAccumHookTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.lastLargeDepositAt(user1),
+            diamond.lastLargeDepositAt(
+                user1
+            ),
             block.timestamp
         );
 
         assertEq(
-            diamond.depositWindowStart(user1),
+            diamond.depositWindowStart(
+                user1
+            ),
             0
         );
 
         assertEq(
-            diamond.depositWindowPrevTotal(user1),
+            diamond.depositWindowPrevTotal(
+                user1
+            ),
             0
         );
 
         assertEq(
-            diamond.depositWindowTotal(user1),
+            diamond.depositWindowTotal(
+                user1
+            ),
             0
         );
     }
@@ -877,7 +907,9 @@ contract WiseTelecomNodesGraceAccumHookTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.lastLargeDepositAt(user1),
+            diamond.lastLargeDepositAt(
+                user1
+            ),
             0
         );
     }
@@ -932,17 +964,23 @@ contract WiseTelecomNodesGraceAccumHookTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.lastLargeDepositAt(user1),
+            diamond.lastLargeDepositAt(
+                user1
+            ),
             block.timestamp
         );
 
         assertEq(
-            diamond.depositWindowStart(user1),
+            diamond.depositWindowStart(
+                user1
+            ),
             0
         );
 
         assertEq(
-            diamond.depositWindowTotal(user1),
+            diamond.depositWindowTotal(
+                user1
+            ),
             0
         );
     }
@@ -983,17 +1021,23 @@ contract WiseTelecomNodesGraceAccumHookTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.depositWindowStart(user1),
+            diamond.depositWindowStart(
+                user1
+            ),
             block.timestamp
         );
 
         assertEq(
-            diamond.depositWindowTotal(user1),
+            diamond.depositWindowTotal(
+                user1
+            ),
             4_000 * 1e6
         );
 
         assertEq(
-            diamond.lastLargeDepositAt(user1),
+            diamond.lastLargeDepositAt(
+                user1
+            ),
             0
         );
     }
@@ -1022,7 +1066,9 @@ contract WiseTelecomNodesGraceAccumHookTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.lastLargeDepositAt(user1),
+            diamond.lastLargeDepositAt(
+                user1
+            ),
             block.timestamp
         );
     }
@@ -1051,22 +1097,30 @@ contract WiseTelecomNodesGraceAccumHookTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.lastLargeDepositAt(user1),
+            diamond.lastLargeDepositAt(
+                user1
+            ),
             block.timestamp
         );
 
         assertEq(
-            diamond.depositWindowStart(user1),
+            diamond.depositWindowStart(
+                user1
+            ),
             0
         );
 
         assertEq(
-            diamond.depositWindowPrevTotal(user1),
+            diamond.depositWindowPrevTotal(
+                user1
+            ),
             0
         );
 
         assertEq(
-            diamond.depositWindowTotal(user1),
+            diamond.depositWindowTotal(
+                user1
+            ),
             0
         );
     }
@@ -1095,12 +1149,16 @@ contract WiseTelecomNodesGraceAccumHookTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.lastLargeDepositAt(user1),
+            diamond.lastLargeDepositAt(
+                user1
+            ),
             0
         );
 
         assertEq(
-            diamond.depositWindowTotal(user1),
+            diamond.depositWindowTotal(
+                user1
+            ),
             6_000 * 1e6
         );
     }
@@ -1129,7 +1187,9 @@ contract WiseTelecomNodesGraceAccumHookTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.lastLargeDepositAt(user1),
+            diamond.lastLargeDepositAt(
+                user1
+            ),
             0
         );
 
@@ -1166,22 +1226,30 @@ contract WiseTelecomNodesGraceAccumHookTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.lastLargeDepositAt(user1),
+            diamond.lastLargeDepositAt(
+                user1
+            ),
             block.timestamp
         );
 
         assertEq(
-            diamond.depositWindowStart(user1),
+            diamond.depositWindowStart(
+                user1
+            ),
             0
         );
 
         assertEq(
-            diamond.depositWindowPrevTotal(user1),
+            diamond.depositWindowPrevTotal(
+                user1
+            ),
             0
         );
 
         assertEq(
-            diamond.depositWindowTotal(user1),
+            diamond.depositWindowTotal(
+                user1
+            ),
             0
         );
     }
@@ -1210,7 +1278,9 @@ contract WiseTelecomNodesGraceAccumHookTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.lastLargeDepositAt(user1),
+            diamond.lastLargeDepositAt(
+                user1
+            ),
             block.timestamp
         );
     }
@@ -1263,17 +1333,23 @@ contract WiseTelecomNodesGraceAccumHookTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.depositWindowStart(user1),
+            diamond.depositWindowStart(
+                user1
+            ),
             anchor + ACCUM_WINDOW
         );
 
         assertEq(
-            diamond.depositWindowPrevTotal(user1),
+            diamond.depositWindowPrevTotal(
+                user1
+            ),
             4_000 * 1e6
         );
 
         assertEq(
-            diamond.depositWindowTotal(user1),
+            diamond.depositWindowTotal(
+                user1
+            ),
             4_000 * 1e6
         );
 
@@ -1288,12 +1364,16 @@ contract WiseTelecomNodesGraceAccumHookTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.lastLargeDepositAt(user1),
+            diamond.lastLargeDepositAt(
+                user1
+            ),
             block.timestamp
         );
 
         assertEq(
-            diamond.depositWindowPrevTotal(user1),
+            diamond.depositWindowPrevTotal(
+                user1
+            ),
             0
         );
     }
@@ -1378,17 +1458,23 @@ contract WiseTelecomNodesGraceAccumHookTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.lastLargeDepositAt(user1),
+            diamond.lastLargeDepositAt(
+                user1
+            ),
             0
         );
 
         assertEq(
-            diamond.depositWindowPrevTotal(user1),
+            diamond.depositWindowPrevTotal(
+                user1
+            ),
             1_000 * 1e6
         );
 
         assertEq(
-            diamond.depositWindowTotal(user1),
+            diamond.depositWindowTotal(
+                user1
+            ),
             2_000 * 1e6
         );
     }
@@ -1429,22 +1515,30 @@ contract WiseTelecomNodesGraceAccumHookTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.lastLargeDepositAt(user1),
+            diamond.lastLargeDepositAt(
+                user1
+            ),
             0
         );
 
         assertEq(
-            diamond.depositWindowStart(user1),
+            diamond.depositWindowStart(
+                user1
+            ),
             block.timestamp
         );
 
         assertEq(
-            diamond.depositWindowPrevTotal(user1),
+            diamond.depositWindowPrevTotal(
+                user1
+            ),
             0
         );
 
         assertEq(
-            diamond.depositWindowTotal(user1),
+            diamond.depositWindowTotal(
+                user1
+            ),
             3_000 * 1e6
         );
     }
@@ -1485,7 +1579,9 @@ contract WiseTelecomNodesGraceAccumHookTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.lastLargeDepositAt(user1),
+            diamond.lastLargeDepositAt(
+                user1
+            ),
             0
         );
 
@@ -1500,7 +1596,9 @@ contract WiseTelecomNodesGraceAccumHookTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.lastLargeDepositAt(user1),
+            diamond.lastLargeDepositAt(
+                user1
+            ),
             block.timestamp
         );
     }
@@ -1551,7 +1649,9 @@ contract WiseTelecomNodesGraceAccumHookTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.lastLargeDepositAt(user1),
+            diamond.lastLargeDepositAt(
+                user1
+            ),
             0
         );
     }
@@ -1570,17 +1670,23 @@ contract WiseTelecomNodesGraceAccumHookTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.lastLargeDepositAt(user1),
+            diamond.lastLargeDepositAt(
+                user1
+            ),
             block.timestamp
         );
 
         assertEq(
-            diamond.depositWindowStart(user1),
+            diamond.depositWindowStart(
+                user1
+            ),
             0
         );
 
         assertEq(
-            diamond.depositWindowTotal(user1),
+            diamond.depositWindowTotal(
+                user1
+            ),
             0
         );
     }
@@ -1627,12 +1733,16 @@ contract WiseTelecomNodesGraceAccumHookTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.depositWindowStart(user1),
+            diamond.depositWindowStart(
+                user1
+            ),
             0
         );
 
         assertEq(
-            diamond.depositWindowTotal(user1),
+            diamond.depositWindowTotal(
+                user1
+            ),
             0
         );
     }
@@ -1657,12 +1767,16 @@ contract WiseTelecomNodesGraceAccumHookTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.lastLargeDepositAt(user1),
+            diamond.lastLargeDepositAt(
+                user1
+            ),
             0
         );
 
         assertEq(
-            diamond.lastLargeDepositAt(user2),
+            diamond.lastLargeDepositAt(
+                user2
+            ),
             0
         );
 
@@ -1673,17 +1787,23 @@ contract WiseTelecomNodesGraceAccumHookTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.lastLargeDepositAt(user2),
+            diamond.lastLargeDepositAt(
+                user2
+            ),
             block.timestamp
         );
 
         assertEq(
-            diamond.lastLargeDepositAt(user1),
+            diamond.lastLargeDepositAt(
+                user1
+            ),
             0
         );
 
         assertEq(
-            diamond.depositWindowTotal(user1),
+            diamond.depositWindowTotal(
+                user1
+            ),
             4_000 * 1e6
         );
     }
@@ -1728,12 +1848,16 @@ contract WiseTelecomNodesGraceAccumHookTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.depositWindowTotal(user1),
+            diamond.depositWindowTotal(
+                user1
+            ),
             compounded
         );
 
         assertEq(
-            diamond.lastLargeDepositAt(user1),
+            diamond.lastLargeDepositAt(
+                user1
+            ),
             0
         );
     }
@@ -1770,7 +1894,9 @@ contract WiseTelecomNodesGraceAccumHookTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.lastLargeDepositAt(user1),
+            diamond.lastLargeDepositAt(
+                user1
+            ),
             block.timestamp
         );
     }
@@ -1807,12 +1933,16 @@ contract WiseTelecomNodesGraceAccumHookTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.lastLargeDepositAt(user1),
+            diamond.lastLargeDepositAt(
+                user1
+            ),
             0
         );
 
         assertEq(
-            diamond.depositWindowTotal(user1),
+            diamond.depositWindowTotal(
+                user1
+            ),
             5_000 * 1e6
         );
     }
@@ -1849,7 +1979,9 @@ contract WiseTelecomNodesGraceAccumHookTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.lastLargeDepositAt(user1),
+            diamond.lastLargeDepositAt(
+                user1
+            ),
             block.timestamp
         );
     }
@@ -1895,12 +2027,16 @@ contract WiseTelecomNodesGraceAccumHookTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.lastLargeDepositAt(user1),
+            diamond.lastLargeDepositAt(
+                user1
+            ),
             stampTime
         );
 
         assertEq(
-            diamond.depositWindowTotal(user1),
+            diamond.depositWindowTotal(
+                user1
+            ),
             500 * 1e6
         );
     }
@@ -1945,7 +2081,9 @@ contract WiseTelecomNodesGraceAccumHookTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.lastLargeDepositAt(user1),
+            diamond.lastLargeDepositAt(
+                user1
+            ),
             firstStamp + 10 days
         );
     }
@@ -1976,12 +2114,16 @@ contract WiseTelecomNodesGraceAccumHookTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.lastLargeDepositAt(user1),
+            diamond.lastLargeDepositAt(
+                user1
+            ),
             0
         );
 
         assertEq(
-            diamond.depositWindowTotal(user1),
+            diamond.depositWindowTotal(
+                user1
+            ),
             6_000 * 1e6
         );
     }
@@ -2000,7 +2142,9 @@ contract WiseTelecomNodesGraceAccumHookTest is DiamondTestHarness {
         );
 
         assertEq(
-            noHook.lastLargeDepositAt(user1),
+            noHook.lastLargeDepositAt(
+                user1
+            ),
             block.timestamp
         );
 
@@ -2023,7 +2167,9 @@ contract WiseTelecomNodesGraceAccumHookTest is DiamondTestHarness {
         );
 
         assertEq(
-            noHook.lastLargeDepositAt(user2),
+            noHook.lastLargeDepositAt(
+                user2
+            ),
             0
         );
     }
@@ -2058,12 +2204,16 @@ contract WiseTelecomNodesGraceAccumHookTest is DiamondTestHarness {
         );
 
         assertEq(
-            noHook.lastLargeDepositAt(user1),
+            noHook.lastLargeDepositAt(
+                user1
+            ),
             0
         );
 
         assertEq(
-            noHook.depositWindowTotal(user1),
+            noHook.depositWindowTotal(
+                user1
+            ),
             0
         );
     }
@@ -2214,7 +2364,9 @@ contract WiseTelecomNodesGraceAccumHookTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.lastLargeDepositAt(user1),
+            diamond.lastLargeDepositAt(
+                user1
+            ),
             block.timestamp
         );
 

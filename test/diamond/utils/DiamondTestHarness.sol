@@ -122,55 +122,55 @@ abstract contract DiamondTestHarness is Test {
         _wireOne(
             d,
             address(new AdminFacet()),
-            WiseTelecomNodesDiamondSelectors.adminSelectors()
+            WiseTelecomNodesDiamondSelectors._adminSelectors()
         );
 
         _wireOne(
             d,
             address(new ProxyFacet()),
-            WiseTelecomNodesDiamondSelectors.proxySelectors()
+            WiseTelecomNodesDiamondSelectors._proxySelectors()
         );
 
         _wireOne(
             d,
             address(new UserFacet()),
-            WiseTelecomNodesDiamondSelectors.userSelectors()
+            WiseTelecomNodesDiamondSelectors._userSelectors()
         );
 
         _wireOne(
             d,
             address(new SweepFacet()),
-            WiseTelecomNodesDiamondSelectors.sweepSelectors()
+            WiseTelecomNodesDiamondSelectors._sweepSelectors()
         );
 
         _wireOne(
             d,
             address(new CashedInterestFacet()),
-            WiseTelecomNodesDiamondSelectors.cashedInterestSelectors()
+            WiseTelecomNodesDiamondSelectors._cashedInterestSelectors()
         );
 
         _wireOne(
             d,
             address(new BurnWiseFacet()),
-            WiseTelecomNodesDiamondSelectors.burnWiseSelectors()
+            WiseTelecomNodesDiamondSelectors._burnWiseSelectors()
         );
 
         _wireOne(
             d,
             address(new MoveFacet()),
-            WiseTelecomNodesDiamondSelectors.moveSelectors()
+            WiseTelecomNodesDiamondSelectors._moveSelectors()
         );
 
         _wireOne(
             d,
             address(new Permit2UserFacet()),
-            WiseTelecomNodesDiamondSelectors.permit2Selectors()
+            WiseTelecomNodesDiamondSelectors._permit2Selectors()
         );
 
         _wireOne(
             d,
             address(new MulticallFacet()),
-            WiseTelecomNodesDiamondSelectors.multicallSelectors()
+            WiseTelecomNodesDiamondSelectors._multicallSelectors()
         );
     }
 
@@ -182,25 +182,25 @@ abstract contract DiamondTestHarness is Test {
         _wireOne(
             d,
             address(new QueueAdminFacet()),
-            WiseTelecomNodesDiamondSelectors.queueAdminSelectors()
+            WiseTelecomNodesDiamondSelectors._queueAdminSelectors()
         );
 
         _wireOne(
             d,
             address(new QueueJoinLeaveFacet()),
-            WiseTelecomNodesDiamondSelectors.queueJoinLeaveSelectors()
+            WiseTelecomNodesDiamondSelectors._queueJoinLeaveSelectors()
         );
 
         _wireOne(
             d,
             address(new QueueFulfillFacet()),
-            WiseTelecomNodesDiamondSelectors.queueFulfillSelectors()
+            WiseTelecomNodesDiamondSelectors._queueFulfillSelectors()
         );
 
         _wireOne(
             d,
             address(new QueueViewFacet()),
-            WiseTelecomNodesDiamondSelectors.queueViewSelectors()
+            WiseTelecomNodesDiamondSelectors._queueViewSelectors()
         );
     }
 
@@ -224,10 +224,10 @@ abstract contract DiamondTestHarness is Test {
     /**
      * @dev Deploys a fresh {ReferralRegistry} (the test contract
      * becomes its master), allowlists the diamond as a writer and
-     * wires the slot-74 pointer through the {AdminFacet} trio. Must
+     * wires the slot-77 pointer through the {AdminFacet} trio. Must
      * run after `_wireAllFacets` (the trio needs routing) and before
      * `finalizeSetup()` so the pointer timelock is in its instant
-     * pre-initialization window — the same seam the hook install
+     * pre-initialization window, the same seam the hook install
      * uses. Multi-diamond suites use `_wireReferralRegistryShared`
      * directly so all vaults on the simulated chain consult ONE
      * registry, the production topology.
@@ -238,7 +238,10 @@ abstract contract DiamondTestHarness is Test {
         internal
         returns (ReferralRegistry registry)
     {
-        registry = new ReferralRegistry();
+        registry = new ReferralRegistry(
+            address(this),
+            0
+        );
 
         _wireReferralRegistryShared(
             d,
@@ -271,7 +274,7 @@ abstract contract DiamondTestHarness is Test {
      * check because the harness deploys the full facet set; etch a
      * minimal STOP at the canonical slot so the check passes. Tests
      * needing a real-ish Permit2 (the Permit2 facet test) etch a
-     * full mock BEFORE calling `_deployDiamond` — that prior etch
+     * full mock BEFORE calling `_deployDiamond`; that prior etch
      * is preserved here.
      */
     function _ensurePermit2()

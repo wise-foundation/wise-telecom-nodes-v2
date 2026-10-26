@@ -92,7 +92,7 @@ contract WiseTelecomNodesInterestAdminFacetTest is DiamondTestHarness {
         _wireOne(
             diamond,
             address(new InterestAdminFacet()),
-            WiseTelecomNodesDiamondSelectors.interestAdminSelectors()
+            WiseTelecomNodesDiamondSelectors._interestAdminSelectors()
         );
 
         diamond.finalizeSetup();
@@ -158,7 +158,9 @@ contract WiseTelecomNodesInterestAdminFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.cashedInterest(newWallet),
+            diamond.cashedInterest(
+                newWallet
+            ),
             500 * 1e6
         );
 
@@ -184,7 +186,9 @@ contract WiseTelecomNodesInterestAdminFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.cashedInterest(newWallet),
+            diamond.cashedInterest(
+                newWallet
+            ),
             200 * 1e6
         );
 
@@ -223,12 +227,16 @@ contract WiseTelecomNodesInterestAdminFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.cashedInterest(lostWallet),
+            diamond.cashedInterest(
+                lostWallet
+            ),
             0
         );
 
         assertEq(
-            diamond.cashedInterest(newWallet),
+            diamond.cashedInterest(
+                newWallet
+            ),
             frozen
         );
 
@@ -259,7 +267,9 @@ contract WiseTelecomNodesInterestAdminFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            usd.balanceOf(newWallet),
+            usd.balanceOf(
+                newWallet
+            ),
             777 * 1e6
         );
     }
@@ -282,12 +292,16 @@ contract WiseTelecomNodesInterestAdminFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.cashedInterest(lostWallet),
+            diamond.cashedInterest(
+                lostWallet
+            ),
             0
         );
 
         assertEq(
-            diamond.getTotalInterestUser(lostWallet),
+            diamond.getTotalInterestUser(
+                lostWallet
+            ),
             pendingBefore,
             "unbanked pending accrual must survive a zero-out"
         );
@@ -415,7 +429,9 @@ contract WiseTelecomNodesInterestAdminFacetTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.cashedInterest(newWallet),
+            diamond.cashedInterest(
+                newWallet
+            ),
             _second
         );
     }

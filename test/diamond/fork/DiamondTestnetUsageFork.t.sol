@@ -51,16 +51,70 @@ interface IWtnQueue {
             uint256 usdSpent
         );
 
-    function minDepositAmount() external view returns (uint256);
-    function USD_TOKEN() external view returns (address);
-    function balanceOf(address account) external view returns (uint256);
-    function paused() external view returns (bool);
-    function activeOrderCountByIncentive(int256 incentive) external view returns (uint256);
-    function currentOrderIdByIncentive(int256 incentive) external view returns (uint256);
-    function earliestValidQueMemberByIncentive(int256 incentive) external view returns (uint256);
-    function incentiveAllowed(int256 incentive) external view returns (bool);
-    function predictDiscountedAmount(uint256 amount, int256 incentive) external view returns (uint256);
-    function lastSyncTimeStamp(address user) external view returns (uint256);
+    function minDepositAmount()
+        external
+        view
+        returns (uint256);
+
+    function USD_TOKEN()
+        external
+        view
+        returns (address);
+
+    function balanceOf(
+        address _account
+    )
+        external
+        view
+        returns (uint256);
+
+    function paused()
+        external
+        view
+        returns (bool);
+
+    function activeOrderCountByIncentive(
+        int256 _incentive
+    )
+        external
+        view
+        returns (uint256);
+
+    function currentOrderIdByIncentive(
+        int256 _incentive
+    )
+        external
+        view
+        returns (uint256);
+
+    function earliestValidQueMemberByIncentive(
+        int256 _incentive
+    )
+        external
+        view
+        returns (uint256);
+
+    function incentiveAllowed(
+        int256 _incentive
+    )
+        external
+        view
+        returns (bool);
+
+    function predictDiscountedAmount(
+        uint256 _amount,
+        int256 _incentive
+    )
+        external
+        view
+        returns (uint256);
+
+    function lastSyncTimeStamp(
+        address _user
+    )
+        external
+        view
+        returns (uint256);
 }
 
 /**
@@ -78,7 +132,7 @@ abstract contract DiamondTestnetUsageForkBase is Test {
 
     address internal constant DIAMOND = 0xb375bB64b068817030729B05bBda7eF25C0270Ab;
 
-    // Real WiseTelecomNodes holder addresses (from the live USDC snapshot).
+    // ---- Real holder addresses (live USDC snapshot) ----
     address internal constant JOINER = 0x56b668F57624661BA9387bAb7D06c5F4698a9225;
     address internal constant FULFILLER = 0x4C333c8853F6B6766AF0EE357DdA74B2c7D06341;
 
@@ -165,7 +219,9 @@ abstract contract DiamondTestnetUsageForkBase is Test {
             }
         }
 
-        revert("no empty allowed incentive on this diamond");
+        revert(
+            "no empty allowed incentive on this diamond"
+        );
     }
 
     function _joinAmount()
@@ -191,10 +247,18 @@ abstract contract DiamondTestnetUsageForkBase is Test {
             amount
         );
 
-        uint256 balBefore = q.balanceOf(JOINER);
-        uint256 ordersBefore = q.activeOrderCountByIncentive(inc);
+        uint256 balBefore = q.balanceOf(
+            JOINER
+        );
 
-        vm.prank(JOINER);
+        uint256 ordersBefore = q.activeOrderCountByIncentive(
+            inc
+        );
+
+        vm.prank(
+            JOINER
+        );
+
         (
             ,
             uint256 memberId
@@ -204,18 +268,25 @@ abstract contract DiamondTestnetUsageForkBase is Test {
         );
 
         assertEq(
-            q.balanceOf(JOINER),
+            q.balanceOf(
+                JOINER
+            ),
             balBefore - amount,
             "shares not escrowed on join"
         );
 
         assertEq(
-            q.activeOrderCountByIncentive(inc),
+            q.activeOrderCountByIncentive(
+                inc
+            ),
             ordersBefore + 1,
             "active order count did not rise on join"
         );
 
-        vm.prank(JOINER);
+        vm.prank(
+            JOINER
+        );
+
         (
             ,
             uint256 leftOver
@@ -231,13 +302,17 @@ abstract contract DiamondTestnetUsageForkBase is Test {
         );
 
         assertEq(
-            q.balanceOf(JOINER),
+            q.balanceOf(
+                JOINER
+            ),
             balBefore,
             "shares not returned to user on leave"
         );
 
         assertEq(
-            q.activeOrderCountByIncentive(inc),
+            q.activeOrderCountByIncentive(
+                inc
+            ),
             ordersBefore,
             "active order count did not fall on leave"
         );
@@ -254,7 +329,10 @@ abstract contract DiamondTestnetUsageForkBase is Test {
             amount
         );
 
-        vm.prank(JOINER);
+        vm.prank(
+            JOINER
+        );
+
         (
             ,
             uint256 memberId
@@ -264,7 +342,9 @@ abstract contract DiamondTestnetUsageForkBase is Test {
         );
 
         assertEq(
-            q.currentOrderIdByIncentive(inc),
+            q.currentOrderIdByIncentive(
+                inc
+            ),
             memberId,
             "joined order is not the fulfillable head"
         );
@@ -284,10 +364,18 @@ abstract contract DiamondTestnetUsageForkBase is Test {
             usdCost
         );
 
-        uint256 joinerUsdBefore = usd.balanceOf(JOINER);
-        uint256 fulfillerSharesBefore = q.balanceOf(FULFILLER);
+        uint256 joinerUsdBefore = usd.balanceOf(
+            JOINER
+        );
 
-        vm.startPrank(FULFILLER);
+        uint256 fulfillerSharesBefore = q.balanceOf(
+            FULFILLER
+        );
+
+        vm.startPrank(
+            FULFILLER
+        );
+
         usd.approve(
             DIAMOND,
             usdCost
@@ -309,19 +397,25 @@ abstract contract DiamondTestnetUsageForkBase is Test {
         );
 
         assertEq(
-            q.balanceOf(FULFILLER),
+            q.balanceOf(
+                FULFILLER
+            ),
             fulfillerSharesBefore + amount,
             "fulfiller shares not credited"
         );
 
         assertEq(
-            usd.balanceOf(JOINER),
+            usd.balanceOf(
+                JOINER
+            ),
             joinerUsdBefore + usdSpent,
             "queue member did not receive the USD payment"
         );
 
         assertEq(
-            q.activeOrderCountByIncentive(inc),
+            q.activeOrderCountByIncentive(
+                inc
+            ),
             0,
             "order not removed after full fulfillment"
         );

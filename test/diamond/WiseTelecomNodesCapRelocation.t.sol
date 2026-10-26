@@ -284,7 +284,7 @@ contract WiseTelecomNodesCapRelocationTest is DiamondTestHarness {
         _wireOne(
             d,
             address(new BridgeFacet()),
-            WiseTelecomNodesDiamondSelectors.bridgeSelectors()
+            WiseTelecomNodesDiamondSelectors._bridgeSelectors()
         );
     }
 
@@ -494,7 +494,9 @@ contract WiseTelecomNodesCapRelocationTest is DiamondTestHarness {
         );
 
         assertEq(
-            _roomOf(vaultB),
+            _roomOf(
+                vaultB
+            ),
             room
         );
 
@@ -506,7 +508,9 @@ contract WiseTelecomNodesCapRelocationTest is DiamondTestHarness {
         );
 
         assertEq(
-            vaultB.balanceOf(depositor),
+            vaultB.balanceOf(
+                depositor
+            ),
             room
         );
 
@@ -516,7 +520,9 @@ contract WiseTelecomNodesCapRelocationTest is DiamondTestHarness {
         );
 
         assertEq(
-            _roomOf(vaultB),
+            _roomOf(
+                vaultB
+            ),
             0
         );
     }
@@ -570,7 +576,9 @@ contract WiseTelecomNodesCapRelocationTest is DiamondTestHarness {
         );
 
         assertEq(
-            _roomOf(vaultB),
+            _roomOf(
+                vaultB
+            ),
             room
         );
 
@@ -604,12 +612,16 @@ contract WiseTelecomNodesCapRelocationTest is DiamondTestHarness {
         );
 
         assertEq(
-            vaultB.balanceOf(user),
+            vaultB.balanceOf(
+                user
+            ),
             principal + pending
         );
 
         assertEq(
-            vaultB.cashedInterest(user),
+            vaultB.cashedInterest(
+                user
+            ),
             0
         );
     }
@@ -644,7 +656,9 @@ contract WiseTelecomNodesCapRelocationTest is DiamondTestHarness {
         );
 
         assertEq(
-            _roomOf(vaultB),
+            _roomOf(
+                vaultB
+            ),
             room
         );
 
@@ -721,12 +735,16 @@ contract WiseTelecomNodesCapRelocationTest is DiamondTestHarness {
         );
 
         assertEq(
-            vaultB.cashedInterest(comp),
+            vaultB.cashedInterest(
+                comp
+            ),
             0
         );
 
         assertEq(
-            vaultB.balanceOf(comp),
+            vaultB.balanceOf(
+                comp
+            ),
             compBalanceBefore + received + pendingComp - spent
         );
     }
@@ -744,7 +762,9 @@ contract WiseTelecomNodesCapRelocationTest is DiamondTestHarness {
         );
 
         assertEq(
-            _roomOf(vaultB),
+            _roomOf(
+                vaultB
+            ),
             0
         );
 
@@ -758,7 +778,9 @@ contract WiseTelecomNodesCapRelocationTest is DiamondTestHarness {
         );
 
         assertEq(
-            vaultB.balanceOf(user),
+            vaultB.balanceOf(
+                user
+            ),
             amount
         );
 
@@ -768,7 +790,9 @@ contract WiseTelecomNodesCapRelocationTest is DiamondTestHarness {
         );
 
         assertEq(
-            _roomOf(vaultB),
+            _roomOf(
+                vaultB
+            ),
             0
         );
     }
@@ -796,12 +820,16 @@ contract WiseTelecomNodesCapRelocationTest is DiamondTestHarness {
         );
 
         assertEq(
-            _roomOf(vaultA),
+            _roomOf(
+                vaultA
+            ),
             0
         );
 
         assertEq(
-            _roomOf(vaultB),
+            _roomOf(
+                vaultB
+            ),
             0
         );
 
@@ -833,17 +861,23 @@ contract WiseTelecomNodesCapRelocationTest is DiamondTestHarness {
         );
 
         assertEq(
-            vaultB.balanceOf(user),
+            vaultB.balanceOf(
+                user
+            ),
             principal
         );
 
         assertEq(
-            vaultA.balanceOf(user),
+            vaultA.balanceOf(
+                user
+            ),
             0
         );
 
         assertEq(
-            vaultA.cashedInterest(user),
+            vaultA.cashedInterest(
+                user
+            ),
             pending
         );
 
@@ -858,12 +892,16 @@ contract WiseTelecomNodesCapRelocationTest is DiamondTestHarness {
         );
 
         assertEq(
-            _roomOf(vaultA),
+            _roomOf(
+                vaultA
+            ),
             0
         );
 
         assertEq(
-            _roomOf(vaultB),
+            _roomOf(
+                vaultB
+            ),
             0
         );
     }
@@ -897,7 +935,9 @@ contract WiseTelecomNodesCapRelocationTest is DiamondTestHarness {
         );
 
         assertEq(
-            vaultB.balanceOf(user),
+            vaultB.balanceOf(
+                user
+            ),
             room
         );
 
@@ -929,7 +969,9 @@ contract WiseTelecomNodesCapRelocationTest is DiamondTestHarness {
         );
 
         assertEq(
-            _roomOf(vaultB),
+            _roomOf(
+                vaultB
+            ),
             0
         );
 
@@ -958,7 +1000,9 @@ contract WiseTelecomNodesCapRelocationTest is DiamondTestHarness {
         );
 
         assertEq(
-            _roomOf(vaultB),
+            _roomOf(
+                vaultB
+            ),
             0
         );
 
@@ -994,7 +1038,9 @@ contract WiseTelecomNodesCapRelocationTest is DiamondTestHarness {
         );
 
         assertEq(
-            _roomOf(vaultB),
+            _roomOf(
+                vaultB
+            ),
             room
         );
 
@@ -1227,7 +1273,9 @@ contract WiseTelecomNodesCapRelocationTest is DiamondTestHarness {
         );
 
         assertEq(
-            _roomOf(vaultB),
+            _roomOf(
+                vaultB
+            ),
             TOTAL_DEPOSIT_CAP
         );
 
@@ -1244,7 +1292,9 @@ contract WiseTelecomNodesCapRelocationTest is DiamondTestHarness {
         );
 
         assertEq(
-            _roomOf(vaultB),
+            _roomOf(
+                vaultB
+            ),
             0
         );
 
@@ -1283,7 +1333,9 @@ contract WiseTelecomNodesCapRelocationTest is DiamondTestHarness {
         );
 
         assertEq(
-            _roomOf(vaultB),
+            _roomOf(
+                vaultB
+            ),
             0
         );
 
@@ -1310,7 +1362,9 @@ contract WiseTelecomNodesCapRelocationTest is DiamondTestHarness {
         );
 
         assertEq(
-            _roomOf(vaultB),
+            _roomOf(
+                vaultB
+            ),
             0
         );
 
@@ -1388,12 +1442,16 @@ contract WiseTelecomNodesCapRelocationTest is DiamondTestHarness {
         );
 
         assertEq(
-            vaultA.balanceOf(user),
+            vaultA.balanceOf(
+                user
+            ),
             amount
         );
 
         assertEq(
-            vaultB.balanceOf(user),
+            vaultB.balanceOf(
+                user
+            ),
             0
         );
     }
@@ -1424,8 +1482,14 @@ contract WiseTelecomNodesCapRelocationTest is DiamondTestHarness {
 
         uint256 capABefore = vaultA.totalDepositCap();
         uint256 capBBefore = vaultB.totalDepositCap();
-        uint256 roomABefore = _roomOf(vaultA);
-        uint256 roomBBefore = _roomOf(vaultB);
+
+        uint256 roomABefore = _roomOf(
+            vaultA
+        );
+
+        uint256 roomBBefore = _roomOf(
+            vaultB
+        );
 
         vm.prank(
             user
@@ -1447,12 +1511,16 @@ contract WiseTelecomNodesCapRelocationTest is DiamondTestHarness {
         );
 
         assertEq(
-            _roomOf(vaultA),
+            _roomOf(
+                vaultA
+            ),
             roomABefore
         );
 
         assertEq(
-            _roomOf(vaultB),
+            _roomOf(
+                vaultB
+            ),
             roomBBefore
         );
     }
@@ -1483,8 +1551,14 @@ contract WiseTelecomNodesCapRelocationTest is DiamondTestHarness {
 
         uint256 capABefore = vaultA.totalDepositCap();
         uint256 capBBefore = vaultB.totalDepositCap();
-        uint256 roomABefore = _roomOf(vaultA);
-        uint256 roomBBefore = _roomOf(vaultB);
+
+        uint256 roomABefore = _roomOf(
+            vaultA
+        );
+
+        uint256 roomBBefore = _roomOf(
+            vaultB
+        );
 
         vm.deal(
             user,
@@ -1511,12 +1585,16 @@ contract WiseTelecomNodesCapRelocationTest is DiamondTestHarness {
         );
 
         assertEq(
-            _roomOf(vaultA),
+            _roomOf(
+                vaultA
+            ),
             roomABefore
         );
 
         assertEq(
-            _roomOf(vaultB),
+            _roomOf(
+                vaultB
+            ),
             roomBBefore
         );
     }
@@ -1549,8 +1627,14 @@ contract WiseTelecomNodesCapRelocationTest is DiamondTestHarness {
             srcAmount
         );
 
-        uint256 roomABefore = _roomOf(vaultA);
-        uint256 roomBBefore = _roomOf(vaultB);
+        uint256 roomABefore = _roomOf(
+            vaultA
+        );
+
+        uint256 roomBBefore = _roomOf(
+            vaultB
+        );
+
         uint256 capSumBefore = vaultA.totalDepositCap() + vaultB.totalDepositCap();
 
         vm.deal(
@@ -1616,17 +1700,23 @@ contract WiseTelecomNodesCapRelocationTest is DiamondTestHarness {
         );
 
         assertEq(
-            vaultB.balanceOf(user),
+            vaultB.balanceOf(
+                user
+            ),
             dstAmount
         );
 
         assertEq(
-            _roomOf(vaultA),
+            _roomOf(
+                vaultA
+            ),
             roomABefore
         );
 
         assertEq(
-            _roomOf(vaultB),
+            _roomOf(
+                vaultB
+            ),
             roomBBefore
         );
 

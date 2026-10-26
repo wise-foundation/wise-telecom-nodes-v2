@@ -122,13 +122,29 @@ contract WiseTelecomNodesSwitchQueIncentiveEquivalenceTest is DiamondTestHarness
     {
         s.total = vault.totalActiveOrders();
 
-        s.countA = vault.activeOrderCountByIncentive(_a);
-        s.curA = vault.currentOrderIdByIncentive(_a);
-        s.earlA = vault.earliestValidQueMemberByIncentive(_a);
+        s.countA = vault.activeOrderCountByIncentive(
+            _a
+        );
 
-        s.countB = vault.activeOrderCountByIncentive(_b);
-        s.curB = vault.currentOrderIdByIncentive(_b);
-        s.earlB = vault.earliestValidQueMemberByIncentive(_b);
+        s.curA = vault.currentOrderIdByIncentive(
+            _a
+        );
+
+        s.earlA = vault.earliestValidQueMemberByIncentive(
+            _a
+        );
+
+        s.countB = vault.activeOrderCountByIncentive(
+            _b
+        );
+
+        s.curB = vault.currentOrderIdByIncentive(
+            _b
+        );
+
+        s.earlB = vault.earliestValidQueMemberByIncentive(
+            _b
+        );
 
         for (uint256 i; i < 8; i++) {
             (
@@ -152,15 +168,40 @@ contract WiseTelecomNodesSwitchQueIncentiveEquivalenceTest is DiamondTestHarness
             );
         }
 
-        s.proxyUser = vault.proxyBalance(_user);
-        s.cashedUser = vault.cashedInterest(_user);
-        s.syncUser = vault.lastSyncTimeStamp(_user);
-        s.sharesUser = vault.balanceOf(_user);
-        s.sharesVault = vault.balanceOf(address(vault));
+        s.proxyUser = vault.proxyBalance(
+            _user
+        );
+
+        s.cashedUser = vault.cashedInterest(
+            _user
+        );
+
+        s.syncUser = vault.lastSyncTimeStamp(
+            _user
+        );
+
+        s.sharesUser = vault.balanceOf(
+            _user
+        );
+
+        s.sharesVault = vault.balanceOf(
+            address(vault)
+        );
+
         s.supply = vault.totalSupply();
-        s.usdUser = usd.balanceOf(_user);
-        s.usdVault = usd.balanceOf(address(vault));
-        s.usdTp = usd.balanceOf(thirdPty);
+
+        s.usdUser = usd.balanceOf(
+            _user
+        );
+
+        s.usdVault = usd.balanceOf(
+            address(vault)
+        );
+
+        s.usdTp = usd.balanceOf(
+            thirdPty
+        );
+
         s.benefactor = vault.currentProxyBenefactor();
     }
 
@@ -568,7 +609,9 @@ contract WiseTelecomNodesSwitchQueIncentiveEquivalenceTest is DiamondTestHarness
         );
 
         assertGt(
-            vault.getPendingInterest(user1),
+            vault.getPendingInterest(
+                user1
+            ),
             0,
             "pending interest should exist"
         );
@@ -588,12 +631,19 @@ contract WiseTelecomNodesSwitchQueIncentiveEquivalenceTest is DiamondTestHarness
     )
         public
     {
-        int256 a = _tier(_tierSeedA);
-        int256 b = _tier(_tierSeedB);
+        int256 a = _tier(
+            _tierSeedA
+        );
+
+        int256 b = _tier(
+            _tierSeedB
+        );
 
         if (a == b) {
             unchecked {
-                b = _tier(_tierSeedB + 1);
+                b = _tier(
+                    _tierSeedB + 1
+                );
             }
         }
 
@@ -820,8 +870,13 @@ contract WiseTelecomNodesSwitchQueIncentiveEquivalenceTest is DiamondTestHarness
             base
         );
 
-        bytes32[4] memory oldWordsBase = _load4(oldSlot);
-        bytes32[4] memory newWordsBase = _load4(newSlot);
+        bytes32[4] memory oldWordsBase = _load4(
+            oldSlot
+        );
+
+        bytes32[4] memory newWordsBase = _load4(
+            newSlot
+        );
 
         vm.revertToState(
             snap
@@ -837,8 +892,13 @@ contract WiseTelecomNodesSwitchQueIncentiveEquivalenceTest is DiamondTestHarness
             100
         );
 
-        bytes32[4] memory oldWordsFused = _load4(oldSlot);
-        bytes32[4] memory newWordsFused = _load4(newSlot);
+        bytes32[4] memory oldWordsFused = _load4(
+            oldSlot
+        );
+
+        bytes32[4] memory newWordsFused = _load4(
+            newSlot
+        );
 
         for (uint256 i; i < 4; i++) {
             assertEq(
@@ -871,12 +931,18 @@ contract WiseTelecomNodesSwitchQueIncentiveEquivalenceTest is DiamondTestHarness
         returns (uint256)
     {
         bytes32 inner = keccak256(
-            abi.encode(_id, _base)
+            abi.encode(
+                _id,
+                _base
+            )
         );
 
         return uint256(
             keccak256(
-                abi.encode(_incentive, inner)
+                abi.encode(
+                    _incentive,
+                    inner
+                )
             )
         );
     }
@@ -900,7 +966,10 @@ contract WiseTelecomNodesSwitchQueIncentiveEquivalenceTest is DiamondTestHarness
             address stored = address(
                 uint160(
                     uint256(
-                        vm.load(address(vault), bytes32(slot))
+                        vm.load(
+                            address(vault),
+                            bytes32(slot)
+                        )
                     )
                 )
             );

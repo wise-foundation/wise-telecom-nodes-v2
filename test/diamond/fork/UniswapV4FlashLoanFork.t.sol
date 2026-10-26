@@ -239,7 +239,9 @@ contract UniswapV4FlashLoanForkTest is Test {
     {
         _assertZeroFeeFlashLoan(
             USDC,
-            _poolBalance(USDC)
+            _poolBalance(
+                USDC
+            )
         );
     }
 
@@ -265,9 +267,17 @@ contract UniswapV4FlashLoanForkTest is Test {
     )
         internal
     {
-        uint256 poolBefore = _poolBalance(_token);
-        uint256 borrowerBefore = IERC20(_token).balanceOf(address(borrower));
-        uint256 protocolFeesBefore = IPoolManager(POOL_MANAGER).protocolFeesAccrued(_token);
+        uint256 poolBefore = _poolBalance(
+            _token
+        );
+
+        uint256 borrowerBefore = IERC20(_token).balanceOf(
+            address(borrower)
+        );
+
+        uint256 protocolFeesBefore = IPoolManager(POOL_MANAGER).protocolFeesAccrued(
+            _token
+        );
 
         assertEq(
             borrowerBefore,
@@ -288,19 +298,25 @@ contract UniswapV4FlashLoanForkTest is Test {
         );
 
         assertEq(
-            IERC20(_token).balanceOf(address(borrower)),
+            IERC20(_token).balanceOf(
+                address(borrower)
+            ),
             0,
             "borrower paid a fee out of its own funds"
         );
 
         assertEq(
-            _poolBalance(_token),
+            _poolBalance(
+                _token
+            ),
             poolBefore,
             "pool balance changed: a fee was taken or lost"
         );
 
         assertEq(
-            IPoolManager(POOL_MANAGER).protocolFeesAccrued(_token),
+            IPoolManager(POOL_MANAGER).protocolFeesAccrued(
+                _token
+            ),
             protocolFeesBefore,
             "a protocol fee accrued on the flash loan"
         );
@@ -313,6 +329,8 @@ contract UniswapV4FlashLoanForkTest is Test {
         view
         returns (uint256)
     {
-        return IERC20(_token).balanceOf(POOL_MANAGER);
+        return IERC20(_token).balanceOf(
+            POOL_MANAGER
+        );
     }
 }

@@ -14,7 +14,7 @@ import {QueueInvariantHandler, MockUSD} from "./QueueConservationInvariant.t.sol
 
 /**
  * @dev Extends the conservation handler with actions that target
- * ARBITRARY member ids — not just the lane head — so mid-list
+ * ARBITRARY member ids (not just the lane head) so mid-list
  * removals, below-cursor attempts and partial fulfillments are all
  * exercised. This is exactly the traffic that would desync the
  * cursor from the lowest live order if the pointer splicing in
@@ -42,10 +42,17 @@ contract QueueCursorHandler is QueueInvariantHandler {
     )
         external
     {
-        address actor = _actor(_actorSeed);
-        int256 incentive = _tier(_tierSeed);
+        address actor = _actor(
+            _actorSeed
+        );
 
-        uint256 earliest = diamond.earliestValidQueMemberByIncentive(incentive);
+        int256 incentive = _tier(
+            _tierSeed
+        );
+
+        uint256 earliest = diamond.earliestValidQueMemberByIncentive(
+            incentive
+        );
 
         if (earliest == 0) {
             return;
@@ -68,10 +75,17 @@ contract QueueCursorHandler is QueueInvariantHandler {
     )
         external
     {
-        address actor = _actor(_actorSeed);
-        int256 incentive = _tier(_tierSeed);
+        address actor = _actor(
+            _actorSeed
+        );
 
-        uint256 earliest = diamond.earliestValidQueMemberByIncentive(incentive);
+        int256 incentive = _tier(
+            _tierSeed
+        );
+
+        uint256 earliest = diamond.earliestValidQueMemberByIncentive(
+            incentive
+        );
 
         if (earliest == 0) {
             return;
@@ -100,15 +114,25 @@ contract QueueCursorHandler is QueueInvariantHandler {
     )
         external
     {
-        address actor = _actor(_actorSeed);
-        int256 incentiveA = _tier(_tierSeedA);
-        int256 incentiveB = _tier(_tierSeedB);
+        address actor = _actor(
+            _actorSeed
+        );
+
+        int256 incentiveA = _tier(
+            _tierSeedA
+        );
+
+        int256 incentiveB = _tier(
+            _tierSeedB
+        );
 
         if (incentiveA == incentiveB) {
             return;
         }
 
-        uint256 earliest = diamond.earliestValidQueMemberByIncentive(incentiveA);
+        uint256 earliest = diamond.earliestValidQueMemberByIncentive(
+            incentiveA
+        );
 
         if (earliest == 0) {
             return;
@@ -130,10 +154,17 @@ contract QueueCursorHandler is QueueInvariantHandler {
     )
         external
     {
-        address actor = _actor(_actorSeed);
-        int256 incentive = _tier(_tierSeed);
+        address actor = _actor(
+            _actorSeed
+        );
 
-        uint256 id = diamond.currentOrderIdByIncentive(incentive);
+        int256 incentive = _tier(
+            _tierSeed
+        );
+
+        uint256 id = diamond.currentOrderIdByIncentive(
+            incentive
+        );
 
         uint256 amount = bound(
             _amountSeed,
@@ -153,7 +184,7 @@ contract QueueCursorHandler is QueueInvariantHandler {
  * @title QueueCursorInvariantTest
  * @dev Stateful-fuzz form of QUE-10: for every incentive lane, the
  * fulfillment cursor `currentOrderIdByIncentive` always points at the
- * LOWEST live order id (strict FIFO — the oldest unfulfilled order is
+ * LOWEST live order id (strict FIFO: the oldest unfulfilled order is
  * always next), and when a lane is empty the cursor is parked exactly
  * at the lane's allocation edge `earliestValidQueMemberByIncentive`.
  * The Kontrol per-operation lemmas in
@@ -258,8 +289,13 @@ contract QueueCursorInvariantTest is DiamondTestHarness {
         for (uint256 i = 0; i < tiers.length; i++) {
             int256 incentive = tiers[i];
 
-            uint256 earliest = diamond.earliestValidQueMemberByIncentive(incentive);
-            uint256 cursor = diamond.currentOrderIdByIncentive(incentive);
+            uint256 earliest = diamond.earliestValidQueMemberByIncentive(
+                incentive
+            );
+
+            uint256 cursor = diamond.currentOrderIdByIncentive(
+                incentive
+            );
 
             bool found;
             uint256 lowest;

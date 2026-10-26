@@ -140,11 +140,11 @@ contract WiseTelecomNodesBurnWiseFacetTest is Test {
             _buildInitParams()
         );
 
-        bytes4[] memory adminSels = WiseTelecomNodesDiamondSelectors.adminSelectors();
-        bytes4[] memory proxySels = WiseTelecomNodesDiamondSelectors.proxySelectors();
-        bytes4[] memory userSels = WiseTelecomNodesDiamondSelectors.userSelectors();
-        bytes4[] memory sweepSels = WiseTelecomNodesDiamondSelectors.sweepSelectors();
-        bytes4[] memory burnSels = WiseTelecomNodesDiamondSelectors.burnWiseSelectors();
+        bytes4[] memory adminSels = WiseTelecomNodesDiamondSelectors._adminSelectors();
+        bytes4[] memory proxySels = WiseTelecomNodesDiamondSelectors._proxySelectors();
+        bytes4[] memory userSels = WiseTelecomNodesDiamondSelectors._userSelectors();
+        bytes4[] memory sweepSels = WiseTelecomNodesDiamondSelectors._sweepSelectors();
+        bytes4[] memory burnSels = WiseTelecomNodesDiamondSelectors._burnWiseSelectors();
 
         d.proposeSelectors(
             adminSels,
@@ -256,7 +256,9 @@ contract WiseTelecomNodesBurnWiseFacetTest is Test {
         view
     {
         assertEq(
-            IERC20(WISE_TOKEN).balanceOf(address(diamond)),
+            IERC20(WISE_TOKEN).balanceOf(
+                address(diamond)
+            ),
             0
         );
 
@@ -312,7 +314,9 @@ contract WiseTelecomNodesBurnWiseFacetTest is Test {
         BurnWiseFacet(address(diamond)).burnWise();
 
         assertEq(
-            IERC20(WISE_TOKEN).balanceOf(address(diamond)),
+            IERC20(WISE_TOKEN).balanceOf(
+                address(diamond)
+            ),
             amount - _expected(amount, 0)
         );
     }
@@ -339,7 +343,10 @@ contract WiseTelecomNodesBurnWiseFacetTest is Test {
 
         assertEq(
             supplyBefore - supplyAfter,
-            _expected(amount, 0)
+            _expected(
+                amount,
+                0
+            )
         );
     }
 
@@ -366,8 +373,13 @@ contract WiseTelecomNodesBurnWiseFacetTest is Test {
 
         emit WiseBurned(
             randomEOA,
-            _expected(amount, 0),
-            _pct(0)
+            _expected(
+                amount,
+                0
+            ),
+            _pct(
+                0
+            )
         );
 
         vm.prank(
@@ -395,7 +407,10 @@ contract WiseTelecomNodesBurnWiseFacetTest is Test {
 
         assertEq(
             returned,
-            _expected(amount, 0)
+            _expected(
+                amount,
+                0
+            )
         );
     }
 
@@ -424,12 +439,16 @@ contract WiseTelecomNodesBurnWiseFacetTest is Test {
         BurnWiseFacet(address(diamond)).burnWise();
 
         assertEq(
-            IERC20(WISE_TOKEN).balanceOf(address(diamond)),
+            IERC20(WISE_TOKEN).balanceOf(
+                address(diamond)
+            ),
             amount - _expected(amount, 0)
         );
 
         assertEq(
-            IERC20(WISE_TOKEN).balanceOf(randomEOA),
+            IERC20(WISE_TOKEN).balanceOf(
+                randomEOA
+            ),
             callerBalanceBefore
         );
     }
@@ -494,7 +513,10 @@ contract WiseTelecomNodesBurnWiseFacetTest is Test {
 
         assertEq(
             returned,
-            _expected(secondAmount, 1)
+            _expected(
+                secondAmount,
+                1
+            )
         );
     }
 
@@ -521,7 +543,9 @@ contract WiseTelecomNodesBurnWiseFacetTest is Test {
 
         assertEq(
             burnF.getBurnableWise(),
-            IERC20(WISE_TOKEN).balanceOf(address(burnF))
+            IERC20(WISE_TOKEN).balanceOf(
+                address(burnF)
+            )
         );
     }
 
@@ -575,7 +599,9 @@ contract WiseTelecomNodesBurnWiseFacetTest is Test {
         );
 
         assertEq(
-            IERC20(WISE_TOKEN).balanceOf(address(diamond)),
+            IERC20(WISE_TOKEN).balanceOf(
+                address(diamond)
+            ),
             bought
         );
 
@@ -595,8 +621,13 @@ contract WiseTelecomNodesBurnWiseFacetTest is Test {
 
         emit WiseBurned(
             randomEOA,
-            _expected(bought, 0),
-            _pct(0)
+            _expected(
+                bought,
+                0
+            ),
+            _pct(
+                0
+            )
         );
 
         vm.prank(
@@ -607,11 +638,16 @@ contract WiseTelecomNodesBurnWiseFacetTest is Test {
 
         assertEq(
             burned,
-            _expected(bought, 0)
+            _expected(
+                bought,
+                0
+            )
         );
 
         assertEq(
-            IERC20(WISE_TOKEN).balanceOf(address(diamond)),
+            IERC20(WISE_TOKEN).balanceOf(
+                address(diamond)
+            ),
             bought - _expected(bought, 0)
         );
 
@@ -644,12 +680,16 @@ contract WiseTelecomNodesBurnWiseFacetTest is Test {
         BurnWiseFacet(address(diamond)).burnWise();
 
         assertEq(
-            usd.balanceOf(address(diamond)),
+            usd.balanceOf(
+                address(diamond)
+            ),
             usdBuffer
         );
 
         assertEq(
-            IERC20(WISE_TOKEN).balanceOf(address(diamond)),
+            IERC20(WISE_TOKEN).balanceOf(
+                address(diamond)
+            ),
             wiseAmount - _expected(wiseAmount, 0)
         );
     }
@@ -702,7 +742,9 @@ contract WiseTelecomNodesBurnWiseFacetTest is Test {
         for (uint256 i; i < 6; ++i) {
             assertEq(
                 BurnWiseFacet(address(diamond)).getNextBurnPercentage(),
-                _pct(i)
+                _pct(
+                    i
+                )
             );
 
             vm.prank(

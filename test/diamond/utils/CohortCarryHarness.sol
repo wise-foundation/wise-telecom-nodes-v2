@@ -11,14 +11,18 @@ import {CohortWeeks} from "../../../src/diamond/shared/pending/CohortWeeks.sol";
  * capture→stage→apply seam. A SEPARATE harness because the combined
  * exposure surface plus {CohortLaneHarness}'s embedded lazy
  * {ReferralRegistry} creation code pushed one contract past the
- * EIP-170 runtime limit — this one therefore takes its registry as an
+ * EIP-170 runtime limit; this one therefore takes its registry as an
  * address through `harnessSetRegistry` (tests deploy and allowlist
  * the shared registry themselves, matching the per-chain production
  * topology) and embeds no creation code. Same standalone-deployment
  * rules as the sibling: no diamond, no DELEGATECALL, storage layout
- * identical to the diamond's via {FacetBase}'s constructor, every
+ * identical to the diamond's via {CohortPinnedBase}, every
  * `exposed*` forwarding verbatim into the inherited engine internal
- * and every `harnessSet*` writer touching exactly one declared field.
+ * and every `harnessSet*` writer touching exactly one declared field
+ * except `harnessSetTracked`, the one writer that mirrors the tracked
+ * amount into the attributed amount, so a seeded referee starts fully
+ * attributed exactly as a referred credit leaves it; a test that needs
+ * another attributed amount calls `harnessSetAttributed` afterwards.
  */
 contract CohortCarryHarness is CohortRecorderBase {
 
@@ -132,7 +136,7 @@ contract CohortCarryHarness is CohortRecorderBase {
     )
         external
     {
-        cohortBook[_referrer] = CohortWeeks.packLanes(
+        cohortBook[_referrer] = CohortWeeks._packLanes(
             _y1,
             _y2,
             _m
@@ -147,16 +151,43 @@ contract CohortCarryHarness is CohortRecorderBase {
         referralRegistry = _registry;
     }
 
+    function harnessSetLastSettle(
+        address _referrer,
+        uint256 _timestamp
+    )
+        external
+    {
+        cohortLastSettle[_referrer] = _timestamp;
+    }
+
+    function harnessSetTracked(
+        address _user,
+        uint256 _amount
+    )
+        external
+    {
+        trackedContribution[_user] = _amount;
+
+        attributedContribution[_user] = _amount;
+    }
+
+    function harnessSetAttributed(
+        address _user,
+        uint256 _amount
+    )
+        external
+    {
+        attributedContribution[_user] = _amount;
+    }
+
     function harnessMintBalance(
         address _user,
         uint256 _amount
     )
         external
     {
-        _mint(
-            _user,
-            _amount
-        );
+        _balances[_user] = _balances[_user]
+            + _amount;
     }
 
     function harnessBurnBalance(
@@ -165,10 +196,8 @@ contract CohortCarryHarness is CohortRecorderBase {
     )
         external
     {
-        _burn(
-            _user,
-            _amount
-        );
+        _balances[_user] = _balances[_user]
+            - _amount;
     }
 
     // ---- view helpers ----
@@ -213,5 +242,15 @@ contract CohortCarryHarness is CohortRecorderBase {
         returns (uint256)
     {
         return trackedContribution[_user];
+    }
+
+    function viewAttributed(
+        address _user
+    )
+        external
+        view
+        returns (uint256)
+    {
+        return attributedContribution[_user];
     }
 }

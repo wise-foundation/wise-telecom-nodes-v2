@@ -330,10 +330,10 @@ contract WiseTelecomNodesBridgeTest is Test {
             )
         );
 
-        bytes4[] memory adminSels = WiseTelecomNodesDiamondSelectors.adminSelectors();
-        bytes4[] memory userSels = WiseTelecomNodesDiamondSelectors.userSelectors();
-        bytes4[] memory bridgeSels = WiseTelecomNodesDiamondSelectors.bridgeSelectors();
-        bytes4[] memory cashedSels = WiseTelecomNodesDiamondSelectors.cashedInterestSelectors();
+        bytes4[] memory adminSels = WiseTelecomNodesDiamondSelectors._adminSelectors();
+        bytes4[] memory userSels = WiseTelecomNodesDiamondSelectors._userSelectors();
+        bytes4[] memory bridgeSels = WiseTelecomNodesDiamondSelectors._bridgeSelectors();
+        bytes4[] memory cashedSels = WiseTelecomNodesDiamondSelectors._cashedInterestSelectors();
 
         d.proposeSelectors(
             adminSels,
@@ -433,9 +433,17 @@ contract WiseTelecomNodesBridgeTest is Test {
             principal
         );
 
-        uint256 balanceBefore = vaultA.balanceOf(user);
-        uint256 cashedBefore = vaultA.cashedInterest(user);
-        uint256 pendingBefore = vaultA.getPendingInterest(user);
+        uint256 balanceBefore = vaultA.balanceOf(
+            user
+        );
+
+        uint256 cashedBefore = vaultA.cashedInterest(
+            user
+        );
+
+        uint256 pendingBefore = vaultA.getPendingInterest(
+            user
+        );
 
         assertGt(
             cashedBefore,
@@ -462,12 +470,16 @@ contract WiseTelecomNodesBridgeTest is Test {
         );
 
         assertEq(
-            vaultA.balanceOf(user),
+            vaultA.balanceOf(
+                user
+            ),
             0
         );
 
         assertEq(
-            vaultA.cashedInterest(user),
+            vaultA.cashedInterest(
+                user
+            ),
             cashedBefore + pendingBefore
         );
 
@@ -477,7 +489,9 @@ contract WiseTelecomNodesBridgeTest is Test {
         );
 
         assertEq(
-            vaultA.getPendingInterest(user),
+            vaultA.getPendingInterest(
+                user
+            ),
             0
         );
 
@@ -498,7 +512,9 @@ contract WiseTelecomNodesBridgeTest is Test {
         );
 
         assertEq(
-            usdA.balanceOf(user),
+            usdA.balanceOf(
+                user
+            ),
             cashedBefore + pendingBefore
         );
 
@@ -520,7 +536,9 @@ contract WiseTelecomNodesBridgeTest is Test {
             principal
         );
 
-        uint256 amount = vaultA.balanceOf(user);
+        uint256 amount = vaultA.balanceOf(
+            user
+        );
 
         vm.deal(
             user,
@@ -537,22 +555,30 @@ contract WiseTelecomNodesBridgeTest is Test {
         );
 
         assertEq(
-            vaultB.balanceOf(user),
+            vaultB.balanceOf(
+                user
+            ),
             amount
         );
 
         assertEq(
-            vaultB.cashedInterest(user),
+            vaultB.cashedInterest(
+                user
+            ),
             0
         );
 
         assertEq(
-            vaultB.getPendingInterest(user),
+            vaultB.getPendingInterest(
+                user
+            ),
             0
         );
 
         assertEq(
-            vaultB.lastSyncTimeStamp(user),
+            vaultB.lastSyncTimeStamp(
+                user
+            ),
             block.timestamp
         );
 
@@ -561,7 +587,9 @@ contract WiseTelecomNodesBridgeTest is Test {
         );
 
         assertGt(
-            vaultB.getPendingInterest(user),
+            vaultB.getPendingInterest(
+                user
+            ),
             0
         );
     }
@@ -588,14 +616,18 @@ contract WiseTelecomNodesBridgeTest is Test {
             block.timestamp + 30 days
         );
 
-        uint256 pendingOnBBefore = vaultB.getPendingInterest(user);
+        uint256 pendingOnBBefore = vaultB.getPendingInterest(
+            user
+        );
 
         assertGt(
             pendingOnBBefore,
             0
         );
 
-        uint256 amount = vaultA.balanceOf(user);
+        uint256 amount = vaultA.balanceOf(
+            user
+        );
 
         vm.deal(
             user,
@@ -612,27 +644,37 @@ contract WiseTelecomNodesBridgeTest is Test {
         );
 
         assertEq(
-            vaultB.balanceOf(user),
+            vaultB.balanceOf(
+                user
+            ),
             principalB + amount
         );
 
         assertEq(
-            vaultB.cashedInterest(user),
+            vaultB.cashedInterest(
+                user
+            ),
             pendingOnBBefore
         );
 
         assertEq(
             CashedInterestFacet(address(vaultB)).getTotalCashedInterest(),
-            vaultB.cashedInterest(user)
+            vaultB.cashedInterest(
+                user
+            )
         );
 
         assertEq(
-            vaultB.getPendingInterest(user),
+            vaultB.getPendingInterest(
+                user
+            ),
             0
         );
 
         assertEq(
-            vaultB.lastSyncTimeStamp(user),
+            vaultB.lastSyncTimeStamp(
+                user
+            ),
             block.timestamp
         );
     }
@@ -649,7 +691,9 @@ contract WiseTelecomNodesBridgeTest is Test {
             principal
         );
 
-        uint256 amount = vaultA.balanceOf(user);
+        uint256 amount = vaultA.balanceOf(
+            user
+        );
 
         vm.deal(
             user,
@@ -666,7 +710,9 @@ contract WiseTelecomNodesBridgeTest is Test {
         );
 
         assertEq(
-            vaultB.balanceOf(user),
+            vaultB.balanceOf(
+                user
+            ),
             amount
         );
 
@@ -680,12 +726,16 @@ contract WiseTelecomNodesBridgeTest is Test {
         );
 
         assertEq(
-            vaultA.balanceOf(user),
+            vaultA.balanceOf(
+                user
+            ),
             amount
         );
 
         assertEq(
-            vaultB.balanceOf(user),
+            vaultB.balanceOf(
+                user
+            ),
             0
         );
     }
@@ -702,7 +752,10 @@ contract WiseTelecomNodesBridgeTest is Test {
             principal
         );
 
-        uint256 amount = vaultA.balanceOf(user);
+        uint256 amount = vaultA.balanceOf(
+            user
+        );
+
         uint256 fee = FEE;
 
         vm.deal(
@@ -737,7 +790,10 @@ contract WiseTelecomNodesBridgeTest is Test {
             principal
         );
 
-        uint256 amount = vaultA.balanceOf(user);
+        uint256 amount = vaultA.balanceOf(
+            user
+        );
+
         uint256 fee = FEE;
 
         vm.deal(
@@ -896,12 +952,16 @@ contract WiseTelecomNodesBridgeTest is Test {
         );
 
         assertEq(
-            vaultA.crossChainPeerEnabled(SELECTOR_C),
+            vaultA.crossChainPeerEnabled(
+                SELECTOR_C
+            ),
             true
         );
 
         assertEq(
-            vaultA.crossChainPeer(SELECTOR_C),
+            vaultA.crossChainPeer(
+                SELECTOR_C
+            ),
             address(0xBEEF)
         );
     }
@@ -974,12 +1034,16 @@ contract WiseTelecomNodesBridgeTest is Test {
         );
 
         assertEq(
-            vaultA.crossChainPeerChangeQueuedAt(SELECTOR_C),
+            vaultA.crossChainPeerChangeQueuedAt(
+                SELECTOR_C
+            ),
             0
         );
 
         assertEq(
-            vaultA.crossChainPeerEnabled(SELECTOR_C),
+            vaultA.crossChainPeerEnabled(
+                SELECTOR_C
+            ),
             false
         );
     }
@@ -1006,7 +1070,9 @@ contract WiseTelecomNodesBridgeTest is Test {
         );
 
         assertEq(
-            vaultA.crossChainPeerEnabled(SELECTOR_B),
+            vaultA.crossChainPeerEnabled(
+                SELECTOR_B
+            ),
             false
         );
 
@@ -1049,7 +1115,9 @@ contract WiseTelecomNodesBridgeTest is Test {
         );
 
         assertEq(
-            BridgeFacet(address(vaultA)).getBridgeableBalance(user),
+            BridgeFacet(address(vaultA)).getBridgeableBalance(
+                user
+            ),
             principal
         );
     }
@@ -1143,7 +1211,9 @@ contract WiseTelecomNodesBridgeTest is Test {
         );
 
         assertEq(
-            vaultB.balanceOf(user),
+            vaultB.balanceOf(
+                user
+            ),
             principal * 100
         );
     }
@@ -1189,7 +1259,9 @@ contract WiseTelecomNodesBridgeTest is Test {
         );
 
         assertEq(
-            vaultB.balanceOf(user),
+            vaultB.balanceOf(
+                user
+            ),
             123
         );
     }
@@ -1298,7 +1370,9 @@ contract WiseTelecomNodesBridgeTest is Test {
         );
 
         assertEq(
-            vaultB.balanceOf(user),
+            vaultB.balanceOf(
+                user
+            ),
             amount
         );
 
@@ -1509,12 +1583,16 @@ contract WiseTelecomNodesBridgeTest is Test {
         );
 
         assertEq(
-            vaultB.balanceOf(user),
+            vaultB.balanceOf(
+                user
+            ),
             1_000
         );
 
         assertEq(
-            vaultB.processedMessageId(bytes32(uint256(0xABC))),
+            vaultB.processedMessageId(
+                bytes32(uint256(0xABC))
+            ),
             true
         );
 
@@ -1531,7 +1609,9 @@ contract WiseTelecomNodesBridgeTest is Test {
         );
 
         assertEq(
-            vaultB.balanceOf(user),
+            vaultB.balanceOf(
+                user
+            ),
             1_000
         );
     }
@@ -1574,17 +1654,23 @@ contract WiseTelecomNodesBridgeTest is Test {
         );
 
         assertEq(
-            vaultB.balanceOf(user),
+            vaultB.balanceOf(
+                user
+            ),
             3_000
         );
 
         assertEq(
-            vaultB.processedMessageId(bytes32(uint256(0x1))),
+            vaultB.processedMessageId(
+                bytes32(uint256(0x1))
+            ),
             true
         );
 
         assertEq(
-            vaultB.processedMessageId(bytes32(uint256(0x2))),
+            vaultB.processedMessageId(
+                bytes32(uint256(0x2))
+            ),
             true
         );
     }
@@ -1603,17 +1689,23 @@ contract WiseTelecomNodesBridgeTest is Test {
         );
 
         assertEq(
-            vaultA.crossChainPeer(SELECTOR_B),
+            vaultA.crossChainPeer(
+                SELECTOR_B
+            ),
             address(vaultB)
         );
 
         assertEq(
-            vaultA.crossChainPeerEnabled(SELECTOR_B),
+            vaultA.crossChainPeerEnabled(
+                SELECTOR_B
+            ),
             true
         );
 
         assertEq(
-            vaultA.proposedCrossChainPeer(SELECTOR_B),
+            vaultA.proposedCrossChainPeer(
+                SELECTOR_B
+            ),
             newPeer
         );
 
@@ -1626,7 +1718,9 @@ contract WiseTelecomNodesBridgeTest is Test {
         );
 
         assertEq(
-            vaultA.crossChainPeer(SELECTOR_B),
+            vaultA.crossChainPeer(
+                SELECTOR_B
+            ),
             address(vaultB)
         );
     }
@@ -1653,22 +1747,30 @@ contract WiseTelecomNodesBridgeTest is Test {
         );
 
         assertEq(
-            vaultA.crossChainPeer(SELECTOR_B),
+            vaultA.crossChainPeer(
+                SELECTOR_B
+            ),
             newPeer
         );
 
         assertEq(
-            vaultA.crossChainPeerDecimals(SELECTOR_B),
+            vaultA.crossChainPeerDecimals(
+                SELECTOR_B
+            ),
             8
         );
 
         assertEq(
-            vaultA.proposedCrossChainPeer(SELECTOR_B),
+            vaultA.proposedCrossChainPeer(
+                SELECTOR_B
+            ),
             address(0)
         );
 
         assertEq(
-            vaultA.crossChainPeerChangeQueuedAt(SELECTOR_B),
+            vaultA.crossChainPeerChangeQueuedAt(
+                SELECTOR_B
+            ),
             0
         );
     }
@@ -1689,22 +1791,30 @@ contract WiseTelecomNodesBridgeTest is Test {
         );
 
         assertEq(
-            vaultA.crossChainPeer(SELECTOR_B),
+            vaultA.crossChainPeer(
+                SELECTOR_B
+            ),
             address(vaultB)
         );
 
         assertEq(
-            vaultA.crossChainPeerEnabled(SELECTOR_B),
+            vaultA.crossChainPeerEnabled(
+                SELECTOR_B
+            ),
             true
         );
 
         assertEq(
-            vaultA.proposedCrossChainPeer(SELECTOR_B),
+            vaultA.proposedCrossChainPeer(
+                SELECTOR_B
+            ),
             address(0)
         );
 
         assertEq(
-            vaultA.crossChainPeerChangeQueuedAt(SELECTOR_B),
+            vaultA.crossChainPeerChangeQueuedAt(
+                SELECTOR_B
+            ),
             0
         );
     }
@@ -1784,23 +1894,35 @@ contract WiseTelecomNodesBridgeTest is Test {
         );
 
         assertEq(
-            vaultB.balanceOf(userLegacy),
+            vaultB.balanceOf(
+                userLegacy
+            ),
             amount
         );
 
         assertEq(
-            vaultB.balanceOf(userEmpty),
+            vaultB.balanceOf(
+                userEmpty
+            ),
             amount
         );
 
         assertEq(
-            vaultB.cashedInterest(userLegacy),
-            vaultB.cashedInterest(userEmpty)
+            vaultB.cashedInterest(
+                userLegacy
+            ),
+            vaultB.cashedInterest(
+                userEmpty
+            )
         );
 
         assertEq(
-            vaultB.lastSyncTimeStamp(userLegacy),
-            vaultB.lastSyncTimeStamp(userEmpty)
+            vaultB.lastSyncTimeStamp(
+                userLegacy
+            ),
+            vaultB.lastSyncTimeStamp(
+                userEmpty
+            )
         );
 
         vm.warp(
@@ -1808,8 +1930,12 @@ contract WiseTelecomNodesBridgeTest is Test {
         );
 
         assertEq(
-            vaultB.getPendingInterest(userLegacy),
-            vaultB.getPendingInterest(userEmpty)
+            vaultB.getPendingInterest(
+                userLegacy
+            ),
+            vaultB.getPendingInterest(
+                userEmpty
+            )
         );
     }
 
@@ -1847,12 +1973,16 @@ contract WiseTelecomNodesBridgeTest is Test {
         );
 
         assertEq(
-            vaultB.balanceOf(user),
+            vaultB.balanceOf(
+                user
+            ),
             9_000
         );
 
         assertEq(
-            _countReferralLogs(vm.getRecordedLogs()),
+            _countReferralLogs(
+                vm.getRecordedLogs()
+            ),
             0
         );
     }
@@ -1892,13 +2022,21 @@ contract WiseTelecomNodesBridgeTest is Test {
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
         assertEq(
-            _countReferralLogs(logs),
+            _countReferralLogs(
+                logs
+            ),
             1
         );
 
         assertEq(
-            keccak256(_referralLogData(logs)),
-            keccak256(referral)
+            keccak256(
+                _referralLogData(
+                    logs
+                )
+            ),
+            keccak256(
+                referral
+            )
         );
     }
 
@@ -1954,12 +2092,18 @@ contract WiseTelecomNodesBridgeTest is Test {
         );
 
         assertEq(
-            keccak256(decRef),
-            keccak256(referral)
+            keccak256(
+                decRef
+            ),
+            keccak256(
+                referral
+            )
         );
 
         assertEq(
-            vaultB.balanceOf(user),
+            vaultB.balanceOf(
+                user
+            ),
             principal
         );
     }
@@ -2008,7 +2152,9 @@ contract WiseTelecomNodesBridgeTest is Test {
             BridgeFacet(address(vaultA)).quoteBridgeFeeWithReferral(
                 SELECTOR_B,
                 1_000 * 1e6,
-                abi.encode(uint256(1))
+                abi.encode(
+                    uint256(1)
+                )
             ),
             FEE
         );
@@ -2112,7 +2258,9 @@ contract WiseTelecomNodesBridgeTest is Test {
         );
 
         assertEq(
-            _extraArgsGasLimit(router.lastExtraArgs()),
+            _extraArgsGasLimit(
+                router.lastExtraArgs()
+            ),
             DEFAULT_BRIDGE_GAS_LIMIT
         );
     }
@@ -2163,7 +2311,9 @@ contract WiseTelecomNodesBridgeTest is Test {
         );
 
         assertEq(
-            _extraArgsGasLimit(router.lastExtraArgs()),
+            _extraArgsGasLimit(
+                router.lastExtraArgs()
+            ),
             350_000
         );
     }
@@ -2247,13 +2397,19 @@ contract WiseTelecomNodesBridgeTest is Test {
         );
 
         assertEq(
-            keccak256(bytes(attacker.reentryReason())),
-            keccak256(bytes("ReentrancyGuard: reentrant call")),
+            keccak256(
+                bytes(attacker.reentryReason())
+            ),
+            keccak256(
+                bytes("ReentrancyGuard: reentrant call")
+            ),
             "reentrant bridge was not blocked by the guard"
         );
 
         assertEq(
-            vaultA.balanceOf(address(attacker)),
+            vaultA.balanceOf(
+                address(attacker)
+            ),
             sharesBefore - bridgeAmount,
             "shares burned more than once"
         );
@@ -2296,7 +2452,10 @@ contract WiseTelecomNodesBridgeTest is Test {
 
         for (uint256 i; i < _logs.length; ++i) {
             if (_logs[i].topics.length > 0 && _logs[i].topics[0] == topic) {
-                return abi.decode(_logs[i].data, (bytes));
+                return abi.decode(
+                    _logs[i].data,
+                    (bytes)
+                );
             }
         }
 

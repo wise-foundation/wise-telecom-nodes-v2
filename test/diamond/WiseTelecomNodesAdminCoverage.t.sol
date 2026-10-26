@@ -246,7 +246,7 @@ contract WiseTelecomNodesAdminCoverageTest is DiamondTestHarness {
         return new uint256[](0);
     }
 
-    // ---- WiseTelecomNodesDeclarations — constructor ----
+    // ---- WiseTelecomNodesDeclarations: constructor ----
 
     function test_constructor_storesConfig()
         public
@@ -264,7 +264,9 @@ contract WiseTelecomNodesAdminCoverageTest is DiamondTestHarness {
 
         assertEq(
             diamond.IERC20Decimals(),
-            bytes4(keccak256("decimals()"))
+            bytes4(keccak256(
+                "decimals()"
+            ))
         );
 
         assertEq(
@@ -322,22 +324,30 @@ contract WiseTelecomNodesAdminCoverageTest is DiamondTestHarness {
         );
 
         assertEq(
-            d.balanceOf(user1),
+            d.balanceOf(
+                user1
+            ),
             100 * 1e6
         );
 
         assertEq(
-            d.balanceOf(user2),
+            d.balanceOf(
+                user2
+            ),
             250 * 1e6
         );
 
         assertEq(
-            d.lastSyncTimeStamp(user1),
+            d.lastSyncTimeStamp(
+                user1
+            ),
             block.timestamp
         );
 
         assertEq(
-            d.lastSyncTimeStamp(user2),
+            d.lastSyncTimeStamp(
+                user2
+            ),
             block.timestamp
         );
 
@@ -383,19 +393,23 @@ contract WiseTelecomNodesAdminCoverageTest is DiamondTestHarness {
         );
 
         assertEq(
-            d.cashedInterest(user1),
+            d.cashedInterest(
+                user1
+            ),
             12_345
         );
 
         assertEq(
-            d.cashedInterest(user2),
+            d.cashedInterest(
+                user2
+            ),
             67_890
         );
 
         _wireOne(
             d,
             address(new CashedInterestFacet()),
-            WiseTelecomNodesDiamondSelectors.cashedInterestSelectors()
+            WiseTelecomNodesDiamondSelectors._cashedInterestSelectors()
         );
 
         assertEq(
@@ -435,14 +449,16 @@ contract WiseTelecomNodesAdminCoverageTest is DiamondTestHarness {
         );
 
         assertEq(
-            d.cashedInterest(user1),
+            d.cashedInterest(
+                user1
+            ),
             12_345
         );
 
         _wireOne(
             d,
             address(new CashedInterestFacet()),
-            WiseTelecomNodesDiamondSelectors.cashedInterestSelectors()
+            WiseTelecomNodesDiamondSelectors._cashedInterestSelectors()
         );
 
         assertEq(
@@ -469,7 +485,7 @@ contract WiseTelecomNodesAdminCoverageTest is DiamondTestHarness {
         _wireOne(
             d,
             address(new CashedInterestFacet()),
-            WiseTelecomNodesDiamondSelectors.cashedInterestSelectors()
+            WiseTelecomNodesDiamondSelectors._cashedInterestSelectors()
         );
 
         assertEq(
@@ -819,12 +835,16 @@ contract WiseTelecomNodesAdminCoverageTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.balanceOf(user1),
+            diamond.balanceOf(
+                user1
+            ),
             500 * 1e6
         );
 
         assertEq(
-            diamond.lastSyncTimeStamp(user1),
+            diamond.lastSyncTimeStamp(
+                user1
+            ),
             block.timestamp
         );
     }
@@ -855,7 +875,9 @@ contract WiseTelecomNodesAdminCoverageTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.balanceOf(user1),
+            diamond.balanceOf(
+                user1
+            ),
             400 * 1e6
         );
     }
@@ -1223,7 +1245,9 @@ contract WiseTelecomNodesAdminCoverageTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.balanceOf(user1),
+            diamond.balanceOf(
+                user1
+            ),
             TOTAL_DEPOSIT_CAP
         );
 

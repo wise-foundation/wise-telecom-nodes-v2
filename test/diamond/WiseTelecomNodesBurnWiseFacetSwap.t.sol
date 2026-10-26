@@ -22,7 +22,7 @@ import {MockWise} from "../../src/bridgetest/MockWise.sol";
  * @dev A stand-in "next version" of {BurnWiseFacet} carrying a
  * LONGER (8-slot) burn schedule with different percentages
  * (3/7/12/25/9/4/18%/6%). Its `burnWise` / `getBurnableWise` /
- * `getNextBurnPercentage` signatures — hence selectors — match the
+ * `getNextBurnPercentage` signatures, hence selectors, match the
  * shipped facet, so it can be DELEGATECALL-swapped in through the
  * diamond's selector routing. Every slice stays below 100%.
  */
@@ -143,7 +143,7 @@ contract AltBurnWiseFacet is FacetBase {
 }
 
 /**
- * @dev Proves the WISE burn schedule is upgradeable by facet swap —
+ * @dev Proves the WISE burn schedule is upgradeable by facet swap;
  * no master-editable storage required. Deploys the diamond with the
  * shipped {BurnWiseFacet} (6-slot 5/10/20/15/5/1% schedule),
  * then re-points the burn selectors to an {AltBurnWiseFacet} (8-slot,
@@ -214,8 +214,8 @@ contract WiseTelecomNodesBurnWiseFacetSwapTest is Test {
             _buildInitParams()
         );
 
-        bytes4[] memory adminSels = WiseTelecomNodesDiamondSelectors.adminSelectors();
-        bytes4[] memory burnSels = WiseTelecomNodesDiamondSelectors.burnWiseSelectors();
+        bytes4[] memory adminSels = WiseTelecomNodesDiamondSelectors._adminSelectors();
+        bytes4[] memory burnSels = WiseTelecomNodesDiamondSelectors._burnWiseSelectors();
 
         d.proposeSelectors(
             adminSels,
@@ -245,7 +245,7 @@ contract WiseTelecomNodesBurnWiseFacetSwapTest is Test {
     function _swapToAltFacet()
         internal
     {
-        bytes4[] memory burnSels = WiseTelecomNodesDiamondSelectors.burnWiseSelectors();
+        bytes4[] memory burnSels = WiseTelecomNodesDiamondSelectors._burnWiseSelectors();
 
         diamond.proposeSelectors(
             burnSels,
@@ -310,7 +310,7 @@ contract WiseTelecomNodesBurnWiseFacetSwapTest is Test {
     function test_facetSwap_requiresTimelock()
         public
     {
-        bytes4[] memory burnSels = WiseTelecomNodesDiamondSelectors.burnWiseSelectors();
+        bytes4[] memory burnSels = WiseTelecomNodesDiamondSelectors._burnWiseSelectors();
 
         diamond.proposeSelectors(
             burnSels,
@@ -333,14 +333,18 @@ contract WiseTelecomNodesBurnWiseFacetSwapTest is Test {
     {
         assertEq(
             BurnWiseFacet(address(diamond)).getNextBurnPercentage(),
-            _orig(0)
+            _orig(
+                0
+            )
         );
 
         _swapToAltFacet();
 
         assertEq(
             BurnWiseFacet(address(diamond)).getNextBurnPercentage(),
-            _alt(0)
+            _alt(
+                0
+            )
         );
 
         uint256 seed = 10_000_000 * 1e18;
@@ -355,7 +359,9 @@ contract WiseTelecomNodesBurnWiseFacetSwapTest is Test {
         for (uint256 i; i < 9; ++i) {
             assertEq(
                 BurnWiseFacet(address(diamond)).getNextBurnPercentage(),
-                _alt(i)
+                _alt(
+                    i
+                )
             );
 
             vm.prank(
@@ -410,7 +416,9 @@ contract WiseTelecomNodesBurnWiseFacetSwapTest is Test {
 
         assertEq(
             BurnWiseFacet(address(diamond)).getNextBurnPercentage(),
-            _alt(1)
+            _alt(
+                1
+            )
         );
 
         uint256 bal = BurnWiseFacet(address(diamond)).getBurnableWise();

@@ -6,35 +6,22 @@ import {ReferralHubCheckpoints} from "./ReferralHubCheckpoints.sol";
 import {CohortWeeks} from "../../diamond/shared/pending/CohortWeeks.sol";
 
 /**
- * @dev Rate policy module: every
- * dwell-min, cap and table lookup sits behind the single internal
- * `_weeklyRates`, so pending rate decisions and future ladder
- * changes are
- * hub-only changes with week-versioned history — nothing else in the
- * chain may compute a rate. Rates are expressed in bps of ANNUAL
- * commission on referred principal; pricing divides token-seconds by
- * `CohortWeeks.YEAR` in {ReferralHubIntake}.
- *
- * `rateTables` is append-only and future-only: `_pushRateTable`
- * requires a strictly future effective week that strictly exceeds the
- * previous entry's, so the table that priced any week whose opening
- * boundary has passed can never change — past-verdict immutability
- * under table churn holds
- * by construction, with no second freezing mechanism. The genesis
- * entry seeds the launch ladder exactly: thresholds 5k/10k/20k/30k/
- * 50k/100k/
- * 500k/1M USD (6-dec), tiers 1..8% (100..800 bps), Year-1 rate =
- * min(tier(self) + tier(referred), capBps = 1000) over dwell-min
- * ladder inputs, floor 0 implicit. Year-2 rate = 500 bps and mature
- * rate = 100 bps, paid only in weeks where the referrer's uncapped
- * year-1 ladder sum reaches a nonzero capBps — the same inputs, the
- * same cadence and the same immutability as the year-1 rate itself,
- * with no ranking state anywhere. Changing cap, tail rates or the
- * ladder is one `pushRateTable` call. A capBps above the table's
- * maximum tier sum is a valid configuration meaning "year-1 ladder
- * effectively uncapped, tail rates off": the gate can then never
- * open for that table, deliberately. Both loops here are fixed-bound
- * (8-rung tier walk) or log-bounded (table binary search).
+ * @dev ReferralHubRates: the week-versioned rate tables and `_weeklyRates`,
+ * the only rate computation. Year-1 pays the referrer's tier ladder up to
+ * the cap; year-2 and mature pay only in weeks where the uncapped ladder
+ * reaches the cap. A table keeps capBps within BPS, y2RateBps within capBps,
+ * mRateBps within y2RateBps, rising tiers and thresholds and botShareBps
+ * within MAX_BOT_SHARE_BPS, and applies to future weeks only. Every bps
+ * field is a rate per 52-week year (`CohortWeeks.YEAR`, 364 days): a
+ * cohort's year one runs from its credit to the 52nd week boundary after
+ * its credit week starts, year two the 52 weeks after that. An elevated
+ * referrer (master whitelist, every window of `elevationWindowsOf`, the
+ * latest mirrored by `elevatedFromWeek` and `elevatedUntilWeek`, an until
+ * week of zero meaning open) is priced as at the cap for every week any of
+ * its windows holds, whatever its inputs, and keeps that verdict for good;
+ * the inputs are recorded all the same, so the natural rate stays
+ * derivable from `ladderInputsAt` and the table. A referrer never elevated
+ * costs one warm SLOAD per priced week, the empty history's length.
  */
 abstract contract ReferralHubRates is ReferralHubCheckpoints {
 
@@ -74,49 +61,15 @@ abstract contract ReferralHubRates is ReferralHubCheckpoints {
         return rateTables[_index];
     }
 
-    function _seedGenesisRateTable()
-        internal
-    {
-        rateTables.push(
-            RateTable({
-                effectiveFromWeek: 0,
-                capBps: 1_000,
-                y2RateBps: 500,
-                mRateBps: 100,
-                tierBps: [
-                    uint16(100),
-                    200,
-                    300,
-                    400,
-                    500,
-                    600,
-                    700,
-                    800
-                ],
-                thresholds: [
-                    uint96(5_000 * 1e6),
-                    10_000 * 1e6,
-                    20_000 * 1e6,
-                    30_000 * 1e6,
-                    50_000 * 1e6,
-                    100_000 * 1e6,
-                    500_000 * 1e6,
-                    1_000_000 * 1e6
-                ]
-            })
-        );
-
-        emit RateTableScheduled(
-            0,
-            0
-        );
-    }
-
     function _pushRateTable(
         RateTable memory _table
     )
         internal
     {
+        _requireWithinHorizon(
+            _table.effectiveFromWeek
+        );
+
         require(
             _table.effectiveFromWeek > block.timestamp / CohortWeeks.WEEK,
             TableNotFuture()
@@ -129,15 +82,21 @@ abstract contract ReferralHubRates is ReferralHubCheckpoints {
 
         require(
             _table.capBps <= BPS_DENOMINATOR
-                && _table.y2RateBps <= BPS_DENOMINATOR
-                && _table.mRateBps <= BPS_DENOMINATOR,
+                && _table.y2RateBps <= _table.capBps
+                && _table.mRateBps <= _table.y2RateBps,
             InvalidRateTable()
+        );
+
+        require(
+            _table.botShareBps <= MAX_BOT_SHARE_BPS,
+            BotShareTooHigh()
         );
 
         for (uint256 i; i < 8; ++i) {
 
             require(
-                _table.tierBps[i] <= BPS_DENOMINATOR,
+                _table.tierBps[i] <= BPS_DENOMINATOR
+                    && (i == 0 || _table.tierBps[i] >= _table.tierBps[i - 1]),
                 InvalidRateTable()
             );
 
@@ -174,6 +133,19 @@ abstract contract ReferralHubRates is ReferralHubCheckpoints {
             _week
         );
 
+        if (
+            _isElevatedAt(
+                _referrer,
+                _week
+            )
+        ) {
+            return (
+                table.capBps,
+                table.y2RateBps,
+                table.mRateBps
+            );
+        }
+
         (
             uint256 referredInput,
             uint256 selfInput
@@ -194,10 +166,39 @@ abstract contract ReferralHubRates is ReferralHubCheckpoints {
             y1Bps = table.capBps;
         }
 
-        if (table.capBps > 0 && y1Bps == table.capBps) {
+        if (y1Bps == table.capBps) {
             y2Bps = table.y2RateBps;
             mBps = table.mRateBps;
         }
+    }
+
+    function _isElevatedAt(
+        address _referrer,
+        uint256 _week
+    )
+        internal
+        view
+        returns (bool)
+    {
+        uint256[] storage windows = elevationWindowsOf[_referrer];
+
+        uint256 count = windows.length;
+
+        for (uint256 i; i < count; ++i) {
+
+            uint256 window = windows[i];
+
+            uint256 untilWeek = window >> WEEK_HALF_SHIFT;
+
+            if (
+                _week >= (window & WEEK_HALF_MASK)
+                    && (untilWeek == 0 || _week < untilWeek)
+            ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     function _tableFor(
@@ -207,22 +208,23 @@ abstract contract ReferralHubRates is ReferralHubCheckpoints {
         view
         returns (RateTable storage)
     {
-        uint256 low;
+        return rateTables[
+            _lastAtOrBefore(
+                rateTables.length,
+                _week,
+                _tableWeekAt
+            )
+        ];
+    }
 
-        uint256 high = rateTables.length - 1;
-
-        while (low < high) {
-
-            uint256 mid = (low + high + 1) / 2;
-
-            if (rateTables[mid].effectiveFromWeek <= _week) {
-                low = mid;
-            } else {
-                high = mid - 1;
-            }
-        }
-
-        return rateTables[low];
+    function _tableWeekAt(
+        uint256 _index
+    )
+        internal
+        view
+        returns (uint256)
+    {
+        return rateTables[_index].effectiveFromWeek;
     }
 
     function _tierBps(

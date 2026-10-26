@@ -721,7 +721,7 @@ contract CapRelocationInvariantTest is DiamondTestHarness {
         _wireOne(
             d,
             address(new BridgeFacet()),
-            WiseTelecomNodesDiamondSelectors.bridgeSelectors()
+            WiseTelecomNodesDiamondSelectors._bridgeSelectors()
         );
     }
 

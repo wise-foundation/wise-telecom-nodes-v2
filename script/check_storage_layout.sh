@@ -7,7 +7,7 @@
 # test/diamond/storage_snapshot/ still matches the compiled diamond.
 #
 # Every facet is entered via DELEGATECALL into the diamond's storage, so
-# a single facet disagreeing about any slot silently corrupts state —
+# a single facet disagreeing about any slot silently corrupts state;
 # this check turns that class of bug into a loud CI failure with a
 # unified diff. Run from anywhere; requires forge + python3.
 set -euo pipefail
@@ -17,10 +17,11 @@ DIAMOND="src/diamond/vault/WiseTelecomNodesDiamond.sol:WiseTelecomNodesDiamond"
 SNAPSHOT="test/diamond/storage_snapshot/vault_diamond_layout.json"
 FACETS=(
     AdminFacet
+    AutoCompoundFacet
     BridgeFacet
     BurnWiseFacet
     CashedInterestFacet
-    CohortHookFacet
+    CohortFlushPolicyFacet
     CohortRecorderFacet
     GraceAccumHookFacet
     GraceFreezeHookFacet
@@ -35,7 +36,6 @@ FACETS=(
     QueueJoinLeaveFacet
     QueueViewFacet
     ReferralFacet
-    ReferralPayoutFacet
     SweepFacet
     UserFacet
 )
@@ -71,7 +71,8 @@ facet_path() {
     fi
 }
 
-forge inspect "$DIAMOND" storage-layout --json | normalize > "$tmp/diamond.txt"
+forge inspect "$DIAMOND" storage-layout --json > "$tmp/diamond.raw.json"
+normalize < "$tmp/diamond.raw.json" > "$tmp/diamond.txt"
 
 fail=0
 for name in "${FACETS[@]}"; do
@@ -98,14 +99,18 @@ fi
 # exactly the slot/offset/type the diamond assigns to the same label, or
 # the facet reads garbage through the delegatecall.
 PINNED_FACETS=(
+    CohortBridgeHookFacet
+    CohortFlushFacet
+    CohortHookFacet
+    CohortMoveHookFacet
     InterestAdminFacet
     QueueForecastFacet
     RescueFacet
 )
 
 for name in "${PINNED_FACETS[@]}"; do
-    forge inspect "$(facet_path "$name")" storage-layout --json \
-        | normalize > "$tmp/$name.pinned.txt"
+    forge inspect "$(facet_path "$name")" storage-layout --json > "$tmp/$name.raw.json"
+    normalize < "$tmp/$name.raw.json" > "$tmp/$name.pinned.txt"
     if ! python3 -c '
 import json, sys
 diamond = {}
@@ -137,7 +142,104 @@ sys.exit(bad)
     fi
 done
 
+# Byte-range proof that no storage byte has two owners: the diamond's
+# own entries never overlap, a slim facet's entries (fillers included)
+# never overlap each other, and every byte a slim facet's named entry
+# occupies belongs in the diamond to that same label and nothing else.
+pinned_raw=()
+for name in "${PINNED_FACETS[@]}"; do
+    pinned_raw+=("$tmp/$name.raw.json")
+done
+if ! python3 -c '
+import json, sys
+
+def ranges(path):
+    data = json.load(open(path))
+    types = data["types"] or {}
+    out = []
+    for e in data["storage"]:
+        start = int(e["slot"]) * 32 + e["offset"]
+        size = int(types[e["type"]]["numberOfBytes"])
+        out.append((start, start + size, e["label"]))
+    return sorted(out)
+
+def overlaps(entries, where):
+    bad = 0
+    for (s1, e1, l1), (s2, e2, l2) in zip(entries, entries[1:]):
+        if s2 < e1:
+            print(f"  {where}: {l1} and {l2} share storage bytes {s2}..{min(e1, e2) - 1}")
+            bad = 1
+    return bad
+
+diamond = ranges(sys.argv[1])
+bad = overlaps(diamond, "diamond")
+for path in sys.argv[2:]:
+    name = path.rsplit("/", 1)[-1].replace(".raw.json", "")
+    facet = ranges(path)
+    bad |= overlaps(facet, name)
+    for s, e, label in facet:
+        if label.startswith("__gap") or label.startswith("__pad"):
+            continue
+        for ds, de, dl in diamond:
+            if ds < e and s < de and dl != label:
+                print(f"  {name}: {label} overlaps the diamond entry {dl}")
+                bad = 1
+sys.exit(bad)
+' "$tmp/diamond.raw.json" "${pinned_raw[@]}"; then
+    echo "STORAGE OVERLAP: a storage byte is claimed by two entries."
+    fail=1
+fi
+
+# Transient storage is not part of the forge layout output, so the one
+# transient variable is pinned by declaration: the declaration chain
+# and the slim cohort base must each declare exactly that line.
+transient_line="bool internal transient hookExecuting;"
+chain_transient="$(grep -rh "transient" src/diamond/vault/declarations --include=*.sol | grep -v "^ *\*" | sed "s/^ *//")"
+slim_transient="$(grep -h "transient" src/diamond/vault/facets/pending/CohortPinnedBase.sol | grep -v "^ *\*" | sed "s/^ *//")"
+if [ "$chain_transient" != "$transient_line" ] || [ "$slim_transient" != "$transient_line" ]; then
+    echo "TRANSIENT DRIFT: the chain and CohortPinnedBase must each declare only: $transient_line"
+    fail=1
+fi
+
+# Hub diamond: the referral hub is a diamond proxy too (five facets
+# over the shared ReferralHubDeclarations shard); same proof, its own
+# snapshot.
+HUB_DIAMOND="src/hub/pending/ReferralHub.sol:ReferralHub"
+HUB_SNAPSHOT="test/hub/storage_snapshot/hub_layout.json"
+HUB_FACETS=(
+    ReferralHubCheckpointsFacet
+    ReferralHubRatesFacet
+    ReferralHubIntakeFacet
+    ReferralHubMailboxFacet
+    ReferralHubPayoutFacet
+)
+
+forge inspect "$HUB_DIAMOND" storage-layout --json | normalize > "$tmp/hub.txt"
+
+for name in "${HUB_FACETS[@]}"; do
+    forge inspect "src/hub/pending/$name.sol:$name" storage-layout --json         | normalize > "$tmp/$name.hub.txt"
+    if ! diff -u "$tmp/hub.txt" "$tmp/$name.hub.txt" > "$tmp/$name.hub.diff"; then
+        echo "HUB STORAGE LAYOUT DRIFT: $name != ReferralHub"
+        cat "$tmp/$name.hub.diff"
+        fail=1
+    fi
+done
+
+if [ -f "$HUB_SNAPSHOT" ]; then
+    normalize < "$HUB_SNAPSHOT" > "$tmp/hubsnapshot.txt"
+    if ! diff -u "$tmp/hubsnapshot.txt" "$tmp/hub.txt" > "$tmp/hubsnapshot.diff"; then
+        echo "HUB SNAPSHOT DRIFT: $HUB_SNAPSHOT no longer matches the compiled hub."
+        echo "If the layout change is intentional, regenerate with:"
+        echo "  forge inspect $HUB_DIAMOND storage-layout --json > $HUB_SNAPSHOT"
+        cat "$tmp/hubsnapshot.diff"
+        fail=1
+    fi
+else
+    echo "HUB SNAPSHOT MISSING: $HUB_SNAPSHOT (regenerate with the line above)"
+    fail=1
+fi
+
 if [ "$fail" -eq 0 ]; then
-    echo "storage layout OK: diamond + ${#FACETS[@]} facets identical, ${#PINNED_FACETS[@]} slim facets pinned correctly, snapshot matches ($(wc -l < "$tmp/diamond.txt") entries)"
+    echo "storage layout OK: diamond + ${#FACETS[@]} facets identical, ${#PINNED_FACETS[@]} slim facets pinned correctly, snapshot matches ($(wc -l < "$tmp/diamond.txt") entries); hub + ${#HUB_FACETS[@]} facets identical, hub snapshot matches ($(wc -l < "$tmp/hub.txt") entries)"
 fi
 exit "$fail"

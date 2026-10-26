@@ -45,14 +45,51 @@ interface IWtnVault {
             uint256 leftOver
         );
 
-    function balanceOf(address account) external view returns (uint256);
-    function totalSupply() external view returns (uint256);
-    function USD_TOKEN() external view returns (address);
-    function minDepositAmount() external view returns (uint256);
-    function depositsDisabled() external view returns (bool);
-    function paused() external view returns (bool);
-    function activeOrderCountByIncentive(int256 incentive) external view returns (uint256);
-    function currentOrderIdByIncentive(int256 incentive) external view returns (uint256);
+    function balanceOf(
+        address _account
+    )
+        external
+        view
+        returns (uint256);
+
+    function totalSupply()
+        external
+        view
+        returns (uint256);
+
+    function USD_TOKEN()
+        external
+        view
+        returns (address);
+
+    function minDepositAmount()
+        external
+        view
+        returns (uint256);
+
+    function depositsDisabled()
+        external
+        view
+        returns (bool);
+
+    function paused()
+        external
+        view
+        returns (bool);
+
+    function activeOrderCountByIncentive(
+        int256 _incentive
+    )
+        external
+        view
+        returns (uint256);
+
+    function currentOrderIdByIncentive(
+        int256 _incentive
+    )
+        external
+        view
+        returns (uint256);
 
     function QueMemberByIdAndIncentive(
         uint256 id,
@@ -78,8 +115,8 @@ interface IWtnVault {
  *   2. a REAL existing queue member (impersonated, discovered live from
  *      the queue head) can LEAVE their order and REJOIN it.
  *
- * The queue moves need no token approval — they shuffle the caller's own
- * shares between their wallet and the diamond's escrow — while the
+ * The queue moves need no token approval (they shuffle the caller's own
+ * shares between their wallet and the diamond's escrow) while the
  * deposit does (USD.safeTransferFrom pulls from the depositor). USDT
  * legs return no data from `approve`, so the approval is issued with a
  * low-level call that tolerates both USDC and USDT.
@@ -218,13 +255,17 @@ abstract contract DiamondLiveUsageForkBase is Test {
         );
 
         assertEq(
-            usd.balanceOf(user),
+            usd.balanceOf(
+                user
+            ),
             usdBefore - amount,
             "USD not pulled from the depositor"
         );
 
         assertEq(
-            v.balanceOf(user),
+            v.balanceOf(
+                user
+            ),
             sharesBefore + amount,
             "shares not minted 1:1 on deposit"
         );
@@ -280,13 +321,17 @@ abstract contract DiamondLiveUsageForkBase is Test {
         );
 
         assertEq(
-            v.balanceOf(member),
+            v.balanceOf(
+                member
+            ),
             balBefore + amount,
             "escrowed shares not returned to the member on leave"
         );
 
         assertEq(
-            v.activeOrderCountByIncentive(inc),
+            v.activeOrderCountByIncentive(
+                inc
+            ),
             ordersBefore - 1,
             "active order count did not fall on leave"
         );
@@ -310,13 +355,17 @@ abstract contract DiamondLiveUsageForkBase is Test {
         );
 
         assertEq(
-            v.balanceOf(member),
+            v.balanceOf(
+                member
+            ),
             balBefore,
             "shares not re-escrowed on rejoin"
         );
 
         assertEq(
-            v.activeOrderCountByIncentive(inc),
+            v.activeOrderCountByIncentive(
+                inc
+            ),
             ordersBefore,
             "active order count did not return on rejoin"
         );

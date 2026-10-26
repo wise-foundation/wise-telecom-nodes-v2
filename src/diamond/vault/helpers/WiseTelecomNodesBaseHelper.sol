@@ -376,6 +376,87 @@ abstract contract WiseTelecomNodesBaseHelper is WiseTelecomNodesDeclarations {
             && returnData.length == 32;
     }
 
+    function _updateFlushHub(
+        address _hub,
+        uint64 _chainSelector
+    )
+        internal
+    {
+        flushHub = _hub;
+        flushHubChainSelector = _chainSelector;
+
+        emit FlushHubSet(
+            _hub,
+            _chainSelector
+        );
+    }
+
+    function _proposeFlushHub(
+        address _hub,
+        uint64 _chainSelector
+    )
+        internal
+    {
+        proposedFlushHub = _hub;
+        proposedFlushHubChainSelector = _chainSelector;
+        flushHubChangeQueuedAt = block.timestamp;
+
+        emit FlushHubProposed(
+            _hub,
+            _chainSelector,
+            block.timestamp + FLUSH_HUB_CHANGE_DELAY
+        );
+    }
+
+    function _applyFlushHubChange()
+        internal
+    {
+        require(
+            flushHubChangeQueuedAt > 0,
+            NoFlushHubChangeProposed()
+        );
+
+        if (initialized) {
+            require(
+                block.timestamp >= flushHubChangeQueuedAt + FLUSH_HUB_CHANGE_DELAY,
+                FlushHubTimelockNotElapsed()
+            );
+        }
+
+        address newHub = proposedFlushHub;
+
+        uint64 newSelector = proposedFlushHubChainSelector;
+
+        require(
+            newHub != ZERO_ADDRESS
+                || newSelector == 0,
+            InvalidValue()
+        );
+
+        proposedFlushHub = ZERO_ADDRESS;
+        proposedFlushHubChainSelector = 0;
+        flushHubChangeQueuedAt = 0;
+
+        _updateFlushHub(
+            newHub,
+            newSelector
+        );
+    }
+
+    function _cancelFlushHubChange()
+        internal
+    {
+        address cancelled = proposedFlushHub;
+
+        proposedFlushHub = ZERO_ADDRESS;
+        proposedFlushHubChainSelector = 0;
+        flushHubChangeQueuedAt = 0;
+
+        emit FlushHubProposalCancelled(
+            cancelled
+        );
+    }
+
     function _proposeWorkerAddress(
         address _worker
     )
@@ -670,6 +751,23 @@ abstract contract WiseTelecomNodesBaseHelper is WiseTelecomNodesDeclarations {
         );
     }
 
+    function _cohortSettle(
+        address _referrer
+    )
+        internal
+    {
+        if (cohortSyncEnabled == false) {
+            return;
+        }
+
+        _runCohortHook(
+            abi.encodeWithSelector(
+                COHORT_SETTLE_SELECTOR,
+                _referrer
+            )
+        );
+    }
+
     function _cohortMoveOut(
         address _user,
         address _dstVault,
@@ -711,6 +809,178 @@ abstract contract WiseTelecomNodesBaseHelper is WiseTelecomNodesDeclarations {
                 _user,
                 _srcVault
             )
+        );
+    }
+
+    function _cohortFlip(
+        address _user,
+        address _oldReferrer,
+        address _newReferrer
+    )
+        internal
+    {
+        require(
+            selectorToFacet[COHORT_FLIP_SELECTOR] != ZERO_ADDRESS,
+            CohortSyncDisabled()
+        );
+
+        _runRoutedCohortHook(
+            COHORT_FLIP_SELECTOR,
+            abi.encodeWithSelector(
+                COHORT_FLIP_SELECTOR,
+                _user,
+                _oldReferrer,
+                _newReferrer
+            )
+        );
+    }
+
+    function _cohortBridgeOut(
+        address _user,
+        uint64 _dstChainSelector,
+        uint256 _burnedAmount,
+        uint256 _scaleNumerator,
+        uint256 _scaleDenominator
+    )
+        internal
+        returns (bytes memory)
+    {
+        if (cohortSyncEnabled == false) {
+            return "";
+        }
+
+        (
+            bool ran,
+            bytes memory returnData
+        ) = _runRoutedCohortHook(
+            COHORT_BRIDGE_OUT_SELECTOR,
+            abi.encodeWithSelector(
+                COHORT_BRIDGE_OUT_SELECTOR,
+                _user,
+                _dstChainSelector,
+                _burnedAmount,
+                _scaleNumerator,
+                _scaleDenominator
+            )
+        );
+
+        if (ran == false) {
+
+            _cohortSync(
+                _user
+            );
+
+            return "";
+        }
+
+        return abi.decode(
+            returnData,
+            (bytes)
+        );
+    }
+
+    function _cohortBridgeIn(
+        address _user,
+        uint64 _srcChainSelector,
+        uint256 _mintedAmount,
+        bytes memory _payload
+    )
+        internal
+        returns (bool)
+    {
+        if (cohortSyncEnabled == false) {
+            return false;
+        }
+
+        address facet = selectorToFacet[COHORT_BRIDGE_IN_SELECTOR];
+
+        if (facet == ZERO_ADDRESS) {
+            return false;
+        }
+
+        hookExecuting = true;
+
+        uint256 gasForwarded = gasleft();
+
+        (
+            bool success,
+            bytes memory returnData
+        ) = facet.delegatecall(
+            abi.encodeWithSelector(
+                COHORT_BRIDGE_IN_SELECTOR,
+                _user,
+                _srcChainSelector,
+                _mintedAmount,
+                _payload
+            )
+        );
+
+        hookExecuting = false;
+
+        if (success == false || returnData.length != 32) {
+
+            if (gasleft() <= gasForwarded / 64) {
+                revert CohortBridgeInOutOfGas(
+                    _user,
+                    _srcChainSelector
+                );
+            }
+
+            emit CohortBridgeHookFailed(
+                _user,
+                _srcChainSelector
+            );
+
+            return false;
+        }
+
+        return abi.decode(
+            returnData,
+            (bool)
+        );
+    }
+
+    function _runRoutedCohortHook(
+        bytes4 _selector,
+        bytes memory _callData
+    )
+        internal
+        returns (
+            bool,
+            bytes memory
+        )
+    {
+        address facet = selectorToFacet[_selector];
+
+        bytes memory empty;
+
+        if (facet == ZERO_ADDRESS) {
+            return (
+                false,
+                empty
+            );
+        }
+
+        hookExecuting = true;
+
+        (
+            bool success,
+            bytes memory returnData
+        ) = facet.delegatecall(
+            _callData
+        );
+
+        hookExecuting = false;
+
+        if (success == false) {
+            assembly {
+                revert(add(returnData, 0x20), mload(returnData))
+            }
+        }
+
+        return (
+            true,
+            returnData
         );
     }
 

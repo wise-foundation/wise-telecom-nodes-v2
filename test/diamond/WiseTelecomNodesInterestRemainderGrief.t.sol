@@ -42,7 +42,7 @@ contract MockUSD is ERC20 {
  * @dev Force-sync griefing regression for the `interestRemainder`
  * carry (slot 63). Interest floors to zero over a single short
  * interval for a small balance, and any party can force a sync on an
- * arbitrary victim — by sending 1 wei of shares (`transfer` /
+ * arbitrary victim: by sending 1 wei of shares (`transfer` /
  * `transferFrom` run `assignInterest(to)`) or, before the fix, by any
  * path that touches the victim. Without the remainder carry, syncing
  * the victim every block reset `lastSyncTimeStamp` before a whole unit
@@ -158,7 +158,9 @@ contract WiseTelecomNodesInterestRemainderGriefTest is DiamondTestHarness {
 
             if (i == 0) {
                 assertEq(
-                    diamond.getPendingInterest(victim),
+                    diamond.getPendingInterest(
+                        victim
+                    ),
                     0,
                     "grief precondition: a single block of interest must floor to zero"
                 );
@@ -195,7 +197,9 @@ contract WiseTelecomNodesInterestRemainderGriefTest is DiamondTestHarness {
         );
 
         assertLt(
-            diamond.interestRemainder(victim),
+            diamond.interestRemainder(
+                victim
+            ),
             PRECISION_FACTOR_E18,
             "carried remainder stays below one base unit of interest"
         );

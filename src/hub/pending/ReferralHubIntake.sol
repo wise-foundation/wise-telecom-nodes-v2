@@ -4,106 +4,394 @@ pragma solidity =0.8.36;
 
 import {ReferralHubRates} from "./ReferralHubRates.sol";
 import {CohortWeeks} from "../../diamond/shared/pending/CohortWeeks.sol";
+import {CohortFlushCodec} from "../../diamond/shared/pending/CohortFlushCodec.sol";
 
 /**
- * @dev Intake choke point: the ONLY writers of scores, cursors and
- * claimables in the whole chain. The future cross-chain mailbox and
- * mainnet-vault inline delivery are future CALLERS of these same
- * internals — one intake codepath, never a second topology. The
- * crumb WORD is the frozen interface: intake takes raw
- * recorder words (validated against the frozen geometry — any bit
- * outside the three 80-bit lanes and the written flag rejects); the
- * flush envelope and its `crumbVersion` are cross-chain message
- * artifacts that do not exist here. Quantities and increments travel through
- * the internal helpers as single packed lane-words in the crumb
- * geometry, decoded with the {CohortWeeks} accessors at the edges.
- *
- * Scores are ABSOLUTE per source, not deltas: `_applyScoreReport`
- * diffs the reported values against `lastSourceReport` and applies
- * the signed difference to the global aggregates.
- * Re-reports are idempotent no-ops, recorder clamp decreases
- * arrive as plain lower absolutes, and score consistency reduces to
- * the equality `globalReferredScore == Σ lastSourceReport` per
- * referrer. Ordering is load-bearing: apply diff → checkpoint
- * referrer (post-mutation closing value).
- *
- * Cursors enforce exactly-once accrual:
- * `paidCursor[source][referrer][week]` stores the
- * highest token-second quantity ever priced per lane; a delivery pays
- * only `incoming − cursor` when positive and advances the cursor to
- * the max, so replays, duplicates and reordered batches accrue
- * exactly once, and a growing current-week word pays only fresh
- * increments at the week's already-frozen rate (continuous
- * claims). A regressive lane emits the `CrumbLaneRegression` anomaly
- * and pays zero — never a revert.
- *
- * Pricing floors per lane: `inc × bps / 10_000 / YEAR`, dust
- * retained, so total paid per (source, referrer, week) can never
- * exceed lanes × frozen rate. Gap records decompress span
- * semantics (Y1 = Y2 = 0, M constant) through the SAME `_priceWeek`
- * path in caller-windowed chunks of at most MAX_SETTLE_BOUNDARIES
- * weeks — resume is just another call, because overlapping windows
- * are zero-increment no-ops on the cursors. A gap record whose
- * mature principal could not have come from the recorder — one whose
- * per-week token-seconds would overflow the frozen 80-bit lane —
- * rejects as invalid rather than corrupting cursor geometry.
- * `deliverer` is stamped from `msg.sender` into every pricing event;
- * the bot share applies only to future cross-chain transport
- * (mainnet deliveries are always 100% referrer), so the split
- * arithmetic deliberately does not exist here — it attaches at the
- * accrual site when a non-100% deliverer first becomes reachable.
+ * @dev ReferralHubIntake: the only writer of week buckets, paid cursors and
+ * claimables. Only closed weeks are taken. A crumb or gap week first reports
+ * its own referred average into W's bucket, a self run reports its weekly
+ * self average, and a source's report for W is final, merged by maximum;
+ * W's inputs are the sums of the sources' reports, referred and self.
+ * Every (source, referrer, week) is paid exactly `floor(sum of lane times
+ * rate / (BPS times YEAR))` over its cumulative cursor at W's current
+ * rates, so a replay pays nothing twice and a regressing lane emits
+ * CrumbLaneRegression and pays zero. A report that raises W's rates
+ * records the bucket and emits WeekRatesRaised; a report that raises them
+ * also re-settles its own source's cell, so a vault's later report never
+ * leaves its own earlier crumb or gap week underpaid, and the permissionless
+ * `settleWeeks` re-settles every other source already paid for W at W's
+ * current rates, so W's price never depends on the order its sources
+ * arrive in once settled, no top-up is ever negative because a bucket
+ * only rises, and an apply's gas is bounded by its work alone, never by
+ * how many sources a referrer is listed at. The referrer is always
+ * credited the full commission; the courier fee is paid by the protocol
+ * on top of a delivered increment, on that increment's own due at the
+ * week's current rates and never on a top-up (not even one a delivery
+ * collects for its own source), only when the deliverer is set and is not
+ * the referrer (a vault names the caller as deliverer only when the caller
+ * is one of its allowed flush bots), at the week's `botShareBps`, clamped by `delivererShareCap` when that cap is
+ * nonzero (zero means no cap); `totalAccrued` counts both. A source's word
+ * for a closed week is final, so a delivery that raises its referred
+ * average also moves its cursor and settles its own cell; one that raises
+ * the average with no lane above the cursor tops its own cell up the same
+ * way. A self run's average is at most one 80-bit lane over one week, the
+ * bound a crumb lane and a gap record already carry. A bucket joins
+ * `totalPayable`, the amount the hub's pot owes, only once its owner has
+ * a claim path.
  */
 abstract contract ReferralHubIntake is ReferralHubRates {
 
-    function _applyScoreReport(
+    struct DeliveryOrigin {
+        uint256 chainId;
+        address deliverer;
+        bytes32 messageId;
+    }
+
+    function _listSource(
         bytes32 _source,
         address _referrer,
-        uint256 _referredAbs,
-        uint256 _selfAbs
+        uint256 _chainId
     )
         internal
     {
-        require(
-            _referredAbs <= MAX_SOURCE_SCORE
-                && _selfAbs <= MAX_SOURCE_SCORE,
-            ScoreReportOutOfRange()
-        );
-
-        uint256 packed = (_referredAbs << REPORT_REFERRED_SHIFT) | _selfAbs;
-
-        uint256 previous = lastSourceReport[_source][_referrer];
-
-        if (previous == packed) {
+        if (sourceListedFor[_referrer][_source] == true) {
             return;
         }
 
-        lastSourceReport[_source][_referrer] = packed;
+        sourceListedFor[_referrer][_source] = true;
 
-        globalReferredScore[_referrer] = globalReferredScore[_referrer]
-            - (previous >> REPORT_REFERRED_SHIFT)
-            + _referredAbs;
-
-        globalSelfScore[_referrer] = globalSelfScore[_referrer]
-            - (previous & REPORT_VALUE_MASK)
-            + _selfAbs;
-
-        _checkpointReferrer(
-            _referrer
+        sourcesOf[_referrer].push(
+            _source
         );
 
-        emit SourceScoresReported(
+        if (sourceChainIdOf[_source] == 0) {
+            sourceChainIdOf[_source] = _chainId;
+        }
+
+        emit SourceListed(
+            _referrer,
+            _source,
+            sourceChainIdOf[_source]
+        );
+    }
+
+    function _applySelfRun(
+        bytes32 _source,
+        address _referrer,
+        uint256 _run,
+        uint256 _chainId
+    )
+        internal
+        returns (uint256)
+    {
+        uint256 fromWeek = CohortFlushCodec._selfRunFromWeek(
+            _run
+        );
+
+        uint256 toWeek = CohortFlushCodec._selfRunToWeek(
+            _run
+        );
+
+        require(
+            _run >> CohortFlushCodec.SELF_RUN_RESERVED_SHIFT == 0
+                && fromWeek < toWeek
+                && toWeek <= block.timestamp / CohortWeeks.WEEK
+                && toWeek - fromWeek <= CohortWeeks.MAX_SETTLE_BOUNDARIES,
+            InvalidSelfRun()
+        );
+
+        _listSource(
             _source,
             _referrer,
-            _referredAbs,
-            _selfAbs
+            _chainId
         );
+
+        uint256 average = CohortFlushCodec._selfRunAverage(
+            _run
+        );
+
+        require(
+            average <= CohortWeeks.LANE_MASK_80 / CohortWeeks.WEEK,
+            InvalidSelfRun()
+        );
+
+        for (uint256 week = fromWeek; week < toWeek; ++week) {
+            _recordSelf(
+                _source,
+                _referrer,
+                week,
+                average
+            );
+        }
+
+        return toWeek - fromWeek;
+    }
+
+    function _recordReferred(
+        bytes32 _source,
+        address _referrer,
+        uint256 _week,
+        uint256 _average
+    )
+        internal
+        returns (bool)
+    {
+        uint256 word = sourceWeekOf[_source][_referrer][_week];
+
+        uint256 previous = word & WEEK_HALF_MASK;
+
+        if (_average <= previous) {
+            return false;
+        }
+
+        uint256 ratesBefore = _packedRates(
+            _referrer,
+            _week
+        );
+
+        sourceWeekOf[_source][_referrer][_week] = word
+            - previous
+            + _average;
+
+        weekInputsOf[_referrer][_week] += _average - previous;
+
+        emit WeekReferredReported(
+            _source,
+            _referrer,
+            _week,
+            _average
+        );
+
+        return _noteRatesRaised(
+            _referrer,
+            _week,
+            ratesBefore
+        );
+    }
+
+    function _recordSelf(
+        bytes32 _source,
+        address _referrer,
+        uint256 _week,
+        uint256 _average
+    )
+        internal
+    {
+        uint256 previous = sourceSelfOf[_source][_referrer][_week];
+
+        if (_average <= previous) {
+            return;
+        }
+
+        uint256 ratesBefore = _packedRates(
+            _referrer,
+            _week
+        );
+
+        sourceSelfOf[_source][_referrer][_week] = _average;
+
+        weekInputsOf[_referrer][_week] += (_average - previous) << WEEK_HALF_SHIFT;
+
+        emit WeekSelfReported(
+            _source,
+            _referrer,
+            _week,
+            _average
+        );
+
+        bool raised = _noteRatesRaised(
+            _referrer,
+            _week,
+            ratesBefore
+        );
+
+        if (raised == false) {
+            return;
+        }
+
+        _topUpSourceWeek(
+            _source,
+            _referrer,
+            _week
+        );
+    }
+
+    function _topUpSourceWeek(
+        bytes32 _source,
+        address _referrer,
+        uint256 _week
+    )
+        internal
+    {
+        uint256 amount = _settleSourceWeek(
+            _source,
+            _referrer,
+            _week,
+            _packedRates(
+                _referrer,
+                _week
+            )
+        );
+
+        if (amount > 0) {
+            emit WeekToppedUp(
+                _source,
+                _referrer,
+                _week,
+                amount
+            );
+        }
+    }
+
+    function _noteRatesRaised(
+        address _referrer,
+        uint256 _week,
+        uint256 _ratesBefore
+    )
+        internal
+        returns (bool)
+    {
+        uint256 rates = _packedRates(
+            _referrer,
+            _week
+        );
+
+        if (rates == _ratesBefore) {
+            return false;
+        }
+
+        emit WeekRatesRaised(
+            _referrer,
+            _week
+        );
+
+        return true;
+    }
+
+    function _settleWeekSources(
+        address _referrer,
+        uint256 _week
+    )
+        internal
+    {
+        uint256 rates = _packedRates(
+            _referrer,
+            _week
+        );
+
+        bytes32[] storage sources = sourcesOf[_referrer];
+
+        for (uint256 i; i < sources.length; ++i) {
+
+            uint256 amount = _settleSourceWeek(
+                sources[i],
+                _referrer,
+                _week,
+                rates
+            );
+
+            if (amount > 0) {
+                emit WeekToppedUp(
+                    sources[i],
+                    _referrer,
+                    _week,
+                    amount
+                );
+            }
+        }
+    }
+
+    function _packedRates(
+        address _referrer,
+        uint256 _week
+    )
+        internal
+        view
+        returns (uint256)
+    {
+        (
+            uint256 y1Bps,
+            uint256 y2Bps,
+            uint256 mBps
+        ) = _weeklyRates(
+            _referrer,
+            _week
+        );
+
+        return y1Bps
+            | (y2Bps << RATE_Y2_SHIFT)
+            | (mBps << RATE_M_SHIFT);
+    }
+
+    function _settleSourceWeek(
+        bytes32 _source,
+        address _referrer,
+        uint256 _week,
+        uint256 _rates
+    )
+        internal
+        returns (uint256 amount)
+    {
+        uint256 cursorWord = paidCursor[_source][_referrer][_week];
+
+        if (cursorWord == 0) {
+            return 0;
+        }
+
+        uint256 due = _dueOf(
+            cursorWord,
+            _rates
+        );
+
+        uint256 word = sourceWeekOf[_source][_referrer][_week];
+
+        uint256 paidSoFar = word >> WEEK_HALF_SHIFT;
+
+        if (due <= paidSoFar) {
+            return 0;
+        }
+
+        amount = due - paidSoFar;
+
+        sourceWeekOf[_source][_referrer][_week] = (word & WEEK_HALF_MASK)
+            | (due << WEEK_HALF_SHIFT);
+
+        _creditClaimable(
+            sourceChainIdOf[_source],
+            _referrer,
+            amount
+        );
+
+        totalAccrued += amount;
+    }
+
+    function _dueOf(
+        uint256 _cursorWord,
+        uint256 _rates
+    )
+        internal
+        pure
+        returns (uint256)
+    {
+        return (
+            CohortWeeks._laneY1(
+                _cursorWord
+            ) * (_rates & RATE_MASK)
+                + CohortWeeks._laneY2(
+                    _cursorWord
+                ) * ((_rates >> RATE_Y2_SHIFT) & RATE_MASK)
+                + CohortWeeks._laneM(
+                    _cursorWord
+                ) * (_rates >> RATE_M_SHIFT)
+        ) / (BPS_DENOMINATOR * CohortWeeks.YEAR);
     }
 
     function _deliverCrumb(
         bytes32 _source,
         address _referrer,
         uint256 _week,
-        uint256 _word
+        uint256 _word,
+        DeliveryOrigin memory _origin
     )
         internal
     {
@@ -117,8 +405,33 @@ abstract contract ReferralHubIntake is ReferralHubRates {
         );
 
         require(
-            _week <= block.timestamp / CohortWeeks.WEEK,
-            FutureWeek()
+            _week < block.timestamp / CohortWeeks.WEEK,
+            WeekNotClosed()
+        );
+
+        _listSource(
+            _source,
+            _referrer,
+            _origin.chainId
+        );
+
+        uint256 lanes = _word & ~CohortWeeks.CRUMB_WRITTEN_BIT;
+
+        bool raised = _recordReferred(
+            _source,
+            _referrer,
+            _week,
+            (
+                CohortWeeks._laneY1(
+                    lanes
+                )
+                    + CohortWeeks._laneY2(
+                        lanes
+                    )
+                    + CohortWeeks._laneM(
+                        lanes
+                    )
+            ) / CohortWeeks.WEEK
         );
 
         (
@@ -128,8 +441,17 @@ abstract contract ReferralHubIntake is ReferralHubRates {
             _source,
             _referrer,
             _week,
-            _word & ~CohortWeeks.CRUMB_WRITTEN_BIT
+            lanes,
+            _origin
         );
+
+        if (incrementWord == 0 && raised == true) {
+            _topUpSourceWeek(
+                _source,
+                _referrer,
+                _week
+            );
+        }
 
         if (incrementWord == 0) {
             return;
@@ -139,10 +461,16 @@ abstract contract ReferralHubIntake is ReferralHubRates {
             _source,
             _referrer,
             _week,
-            msg.sender,
-            CohortWeeks.laneY1(incrementWord),
-            CohortWeeks.laneY2(incrementWord),
-            CohortWeeks.laneM(incrementWord),
+            _origin.deliverer,
+            CohortWeeks._laneY1(
+                incrementWord
+            ),
+            CohortWeeks._laneY2(
+                incrementWord
+            ),
+            CohortWeeks._laneM(
+                incrementWord
+            ),
             paid
         );
     }
@@ -152,7 +480,8 @@ abstract contract ReferralHubIntake is ReferralHubRates {
         address _referrer,
         uint256 _record,
         uint256 _fromWeek,
-        uint256 _maxWeeks
+        uint256 _maxWeeks,
+        DeliveryOrigin memory _origin
     )
         internal
     {
@@ -163,6 +492,12 @@ abstract contract ReferralHubIntake is ReferralHubRates {
             _record,
             _fromWeek,
             _maxWeeks
+        );
+
+        _listSource(
+            _source,
+            _referrer,
+            _origin.chainId
         );
 
         uint256 end = _windowEnd(
@@ -177,9 +512,10 @@ abstract contract ReferralHubIntake is ReferralHubRates {
         ) = _priceGapWindow(
             _source,
             _referrer,
-            mature * CohortWeeks.WEEK,
+            mature,
             _fromWeek,
-            end
+            end,
+            _origin
         );
 
         if (incrementTotal == 0) {
@@ -189,6 +525,7 @@ abstract contract ReferralHubIntake is ReferralHubRates {
         emit GapPriced(
             _source,
             _referrer,
+            _origin.deliverer,
             _fromWeek,
             end,
             paidTotal
@@ -254,9 +591,10 @@ abstract contract ReferralHubIntake is ReferralHubRates {
     function _priceGapWindow(
         bytes32 _source,
         address _referrer,
-        uint256 _mQuantity,
+        uint256 _mature,
         uint256 _fromWeek,
-        uint256 _end
+        uint256 _end,
+        DeliveryOrigin memory _origin
     )
         internal
         returns (
@@ -264,13 +602,20 @@ abstract contract ReferralHubIntake is ReferralHubRates {
             uint256 incrementTotal
         )
     {
-        uint256 quantityWord = CohortWeeks.packLanes(
+        uint256 quantityWord = CohortWeeks._packLanes(
             0,
             0,
-            _mQuantity
+            _mature * CohortWeeks.WEEK
         );
 
         for (uint256 week = _fromWeek; week < _end; ++week) {
+
+            _recordReferred(
+                _source,
+                _referrer,
+                week,
+                _mature
+            );
 
             (
                 uint256 paid,
@@ -279,7 +624,8 @@ abstract contract ReferralHubIntake is ReferralHubRates {
                 _source,
                 _referrer,
                 week,
-                quantityWord
+                quantityWord,
+                _origin
             );
 
             paidTotal += paid;
@@ -292,7 +638,8 @@ abstract contract ReferralHubIntake is ReferralHubRates {
         bytes32 _source,
         address _referrer,
         uint256 _week,
-        uint256 _quantityWord
+        uint256 _quantityWord,
+        DeliveryOrigin memory _origin
     )
         internal
         returns (
@@ -308,8 +655,21 @@ abstract contract ReferralHubIntake is ReferralHubRates {
         );
 
         if (incrementWord == 0) {
-            return (0, 0);
+            return (
+                0,
+                0
+            );
         }
+
+        uint256 rates = _packedRates(
+            _referrer,
+            _week
+        );
+
+        uint256 dueBefore = _dueOf(
+            paidCursor[_source][_referrer][_week],
+            rates
+        );
 
         _advanceCursor(
             _source,
@@ -318,10 +678,21 @@ abstract contract ReferralHubIntake is ReferralHubRates {
             _quantityWord
         );
 
-        paid = _payIncrements(
+        paid = _settleSourceWeek(
+            _source,
             _referrer,
             _week,
-            incrementWord
+            rates
+        );
+
+        _payCourierFee(
+            _referrer,
+            _week,
+            _dueOf(
+                paidCursor[_source][_referrer][_week],
+                rates
+            ) - dueBefore,
+            _origin
         );
     }
 
@@ -336,30 +707,42 @@ abstract contract ReferralHubIntake is ReferralHubRates {
     {
         uint256 cursorWord = paidCursor[_source][_referrer][_week];
 
-        incrementWord = CohortWeeks.packLanes(
+        incrementWord = CohortWeeks._packLanes(
             _laneIncrement(
                 _source,
                 _referrer,
                 _week,
                 0,
-                CohortWeeks.laneY1(_quantityWord),
-                CohortWeeks.laneY1(cursorWord)
+                CohortWeeks._laneY1(
+                    _quantityWord
+                ),
+                CohortWeeks._laneY1(
+                    cursorWord
+                )
             ),
             _laneIncrement(
                 _source,
                 _referrer,
                 _week,
                 1,
-                CohortWeeks.laneY2(_quantityWord),
-                CohortWeeks.laneY2(cursorWord)
+                CohortWeeks._laneY2(
+                    _quantityWord
+                ),
+                CohortWeeks._laneY2(
+                    cursorWord
+                )
             ),
             _laneIncrement(
                 _source,
                 _referrer,
                 _week,
                 2,
-                CohortWeeks.laneM(_quantityWord),
-                CohortWeeks.laneM(cursorWord)
+                CohortWeeks._laneM(
+                    _quantityWord
+                ),
+                CohortWeeks._laneM(
+                    cursorWord
+                )
             )
         );
     }
@@ -374,47 +757,131 @@ abstract contract ReferralHubIntake is ReferralHubRates {
     {
         uint256 cursorWord = paidCursor[_source][_referrer][_week];
 
-        paidCursor[_source][_referrer][_week] = CohortWeeks.packLanes(
+        paidCursor[_source][_referrer][_week] = CohortWeeks._packLanes(
             _max(
-                CohortWeeks.laneY1(_quantityWord),
-                CohortWeeks.laneY1(cursorWord)
+                CohortWeeks._laneY1(
+                    _quantityWord
+                ),
+                CohortWeeks._laneY1(
+                    cursorWord
+                )
             ),
             _max(
-                CohortWeeks.laneY2(_quantityWord),
-                CohortWeeks.laneY2(cursorWord)
+                CohortWeeks._laneY2(
+                    _quantityWord
+                ),
+                CohortWeeks._laneY2(
+                    cursorWord
+                )
             ),
             _max(
-                CohortWeeks.laneM(_quantityWord),
-                CohortWeeks.laneM(cursorWord)
+                CohortWeeks._laneM(
+                    _quantityWord
+                ),
+                CohortWeeks._laneM(
+                    cursorWord
+                )
             )
         );
     }
 
-    function _payIncrements(
+    function _payCourierFee(
         address _referrer,
         uint256 _week,
-        uint256 _incrementWord
+        uint256 _increment,
+        DeliveryOrigin memory _origin
     )
         internal
-        returns (uint256 paid)
     {
-        (
-            uint256 y1Bps,
-            uint256 y2Bps,
-            uint256 mBps
-        ) = _weeklyRates(
-            _referrer,
+        if (
+            _increment == 0
+                || _origin.deliverer == ZERO_ADDRESS
+                || _origin.deliverer == _referrer
+        ) {
+            return;
+        }
+
+        uint256 fee = _increment * _tableFor(
             _week
+        ).botShareBps / BPS_DENOMINATOR;
+
+        uint256 cap = delivererShareCap;
+
+        if (cap > 0 && fee > cap) {
+            fee = cap;
+        }
+
+        if (fee == 0) {
+            return;
+        }
+
+        _creditClaimable(
+            _origin.chainId,
+            _origin.deliverer,
+            fee
         );
 
-        paid = CohortWeeks.laneY1(_incrementWord) * y1Bps / BPS_DENOMINATOR / CohortWeeks.YEAR
-            + CohortWeeks.laneY2(_incrementWord) * y2Bps / BPS_DENOMINATOR / CohortWeeks.YEAR
-            + CohortWeeks.laneM(_incrementWord) * mBps / BPS_DENOMINATOR / CohortWeeks.YEAR;
+        totalAccrued += fee;
 
-        if (paid > 0) {
-            claimable[_referrer] += paid;
-            totalAccrued += paid;
+        emit DelivererSharePaid(
+            _origin.chainId,
+            _origin.deliverer,
+            _referrer,
+            _origin.messageId,
+            fee
+        );
+    }
+
+    function _creditClaimable(
+        uint256 _chainId,
+        address _account,
+        uint256 _amount
+    )
+        internal
+    {
+        claimable[_chainId][_account] += _amount;
+
+        if (payoutStamp[_chainId][_account] != 0) {
+            totalPayable += _amount;
         }
+    }
+
+    function _releasePayoutBacklog(
+        uint256 _chainId,
+        address _owner
+    )
+        internal
+    {
+        uint256 backlog = claimable[_chainId][_owner];
+
+        if (backlog == 0) {
+            return;
+        }
+
+        totalPayable += backlog;
+
+        emit PayoutBacklogReleased(
+            _chainId,
+            _owner,
+            backlog
+        );
+    }
+
+    function _stampPayout(
+        uint256 _chainId,
+        address _owner,
+        uint256 _stamp
+    )
+        internal
+    {
+        if (payoutStamp[_chainId][_owner] == 0) {
+            _releasePayoutBacklog(
+                _chainId,
+                _owner
+            );
+        }
+
+        payoutStamp[_chainId][_owner] = _stamp;
     }
 
     function _laneIncrement(
@@ -471,3 +938,4 @@ abstract contract ReferralHubIntake is ReferralHubRates {
             : _b;
     }
 }
+

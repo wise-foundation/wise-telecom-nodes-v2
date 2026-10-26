@@ -6,16 +6,15 @@ import {Test} from "forge-std/Test.sol";
 
 import {CohortLaneHarness} from "../utils/CohortLaneHarness.sol";
 import {CohortWeeks} from "../../../src/diamond/shared/pending/CohortWeeks.sol";
+import {ReferralRegistry} from "../../../src/registry/pending/ReferralRegistry.sol";
 
 /**
- * @dev REFB property family — the dual-engine extension of the fenwick
- * sandbox's PROVEN REFS clamp-monotonicity family
- * (`test/fenwick/ReferralSyncProperties.t.sol`, 7/7 Kontrol proofs) to
+ * @dev REFB property family: clamp-monotonicity properties for
  * the production PACKED book mirror: uint64 ring lanes, the three-lane
  * book word, and the saturating arithmetic of {CohortWeeks}. Each
  * `testFuzz_*` is written to run under both engines: fuzzed by
- * `forge test` today, symbolically provable by `kontrol prove` at the
- * plan's post-2a review checkpoint (concrete actors and week-aligned
+ * `forge test` today, symbolically provable by `kontrol prove`
+ * (concrete actors and week-aligned
  * concrete timestamps per the methodology in this directory's README;
  * amounts and lane values are the symbolic inputs, bounded below every
  * saturation threshold except where saturation itself is the
@@ -25,7 +24,9 @@ import {CohortWeeks} from "../../../src/diamond/shared/pending/CohortWeeks.sol";
  *
  * REFB1 sync never increases the referee ledger or the book total;
  * REFB2 a clamp lands exactly on min(tracked, balance) and reduces
- * the book by exactly the deficit; REFB3 a credit adds exactly its
+ * the book by exactly the attributed slice of the deficit (the
+ * harness stages tracked fully attributed, so that slice is the whole
+ * deficit here); REFB3 a credit adds exactly its
  * amount to ring slot and Y1 lane; REFB4 rotation preserves the book
  * total while relocating lanes; REFB5 reduction never reverts and
  * conserves (book drops by exactly min(delta, total), floor at zero);
@@ -52,6 +53,20 @@ contract CohortPropertiesTest is Test {
         );
 
         harness = new CohortLaneHarness();
+
+        ReferralRegistry registry = new ReferralRegistry(
+            address(this),
+            0
+        );
+
+        registry.setAllowedVault(
+            address(harness),
+            true
+        );
+
+        harness.harnessSetRegistry(
+            address(registry)
+        );
 
         harness.harnessSetReferrer(
             user,
@@ -81,9 +96,9 @@ contract CohortPropertiesTest is Test {
             referrer
         );
 
-        return CohortWeeks.laneY1(word)
-            + CohortWeeks.laneY2(word)
-            + CohortWeeks.laneM(word);
+        return CohortWeeks._laneY1(word)
+            + CohortWeeks._laneY2(word)
+            + CohortWeeks._laneM(word);
     }
 
     function testFuzz_REFB1_syncNeverIncreasesTrackedOrBookTotal(
@@ -134,7 +149,9 @@ contract CohortPropertiesTest is Test {
         );
 
         assertLe(
-            harness.viewTracked(user),
+            harness.viewTracked(
+                user
+            ),
             _tracked
         );
 
@@ -144,7 +161,9 @@ contract CohortPropertiesTest is Test {
         );
 
         assertEq(
-            harness.viewTracked(user),
+            harness.viewTracked(
+                user
+            ),
             _balance < _tracked
                 ? _balance
                 : _tracked
@@ -199,7 +218,9 @@ contract CohortPropertiesTest is Test {
         );
 
         assertEq(
-            harness.viewTracked(user),
+            harness.viewTracked(
+                user
+            ),
             _cover
         );
 
@@ -266,7 +287,7 @@ contract CohortPropertiesTest is Test {
         );
 
         assertEq(
-            CohortWeeks.laneY1(
+            CohortWeeks._laneY1(
                 harness.viewBookWord(
                     referrer
                 )
@@ -493,7 +514,7 @@ contract CohortPropertiesTest is Test {
             referrer,
             week,
             CohortWeeks.CRUMB_WRITTEN_BIT
-                | CohortWeeks.packLanes(
+                | CohortWeeks._packLanes(
                     _preYear1,
                     _preYear2,
                     _preMature
@@ -514,17 +535,23 @@ contract CohortPropertiesTest is Test {
         );
 
         assertGe(
-            CohortWeeks.laneY1(word),
+            CohortWeeks._laneY1(
+                word
+            ),
             _preYear1
         );
 
         assertGe(
-            CohortWeeks.laneY2(word),
+            CohortWeeks._laneY2(
+                word
+            ),
             _preYear2
         );
 
         assertGe(
-            CohortWeeks.laneM(word),
+            CohortWeeks._laneM(
+                word
+            ),
             _preMature
         );
 

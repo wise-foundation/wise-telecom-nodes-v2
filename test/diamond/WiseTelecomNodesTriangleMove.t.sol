@@ -51,9 +51,9 @@ contract MockUSD6 is ERC20 {
  * cross-registered as peers in every ordered direction via the
  * timelocked propose/execute flow, then a user round-trips the full
  * triangle. Every leg must relocate `totalDepositCap` with the moved
- * shares — destination cap up by the moved amount, source cap down
+ * shares: destination cap up by the moved amount, source cap down
  * by the same amount, room (`totalDepositCap - totalSupply()`)
- * unchanged on both ends — and the full six-direction round trip
+ * unchanged on both ends; and the full six-direction round trip
  * must return every cap exactly to its genesis value (the A->B->A
  * over-mint regression at triangle scale). Also proves the
  * dormant-chain gate (`depositsDisabled`, the shipped usdg posture)
@@ -141,19 +141,19 @@ contract WiseTelecomNodesTriangleMoveTest is Test {
         _wireOne(
             d,
             address(new AdminFacet()),
-            WiseTelecomNodesDiamondSelectors.adminSelectors()
+            WiseTelecomNodesDiamondSelectors._adminSelectors()
         );
 
         _wireOne(
             d,
             address(new UserFacet()),
-            WiseTelecomNodesDiamondSelectors.userSelectors()
+            WiseTelecomNodesDiamondSelectors._userSelectors()
         );
 
         _wireOne(
             d,
             address(new MoveFacet()),
-            WiseTelecomNodesDiamondSelectors.moveSelectors()
+            WiseTelecomNodesDiamondSelectors._moveSelectors()
         );
 
         d.finalizeSetup();
@@ -366,12 +366,16 @@ contract WiseTelecomNodesTriangleMoveTest is Test {
         );
 
         assertEq(
-            vaultA.balanceOf(user1),
+            vaultA.balanceOf(
+                user1
+            ),
             0
         );
 
         assertEq(
-            vaultB.balanceOf(user1),
+            vaultB.balanceOf(
+                user1
+            ),
             AMOUNT
         );
 
@@ -388,7 +392,9 @@ contract WiseTelecomNodesTriangleMoveTest is Test {
         );
 
         assertEq(
-            vaultC.balanceOf(user1),
+            vaultC.balanceOf(
+                user1
+            ),
             AMOUNT
         );
 
@@ -405,7 +411,9 @@ contract WiseTelecomNodesTriangleMoveTest is Test {
         );
 
         assertEq(
-            vaultA.balanceOf(user1),
+            vaultA.balanceOf(
+                user1
+            ),
             AMOUNT
         );
 
@@ -422,7 +430,9 @@ contract WiseTelecomNodesTriangleMoveTest is Test {
         );
 
         assertEq(
-            vaultC.balanceOf(user1),
+            vaultC.balanceOf(
+                user1
+            ),
             AMOUNT
         );
 
@@ -439,7 +449,9 @@ contract WiseTelecomNodesTriangleMoveTest is Test {
         );
 
         assertEq(
-            vaultB.balanceOf(user1),
+            vaultB.balanceOf(
+                user1
+            ),
             AMOUNT
         );
 
@@ -456,17 +468,23 @@ contract WiseTelecomNodesTriangleMoveTest is Test {
         );
 
         assertEq(
-            vaultA.balanceOf(user1),
+            vaultA.balanceOf(
+                user1
+            ),
             AMOUNT
         );
 
         assertEq(
-            vaultB.balanceOf(user1),
+            vaultB.balanceOf(
+                user1
+            ),
             0
         );
 
         assertEq(
-            vaultC.balanceOf(user1),
+            vaultC.balanceOf(
+                user1
+            ),
             0
         );
 
@@ -534,7 +552,9 @@ contract WiseTelecomNodesTriangleMoveTest is Test {
         );
 
         assertEq(
-            vaultC.balanceOf(user1),
+            vaultC.balanceOf(
+                user1
+            ),
             AMOUNT
         );
 
@@ -550,12 +570,16 @@ contract WiseTelecomNodesTriangleMoveTest is Test {
         );
 
         assertEq(
-            vaultA.balanceOf(user1),
+            vaultA.balanceOf(
+                user1
+            ),
             AMOUNT
         );
 
         assertEq(
-            vaultC.balanceOf(user1),
+            vaultC.balanceOf(
+                user1
+            ),
             0
         );
 
@@ -587,8 +611,13 @@ contract WiseTelecomNodesTriangleMoveTest is Test {
             * INTEREST_RATE
             / PRECISION_RATE;
 
-        uint256 thirdPtyBefore = usdA.balanceOf(thirdPty);
-        uint256 vaultUsdBefore = usdA.balanceOf(address(vaultA));
+        uint256 thirdPtyBefore = usdA.balanceOf(
+            thirdPty
+        );
+
+        uint256 vaultUsdBefore = usdA.balanceOf(
+            address(vaultA)
+        );
 
         _moveExpectingCapRelocation(
             vaultA,
@@ -597,27 +626,37 @@ contract WiseTelecomNodesTriangleMoveTest is Test {
         );
 
         assertEq(
-            vaultB.balanceOf(user1),
+            vaultB.balanceOf(
+                user1
+            ),
             AMOUNT
         );
 
         assertEq(
-            vaultA.balanceOf(user1),
+            vaultA.balanceOf(
+                user1
+            ),
             0
         );
 
         assertEq(
-            vaultA.cashedInterest(user1),
+            vaultA.cashedInterest(
+                user1
+            ),
             expectedInterest
         );
 
         assertEq(
-            usdA.balanceOf(thirdPty),
+            usdA.balanceOf(
+                thirdPty
+            ),
             thirdPtyBefore
         );
 
         assertEq(
-            usdA.balanceOf(address(vaultA)),
+            usdA.balanceOf(
+                address(vaultA)
+            ),
             vaultUsdBefore
         );
     }

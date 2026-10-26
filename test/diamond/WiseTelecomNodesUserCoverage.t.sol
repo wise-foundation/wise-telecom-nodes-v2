@@ -233,17 +233,23 @@ contract WiseTelecomNodesUserCoverageTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.balanceOf(user1),
+            diamond.balanceOf(
+                user1
+            ),
             100 * 1e6
         );
 
         assertEq(
-            usd.balanceOf(thirdPty),
+            usd.balanceOf(
+                thirdPty
+            ),
             before3rd + 100 * 1e6
         );
 
         assertEq(
-            diamond.lastSyncTimeStamp(user1),
+            diamond.lastSyncTimeStamp(
+                user1
+            ),
             block.timestamp
         );
     }
@@ -322,7 +328,9 @@ contract WiseTelecomNodesUserCoverageTest is DiamondTestHarness {
         view
     {
         assertEq(
-            diamond.getPendingInterest(user1),
+            diamond.getPendingInterest(
+                user1
+            ),
             0
         );
     }
@@ -344,7 +352,9 @@ contract WiseTelecomNodesUserCoverageTest is DiamondTestHarness {
             / PRECISION;
 
         assertApproxEqAbs(
-            diamond.getPendingInterest(user1),
+            diamond.getPendingInterest(
+                user1
+            ),
             expected,
             10
         );
@@ -354,7 +364,9 @@ contract WiseTelecomNodesUserCoverageTest is DiamondTestHarness {
         public
     {
         assertEq(
-            diamond.getPendingInterest(proxy),
+            diamond.getPendingInterest(
+                proxy
+            ),
             0
         );
     }
@@ -372,7 +384,10 @@ contract WiseTelecomNodesUserCoverageTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.getPendingInterestByTimeStamp(user1, syncAt),
+            diamond.getPendingInterestByTimeStamp(
+                user1,
+                syncAt
+            ),
             0
         );
     }
@@ -403,7 +418,9 @@ contract WiseTelecomNodesUserCoverageTest is DiamondTestHarness {
             / PRECISION;
 
         assertApproxEqAbs(
-            diamond.getPendingInterest(user1),
+            diamond.getPendingInterest(
+                user1
+            ),
             expected,
             100
         );
@@ -504,12 +521,16 @@ contract WiseTelecomNodesUserCoverageTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.getPendingInterest(user1),
+            diamond.getPendingInterest(
+                user1
+            ),
             0
         );
 
         assertEq(
-            diamond.getTotalInterestUser(user1),
+            diamond.getTotalInterestUser(
+                user1
+            ),
             cached
         );
     }
@@ -525,7 +546,10 @@ contract WiseTelecomNodesUserCoverageTest is DiamondTestHarness {
         uint256 at = block.timestamp + SECONDS_IN_YEAR;
 
         assertGt(
-            diamond.getTotalInterestUserByTimeStamp(user1, at),
+            diamond.getTotalInterestUserByTimeStamp(
+                user1,
+                at
+            ),
             0
         );
     }
@@ -608,12 +632,16 @@ contract WiseTelecomNodesUserCoverageTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.lastSyncTimeStamp(user1),
+            diamond.lastSyncTimeStamp(
+                user1
+            ),
             block.timestamp
         );
 
         assertGt(
-            diamond.cashedInterest(user1),
+            diamond.cashedInterest(
+                user1
+            ),
             0
         );
     }
@@ -630,7 +658,9 @@ contract WiseTelecomNodesUserCoverageTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.cashedInterest(address(0)),
+            diamond.cashedInterest(
+                address(0)
+            ),
             0
         );
     }
@@ -655,12 +685,16 @@ contract WiseTelecomNodesUserCoverageTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.cashedInterest(user1),
+            diamond.cashedInterest(
+                user1
+            ),
             0
         );
 
         assertEq(
-            diamond.lastSyncTimeStamp(user1),
+            diamond.lastSyncTimeStamp(
+                user1
+            ),
             block.timestamp
         );
     }
@@ -703,12 +737,16 @@ contract WiseTelecomNodesUserCoverageTest is DiamondTestHarness {
         );
 
         assertEq(
-            usd.balanceOf(user1),
+            usd.balanceOf(
+                user1
+            ),
             usdBefore + cached
         );
 
         assertEq(
-            diamond.cashedInterest(user1),
+            diamond.cashedInterest(
+                user1
+            ),
             0
         );
     }
@@ -782,7 +820,9 @@ contract WiseTelecomNodesUserCoverageTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.cashedInterest(user1),
+            diamond.cashedInterest(
+                user1
+            ),
             cached - toClaim
         );
     }
@@ -858,7 +898,9 @@ contract WiseTelecomNodesUserCoverageTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.cashedInterest(user1),
+            diamond.cashedInterest(
+                user1
+            ),
             0
         );
 
@@ -868,7 +910,9 @@ contract WiseTelecomNodesUserCoverageTest is DiamondTestHarness {
         );
 
         assertGt(
-            diamond.balanceOf(user1),
+            diamond.balanceOf(
+                user1
+            ),
             vaultBalanceBefore
         );
     }
@@ -912,7 +956,9 @@ contract WiseTelecomNodesUserCoverageTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.balanceOf(user1),
+            diamond.balanceOf(
+                user1
+            ),
             userBalanceBefore + cached
         );
 
@@ -922,7 +968,9 @@ contract WiseTelecomNodesUserCoverageTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.cashedInterest(user1),
+            diamond.cashedInterest(
+                user1
+            ),
             0
         );
     }
@@ -997,7 +1045,9 @@ contract WiseTelecomNodesUserCoverageTest is DiamondTestHarness {
         );
 
         assertEq(
-            usd.balanceOf(user1),
+            usd.balanceOf(
+                user1
+            ),
             usdBefore - 100 * 1e6 + ret
         );
 
@@ -1007,7 +1057,9 @@ contract WiseTelecomNodesUserCoverageTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.cashedInterest(user1),
+            diamond.cashedInterest(
+                user1
+            ),
             0
         );
     }
@@ -1041,7 +1093,9 @@ contract WiseTelecomNodesUserCoverageTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.cashedInterest(user1),
+            diamond.cashedInterest(
+                user1
+            ),
             0
         );
 
@@ -1075,12 +1129,16 @@ contract WiseTelecomNodesUserCoverageTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.balanceOf(user1),
+            diamond.balanceOf(
+                user1
+            ),
             800 * 1e6
         );
 
         assertEq(
-            diamond.balanceOf(user2),
+            diamond.balanceOf(
+                user2
+            ),
             200 * 1e6
         );
     }
@@ -1125,12 +1183,16 @@ contract WiseTelecomNodesUserCoverageTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.cashedInterest(user1),
+            diamond.cashedInterest(
+                user1
+            ),
             cached
         );
 
         assertEq(
-            diamond.cashedInterest(user2),
+            diamond.cashedInterest(
+                user2
+            ),
             0
         );
     }
@@ -1167,12 +1229,16 @@ contract WiseTelecomNodesUserCoverageTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.balanceOf(user1),
+            diamond.balanceOf(
+                user1
+            ),
             800 * 1e6
         );
 
         assertEq(
-            diamond.balanceOf(user3),
+            diamond.balanceOf(
+                user3
+            ),
             200 * 1e6
         );
     }
@@ -1237,12 +1303,16 @@ contract WiseTelecomNodesUserCoverageTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.cashedInterest(user1),
+            diamond.cashedInterest(
+                user1
+            ),
             cached
         );
 
         assertEq(
-            diamond.cashedInterest(user3),
+            diamond.cashedInterest(
+                user3
+            ),
             0
         );
     }
@@ -1268,12 +1338,16 @@ contract WiseTelecomNodesUserCoverageTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.cashedInterest(user1),
+            diamond.cashedInterest(
+                user1
+            ),
             0
         );
 
         assertEq(
-            diamond.cashedInterest(user2),
+            diamond.cashedInterest(
+                user2
+            ),
             cached
         );
     }
@@ -1299,12 +1373,16 @@ contract WiseTelecomNodesUserCoverageTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.cashedInterest(user1),
+            diamond.cashedInterest(
+                user1
+            ),
             cached - part
         );
 
         assertEq(
-            diamond.cashedInterest(user2),
+            diamond.cashedInterest(
+                user2
+            ),
             part
         );
     }
@@ -1331,7 +1409,9 @@ contract WiseTelecomNodesUserCoverageTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.cashedInterest(user1),
+            diamond.cashedInterest(
+                user1
+            ),
             0
         );
 
@@ -1346,12 +1426,16 @@ contract WiseTelecomNodesUserCoverageTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.cashedInterest(user1),
+            diamond.cashedInterest(
+                user1
+            ),
             0
         );
 
         assertEq(
-            diamond.cashedInterest(user2),
+            diamond.cashedInterest(
+                user2
+            ),
             pending
         );
     }
@@ -1407,7 +1491,9 @@ contract WiseTelecomNodesUserCoverageTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.cashedInterest(user1),
+            diamond.cashedInterest(
+                user1
+            ),
             cached
         );
     }
@@ -1565,12 +1651,16 @@ contract WiseTelecomNodesUserCoverageTest is DiamondTestHarness {
         );
 
         assertEq(
-            diamond.cashedInterest(user2),
+            diamond.cashedInterest(
+                user2
+            ),
             cached
         );
 
         assertEq(
-            diamond.balanceOf(user2),
+            diamond.balanceOf(
+                user2
+            ),
             500 * 1e6
         );
     }
@@ -1685,12 +1775,16 @@ contract WiseTelecomNodesUserCoverageTest is DiamondTestHarness {
         );
 
         assertEq(
-            usd.balanceOf(worker),
+            usd.balanceOf(
+                worker
+            ),
             workerBefore + excess
         );
 
         assertEq(
-            usd.balanceOf(address(fresh)),
+            usd.balanceOf(
+                address(fresh)
+            ),
             buffer
         );
     }

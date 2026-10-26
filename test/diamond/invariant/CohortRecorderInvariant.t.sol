@@ -57,7 +57,7 @@ contract MockUSD is ERC20 {
  * and `transferBetween` run WITHOUT try/catch by design: a transfer
  * hook revert must fail the run, because the recorder's never-block
  * guarantee means a transfer should never revert on
- * recorder grounds — a revert here is a real bug, not noise to swallow.
+ * recorder grounds; a revert here is a real bug, not noise to swallow.
  */
 contract CohortRecorderHandler is Test {
 
@@ -238,6 +238,46 @@ contract CohortRecorderHandler is Test {
         );
     }
 
+    function depositPlainReferee(
+        uint256 _actorSeed,
+        uint256 _amountSeed
+    )
+        external
+        captureGhost
+    {
+        address actor = _refereeActor(
+            _actorSeed
+        );
+
+        uint256 amount = bound(
+            _amountSeed,
+            50 * 1e6,
+            5_000 * 1e6
+        );
+
+        usd.mint(
+            actor,
+            amount
+        );
+
+        vm.prank(
+            actor
+        );
+
+        usd.approve(
+            address(diamond),
+            amount
+        );
+
+        vm.prank(
+            actor
+        );
+
+        UserFacet(address(diamond)).deposit(
+            amount
+        );
+    }
+
     function transferOut(
         uint256 _actorSeed,
         uint256 _amountSeed
@@ -406,7 +446,7 @@ contract CohortRecorderHandler is Test {
  * equality (sum of REF's referees' tracked contribution == REF's book
  * total == REF's score) that {WiseTelecomNodesCohortCoreTest} checks
  * unit-by-unit as I1; REC2 pins the ring-to-book lane identity (I2);
- * REC3 is new to this suite — once a cohort week closes (its index
+ * REC3 is new to this suite: once a cohort week closes (its index
  * falls below `lastSettle / 1 weeks`), its crumb word can never be
  * written to again by construction (the settle cursor only moves
  * forward), and this invariant re-verifies every previously finalized
@@ -451,13 +491,13 @@ contract CohortRecorderInvariantTest is DiamondTestHarness {
         _wireOne(
             diamond,
             address(new ReferralFacet()),
-            WiseTelecomNodesDiamondSelectors.referralSelectors()
+            WiseTelecomNodesDiamondSelectors._referralSelectors()
         );
 
         _wireOne(
             diamond,
             address(new CohortRecorderFacet()),
-            WiseTelecomNodesDiamondSelectors.cohortRecorderSelectors()
+            WiseTelecomNodesDiamondSelectors._cohortRecorderSelectors()
         );
 
         AdminFacet(address(diamond)).proposeTransferHookFacet(
@@ -559,12 +599,12 @@ contract CohortRecorderInvariantTest is DiamondTestHarness {
 
     /// forge-config: default.invariant.runs = 128
     /// forge-config: default.invariant.depth = 64
-    function invariant_REC1_trackedSumEqualsBookTotalEqualsScore()
+    function invariant_REC1_attributedSumEqualsBookTotalEqualsScore()
         public
         view
     {
-        uint256 trackedSum = _recorder().getTrackedContribution(A1)
-            + _recorder().getTrackedContribution(A2);
+        uint256 attributedSum = _recorder().getAttributedContribution(A1)
+            + _recorder().getAttributedContribution(A2);
 
         (
             uint256 year1,
@@ -574,15 +614,107 @@ contract CohortRecorderInvariantTest is DiamondTestHarness {
         ) = _recorder().getCohortBook(REF);
 
         assertEq(
-            trackedSum,
+            attributedSum,
             year1 + year2 + mature,
-            "REC1: tracked sum != book total"
+            "REC1: attributed sum != book total"
         );
 
         assertEq(
-            _recorder().getCohortScore(REF),
+            _recorder().getCohortScore(
+                REF
+            ),
             year1 + year2 + mature,
             "REC1: score != book total"
+        );
+    }
+
+    /// forge-config: default.invariant.runs = 128
+    /// forge-config: default.invariant.depth = 64
+    function invariant_REC5_onlyParkedSenderHoldsBelowTracked()
+        public
+        view
+    {
+        address parked = address(
+            uint160(
+                uint256(
+                    vm.load(
+                        address(diamond),
+                        bytes32(uint256(91))
+                    )
+                )
+            )
+        );
+
+        _assertCoveredUnlessParked(
+            A1,
+            parked
+        );
+
+        _assertCoveredUnlessParked(
+            A2,
+            parked
+        );
+
+        _assertCoveredUnlessParked(
+            U,
+            parked
+        );
+    }
+
+    function _assertCoveredUnlessParked(
+        address _actor,
+        address _parked
+    )
+        internal
+        view
+    {
+        if (_actor == _parked) {
+            return;
+        }
+
+        assertGe(
+            diamond.balanceOf(
+                _actor
+            ),
+            _recorder().getTrackedContribution(
+                _actor
+            ),
+            "REC5: an unparked actor holds below tracked"
+        );
+    }
+
+    /// forge-config: default.invariant.runs = 128
+    /// forge-config: default.invariant.depth = 64
+    function invariant_REC4_attributedNeverExceedsTracked()
+        public
+        view
+    {
+        assertLe(
+            _recorder().getAttributedContribution(
+                A1
+            ),
+            _recorder().getTrackedContribution(
+                A1
+            ),
+            "REC4-A1: attributed above tracked"
+        );
+
+        assertLe(
+            _recorder().getAttributedContribution(
+                A2
+            ),
+            _recorder().getTrackedContribution(
+                A2
+            ),
+            "REC4-A2: attributed above tracked"
+        );
+
+        assertEq(
+            _recorder().getAttributedContribution(
+                U
+            ),
+            0,
+            "REC4-U: unreferred actor attributed"
         );
     }
 
@@ -638,8 +770,13 @@ contract CohortRecorderInvariantTest is DiamondTestHarness {
 
         for (uint256 w = start; w < next; ++w) {
             assertEq(
-                _recorder().getCohortWeekCrumb(REF, w),
-                handler.ghostCrumb(w),
+                _recorder().getCohortWeekCrumb(
+                    REF,
+                    w
+                ),
+                handler.ghostCrumb(
+                    w
+                ),
                 "REC3: finalized week crumb mutated"
             );
         }
@@ -652,13 +789,17 @@ contract CohortRecorderInvariantTest is DiamondTestHarness {
         view
     {
         assertEq(
-            ReferralFacet(address(diamond)).getReferrerOf(A1),
+            ReferralFacet(address(diamond)).getReferrerOf(
+                A1
+            ),
             REF,
             "REG1: A1 referrer changed"
         );
 
         assertEq(
-            ReferralFacet(address(diamond)).getReferrerOf(A2),
+            ReferralFacet(address(diamond)).getReferrerOf(
+                A2
+            ),
             REF,
             "REG1: A2 referrer changed"
         );
