@@ -62,8 +62,8 @@ import {ReferralHubReader} from "../../src/hub/pending/ReferralHubReader.sol";
 ///   forge script script/hub/DeployReferralHub.s.sol --sig "wireFlush()" --rpc-url mainnet --broadcast
 ///   forge script script/hub/DeployReferralHub.s.sol --sig "status()" --rpc-url mainnet
 ///
-/// NOTHING here may be broadcast until the owner gives the explicit go-ahead. After a REAL
-/// broadcast is executed and verified, `git mv` the hub chain out of src/hub/pending/ in
+/// Broadcast only after a fork rehearsal on mainnet. After a real broadcast is executed
+/// and verified, `git mv` the hub chain out of src/hub/pending/ in
 /// the same commit.
 contract DeployReferralHub is VaultConfig {
 

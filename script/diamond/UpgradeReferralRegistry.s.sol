@@ -148,9 +148,9 @@ import {WiseTelecomNodesDiamondSelectors} from "./WiseTelecomNodesDiamondSelecto
 ///   VAULT_PRODUCT=usdc forge script script/diamond/UpgradeReferralRegistry.s.sol --sig "arm()" --rpc-url mainnet --broadcast
 /// repeated for usdc/usdt/usdg on each of their chains (mainnet, base, arbitrum, robinhood).
 ///
-/// NOTHING here may be broadcast until the owner gives the explicit go-ahead. After a REAL
-/// broadcast is executed and verified, `git mv` the graduated
-/// files out of EVERY pending/ segment in the same commit: facets/pending/,
+/// Broadcast only after a fork rehearsal on every live chain. After a real broadcast is
+/// executed and verified, `git mv` the graduated
+/// files out of every pending/ segment in the same commit: facets/pending/,
 /// declarations/pending/ (the shards this round's facets were compiled with),
 /// interfaces/pending/ and src/registry/pending/.
 contract UpgradeReferralRegistry is VaultConfig {

@@ -69,11 +69,9 @@ import {ReferralRegistry} from "../../src/registry/pending/ReferralRegistry.sol"
 ///
 /// Plain CREATE is used; CREATE3 (same registry address on all four chains, matching the
 /// diamonds' own deployment style) remains an option at broadcast time; the config file is
-/// the source of truth either way. NOTHING here may be broadcast until the owner gives the
-/// explicit go-ahead. After a REAL
-/// broadcast is executed and verified, `git mv` the registry out of
-/// src/registry/pending/ in the same
-/// commit.
+/// the source of truth either way. Broadcast only after a fork rehearsal on every chain.
+/// After a real broadcast is executed and verified, `git mv` the registry out of
+/// src/registry/pending/ in the same commit.
 contract DeployReferralRegistry is VaultConfig {
 
     uint256 internal constant SYNC_KEY_FLOOR = 1_700_000_000;

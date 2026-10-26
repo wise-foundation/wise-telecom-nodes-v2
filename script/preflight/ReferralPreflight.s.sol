@@ -242,7 +242,7 @@ contract ReferralPreflight is ReferralPreflightVault {
         if (latched) {
             _pass(
                 scope,
-                "seeds latched (the owner closed the seed lane on this chain)"
+                "seeds latched (the master closed the seed lane on this chain)"
             );
         } else {
             _skip(

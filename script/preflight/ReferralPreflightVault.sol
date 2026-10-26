@@ -1056,7 +1056,7 @@ abstract contract ReferralPreflightVault is ReferralPreflightRecords {
         if (twoWay == false && _oneWayLanesAccepted(_product, _network)) {
             _skip(
                 _scope,
-                "one way bridge lanes accepted by the owner with this record (the vault is deactivated; re-check before any reactivation)"
+                "one way bridge lanes accepted with this record (the vault is deactivated; re-check before any reactivation)"
             );
 
             return;
