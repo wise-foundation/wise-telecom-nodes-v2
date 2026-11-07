@@ -5,9 +5,9 @@ pragma solidity =0.8.36;
 import {Test} from "forge-std/Test.sol";
 import {Vm} from "forge-std/Vm.sol";
 
-import {ReferralRegistry} from "../../src/registry/pending/ReferralRegistry.sol";
-import {ReferralRegistryDeclarations} from "../../src/registry/pending/ReferralRegistryDeclarations.sol";
-import {CohortWeeks} from "../../src/diamond/shared/pending/CohortWeeks.sol";
+import {ReferralRegistry} from "../../src/registry/ReferralRegistry.sol";
+import {ReferralRegistryDeclarations} from "../../src/registry/ReferralRegistryDeclarations.sol";
+import {CohortWeeks} from "../../src/diamond/shared/CohortWeeks.sol";
 
 /**
  * @dev Carry-staging suite for {ReferralRegistry}: the

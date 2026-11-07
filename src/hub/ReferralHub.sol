@@ -3,7 +3,7 @@
 pragma solidity =0.8.36;
 
 import {ReferralHubDeclarations} from "./ReferralHubDeclarations.sol";
-import {OwnableMaster} from "../../diamond/shared/OwnableMaster.sol";
+import {OwnableMaster} from "../diamond/shared/OwnableMaster.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
@@ -12,7 +12,7 @@ import {
     AlreadyInitialized,
     NoSelectorChangeQueued,
     SelectorTimelockNotElapsed
-} from "../../diamond/shared/DiamondErrors.sol";
+} from "../diamond/shared/DiamondErrors.sol";
 
 /**
  * @dev ReferralHub: the mainnet hub of the referral commission system, a

@@ -7,17 +7,17 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {WiseTelecomNodesDiamond} from "../../src/diamond/vault/WiseTelecomNodesDiamond.sol";
 import {AdminFacet} from "../../src/diamond/vault/facets/AdminFacet.sol";
 import {UserFacet} from "../../src/diamond/vault/facets/UserFacet.sol";
-import {ReferralFacet} from "../../src/diamond/vault/facets/pending/ReferralFacet.sol";
-import {CohortHookFacet} from "../../src/diamond/vault/facets/pending/CohortHookFacet.sol";
-import {CohortRecorderFacet} from "../../src/diamond/vault/facets/pending/CohortRecorderFacet.sol";
+import {ReferralFacet} from "../../src/diamond/vault/facets/ReferralFacet.sol";
+import {CohortHookFacet} from "../../src/diamond/vault/facets/CohortHookFacet.sol";
+import {CohortRecorderFacet} from "../../src/diamond/vault/facets/CohortRecorderFacet.sol";
 
-import {CohortWeeks} from "../../src/diamond/shared/pending/CohortWeeks.sol";
-import {CohortFlushCodec} from "../../src/diamond/shared/pending/CohortFlushCodec.sol";
+import {CohortWeeks} from "../../src/diamond/shared/CohortWeeks.sol";
+import {CohortFlushCodec} from "../../src/diamond/shared/CohortFlushCodec.sol";
 
-import {IReferralHub} from "../../src/hub/pending/IReferralHub.sol";
+import {IReferralHub} from "../../src/hub/IReferralHub.sol";
 import {HubLeverGrants} from "./utils/HubLeverGrants.sol";
 import {HubDiamondHarness} from "../hub/utils/HubDiamondHarness.sol";
-import {ReferralHubReader} from "../../src/hub/pending/ReferralHubReader.sol";
+import {ReferralHubReader} from "../../src/hub/ReferralHubReader.sol";
 
 import {WiseTelecomNodesDiamondSelectors} from "../../script/diamond/WiseTelecomNodesDiamondSelectors.sol";
 
@@ -75,7 +75,7 @@ contract MockUSD is ERC20 {
  * hub's decode of it fails here first. The reporter role throughout
  * is `address(this)` (the test contract), mirroring the mainnet-vault
  * inline-reporting integration path documented in
- * `src/hub/pending/ReferralHub.sol`.
+ * `src/hub/ReferralHub.sol`.
  */
 contract ReferralHubRecorderIntegrationTest is DiamondTestHarness, HubDiamondHarness {
 

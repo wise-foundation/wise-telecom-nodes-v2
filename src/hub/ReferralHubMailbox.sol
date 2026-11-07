@@ -3,8 +3,8 @@
 pragma solidity =0.8.36;
 
 import {ReferralHubIntake} from "./ReferralHubIntake.sol";
-import {CohortFlushCodec} from "../../diamond/shared/pending/CohortFlushCodec.sol";
-import {CohortWeeks} from "../../diamond/shared/pending/CohortWeeks.sol";
+import {CohortFlushCodec} from "../diamond/shared/CohortFlushCodec.sol";
+import {CohortWeeks} from "../diamond/shared/CohortWeeks.sol";
 
 /**
  * @dev ReferralHubMailbox: the CCIP intake of flush envelopes and payout

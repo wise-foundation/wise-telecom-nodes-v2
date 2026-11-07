@@ -6,8 +6,8 @@ import {Test} from "forge-std/Test.sol";
 import {Vm} from "forge-std/Vm.sol";
 
 import {CohortCarryHarness} from "./utils/CohortCarryHarness.sol";
-import {CohortWeeks} from "../../src/diamond/shared/pending/CohortWeeks.sol";
-import {ReferralRegistry} from "../../src/registry/pending/ReferralRegistry.sol";
+import {CohortWeeks} from "../../src/diamond/shared/CohortWeeks.sol";
+import {ReferralRegistry} from "../../src/registry/ReferralRegistry.sol";
 
 /**
  * @dev Hostile registry mock whose `consumeCarry` answers with a

@@ -3,7 +3,7 @@
 pragma solidity =0.8.36;
 
 import {ReferralHubCheckpoints} from "./ReferralHubCheckpoints.sol";
-import {OwnableMaster} from "../../diamond/shared/OwnableMaster.sol";
+import {OwnableMaster} from "../diamond/shared/OwnableMaster.sol";
 
 /**
  * @dev ReferralHubCheckpointsFacet: the week bucket reads of the hub.

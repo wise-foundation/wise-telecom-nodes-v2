@@ -4,11 +4,11 @@ pragma solidity =0.8.36;
 
 import {Test} from "forge-std/Test.sol";
 
-import {IReferralHub} from "../../src/hub/pending/IReferralHub.sol";
+import {IReferralHub} from "../../src/hub/IReferralHub.sol";
 import {HubLeverGrants} from "./utils/HubLeverGrants.sol";
 import {HubDiamondHarness} from "./utils/HubDiamondHarness.sol";
-import {CohortWeeks} from "../../src/diamond/shared/pending/CohortWeeks.sol";
-import {CohortFlushCodec} from "../../src/diamond/shared/pending/CohortFlushCodec.sol";
+import {CohortWeeks} from "../../src/diamond/shared/CohortWeeks.sol";
+import {CohortFlushCodec} from "../../src/diamond/shared/CohortFlushCodec.sol";
 
 /**
  * @dev Umbrella suite for the referral hub: one referral ladder over several

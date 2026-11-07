@@ -2,9 +2,9 @@
 
 pragma solidity =0.8.36;
 
-import {FacetBase} from "../FacetBase.sol";
-import {CohortWeeks} from "../../../shared/pending/CohortWeeks.sol";
-import {IReferralRegistry} from "../../interfaces/pending/IReferralRegistry.sol";
+import {FacetBase} from "./FacetBase.sol";
+import {CohortWeeks} from "../../shared/CohortWeeks.sol";
+import {IReferralRegistry} from "../interfaces/IReferralRegistry.sol";
 
 /**
  * @dev CohortRecorderFacet: the routed public surface of the cohort

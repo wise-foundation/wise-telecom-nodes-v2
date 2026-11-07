@@ -20,7 +20,7 @@ import {QueueJoinLeaveFacet} from "../../../src/diamond/vault/facets/QueueJoinLe
 import {QueueFulfillFacet} from "../../../src/diamond/vault/facets/QueueFulfillFacet.sol";
 import {QueueViewFacet} from "../../../src/diamond/vault/facets/QueueViewFacet.sol";
 
-import {ReferralRegistry} from "../../../src/registry/pending/ReferralRegistry.sol";
+import {ReferralRegistry} from "../../../src/registry/ReferralRegistry.sol";
 
 import {WiseTelecomNodesDiamondSelectors} from "../../../script/diamond/WiseTelecomNodesDiamondSelectors.sol";
 

@@ -5,8 +5,8 @@ pragma solidity =0.8.36;
 import {Test} from "forge-std/Test.sol";
 
 import {UpgradeReferralRegistry} from "../../script/diamond/UpgradeReferralRegistry.s.sol";
-import {ReferralRegistry} from "../../src/registry/pending/ReferralRegistry.sol";
-import {IReferralRegistry} from "../../src/diamond/vault/interfaces/pending/IReferralRegistry.sol";
+import {ReferralRegistry} from "../../src/registry/ReferralRegistry.sol";
+import {IReferralRegistry} from "../../src/diamond/vault/interfaces/IReferralRegistry.sol";
 
 /**
  * @dev Pins the registry seam probe that the registry upgrade

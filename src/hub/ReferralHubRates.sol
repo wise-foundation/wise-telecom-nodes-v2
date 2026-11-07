@@ -3,7 +3,7 @@
 pragma solidity =0.8.36;
 
 import {ReferralHubCheckpoints} from "./ReferralHubCheckpoints.sol";
-import {CohortWeeks} from "../../diamond/shared/pending/CohortWeeks.sol";
+import {CohortWeeks} from "../diamond/shared/CohortWeeks.sol";
 
 /**
  * @dev ReferralHubRates: the week-versioned rate tables and `_weeklyRates`,

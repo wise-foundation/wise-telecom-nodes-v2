@@ -2,12 +2,12 @@
 pragma solidity =0.8.36;
 
 import {ReferralPreflightVault} from "./ReferralPreflightVault.sol";
-import {ReferralRegistry} from "../../src/registry/pending/ReferralRegistry.sol";
-import {IReferralHub} from "../../src/hub/pending/IReferralHub.sol";
-import {ReferralHubDeclarations} from "../../src/hub/pending/ReferralHubDeclarations.sol";
-import {ReferralHubReader} from "../../src/hub/pending/ReferralHubReader.sol";
-import {ReferralHub} from "../../src/hub/pending/ReferralHub.sol";
-import {ReferralHubRatesFacet} from "../../src/hub/pending/ReferralHubRatesFacet.sol";
+import {ReferralRegistry} from "../../src/registry/ReferralRegistry.sol";
+import {IReferralHub} from "../../src/hub/IReferralHub.sol";
+import {ReferralHubDeclarations} from "../../src/hub/ReferralHubDeclarations.sol";
+import {ReferralHubReader} from "../../src/hub/ReferralHubReader.sol";
+import {ReferralHub} from "../../src/hub/ReferralHub.sol";
+import {ReferralHubRatesFacet} from "../../src/hub/ReferralHubRatesFacet.sol";
 
 import {ReferralHubSelectors} from "../hub/ReferralHubSelectors.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";

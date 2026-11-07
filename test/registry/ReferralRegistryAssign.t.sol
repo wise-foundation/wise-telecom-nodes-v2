@@ -5,8 +5,8 @@ pragma solidity =0.8.36;
 import {Test} from "forge-std/Test.sol";
 import {Vm} from "forge-std/Vm.sol";
 
-import {ReferralRegistry} from "../../src/registry/pending/ReferralRegistry.sol";
-import {ReferralRegistryDeclarations} from "../../src/registry/pending/ReferralRegistryDeclarations.sol";
+import {ReferralRegistry} from "../../src/registry/ReferralRegistry.sol";
+import {ReferralRegistryDeclarations} from "../../src/registry/ReferralRegistryDeclarations.sol";
 
 /**
  * @dev Tracked vault stand-in that holds a cohort book: answers the

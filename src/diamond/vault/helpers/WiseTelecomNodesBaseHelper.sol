@@ -3,7 +3,7 @@
 pragma solidity =0.8.36;
 
 import {WiseTelecomNodesDeclarations} from "../declarations/WiseTelecomNodesDeclarations.sol";
-import {IReferralRegistry} from "../interfaces/pending/IReferralRegistry.sol";
+import {IReferralRegistry} from "../interfaces/IReferralRegistry.sol";
 
 /**
  * @dev Base helper layer: access modifiers (`supplyChangeAllowed`),

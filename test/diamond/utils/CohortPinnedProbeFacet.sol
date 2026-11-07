@@ -2,7 +2,7 @@
 
 pragma solidity =0.8.36;
 
-import {CohortPinnedBase} from "../../../src/diamond/vault/facets/pending/CohortPinnedBase.sol";
+import {CohortPinnedBase} from "../../../src/diamond/vault/facets/CohortPinnedBase.sol";
 
 struct PinnedPrefixView {
     address master;

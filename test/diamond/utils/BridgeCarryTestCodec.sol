@@ -2,7 +2,7 @@
 
 pragma solidity =0.8.36;
 
-import {CohortWeeks} from "../../../src/diamond/shared/pending/CohortWeeks.sol";
+import {CohortWeeks} from "../../../src/diamond/shared/CohortWeeks.sol";
 
 /**
  * @dev Test-side builder of version-3 bridge carry payloads from lane

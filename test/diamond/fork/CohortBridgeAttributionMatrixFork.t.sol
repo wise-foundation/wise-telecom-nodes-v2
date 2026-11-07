@@ -17,9 +17,9 @@ import {
     IWtnCarryVault
 } from "./CcipCarryUpgradeRehearsalFork.t.sol";
 
-import {ReferralRegistry} from "../../../src/registry/pending/ReferralRegistry.sol";
+import {ReferralRegistry} from "../../../src/registry/ReferralRegistry.sol";
 
-import {CohortWeeks} from "../../../src/diamond/shared/pending/CohortWeeks.sol";
+import {CohortWeeks} from "../../../src/diamond/shared/CohortWeeks.sol";
 import {BridgeCarryTestCodec} from "../utils/BridgeCarryTestCodec.sol";
 
 /**

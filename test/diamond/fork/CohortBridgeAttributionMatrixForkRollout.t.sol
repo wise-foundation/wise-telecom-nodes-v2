@@ -15,7 +15,7 @@ import {
 import {FacetNotFound} from "../../../src/diamond/shared/DiamondErrors.sol";
 import {WiseTelecomNodesDiamondErrors} from "../../../src/diamond/vault/WiseTelecomNodesDiamondErrors.sol";
 
-import {CohortWeeks} from "../../../src/diamond/shared/pending/CohortWeeks.sol";
+import {CohortWeeks} from "../../../src/diamond/shared/CohortWeeks.sol";
 import {BridgeCarryTestCodec} from "../utils/BridgeCarryTestCodec.sol";
 
 /**

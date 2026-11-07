@@ -4,7 +4,7 @@ pragma solidity =0.8.36;
 
 import {IReferralHub} from "./IReferralHub.sol";
 import {ReferralHubDeclarations} from "./ReferralHubDeclarations.sol";
-import {CohortWeeks} from "../../diamond/shared/pending/CohortWeeks.sol";
+import {CohortWeeks} from "../diamond/shared/CohortWeeks.sol";
 
 /**
  * @dev ReferralHubReader: a stateless read companion of the hub, built

@@ -3,8 +3,8 @@
 pragma solidity =0.8.36;
 
 import {CohortLaneBase} from "./CohortLaneBase.sol";
-import {CohortWeeks} from "../../../shared/pending/CohortWeeks.sol";
-import {IReferralRegistry} from "../../interfaces/pending/IReferralRegistry.sol";
+import {CohortWeeks} from "../../shared/CohortWeeks.sol";
+import {IReferralRegistry} from "../interfaces/IReferralRegistry.sol";
 
 /**
  * @dev CohortClampBase: the one-way clamp of a referee's tracked

@@ -4,16 +4,16 @@ pragma solidity =0.8.36;
 
 import {Test} from "forge-std/Test.sol";
 
-import {IReferralHub} from "../../../src/hub/pending/IReferralHub.sol";
+import {IReferralHub} from "../../../src/hub/IReferralHub.sol";
 import {HubLeverGrants} from "../../hub/utils/HubLeverGrants.sol";
 import {HubDiamondHarness} from "../../hub/utils/HubDiamondHarness.sol";
-import {ReferralRegistry} from "../../../src/registry/pending/ReferralRegistry.sol";
-import {ReferralRegistryDeclarations} from "../../../src/registry/pending/ReferralRegistryDeclarations.sol";
+import {ReferralRegistry} from "../../../src/registry/ReferralRegistry.sol";
+import {ReferralRegistryDeclarations} from "../../../src/registry/ReferralRegistryDeclarations.sol";
 
 import {FacetNotFound} from "../../../src/diamond/shared/DiamondErrors.sol";
 import {NotMaster} from "../../../src/diamond/shared/OwnableMaster.sol";
 
-import {CohortWeeks} from "../../../src/diamond/shared/pending/CohortWeeks.sol";
+import {CohortWeeks} from "../../../src/diamond/shared/CohortWeeks.sol";
 
 import {DeployReferralRegistry} from "../../../script/registry/DeployReferralRegistry.s.sol";
 

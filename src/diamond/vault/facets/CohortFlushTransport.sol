@@ -6,9 +6,9 @@ import {Client} from "@chainlink/contracts-ccip/contracts/libraries/Client.sol";
 import {IRouterClient} from "@chainlink/contracts-ccip/contracts/interfaces/IRouterClient.sol";
 
 import {CohortFlushPlanner} from "./CohortFlushPlanner.sol";
-import {CohortFlushCodec} from "../../../shared/pending/CohortFlushCodec.sol";
-import {CohortWeeks} from "../../../shared/pending/CohortWeeks.sol";
-import {IReferralFlushHub} from "../../interfaces/pending/IReferralFlushHub.sol";
+import {CohortFlushCodec} from "../../shared/CohortFlushCodec.sol";
+import {CohortWeeks} from "../../shared/CohortWeeks.sol";
+import {IReferralFlushHub} from "../interfaces/IReferralFlushHub.sol";
 
 /**
  * @dev CohortFlushTransport: the flush guards, the cursor writes and the

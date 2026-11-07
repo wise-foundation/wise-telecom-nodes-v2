@@ -4,8 +4,8 @@ pragma solidity =0.8.36;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-import {OwnableMaster} from "../../diamond/shared/OwnableMaster.sol";
-import {CohortWeeks} from "../../diamond/shared/pending/CohortWeeks.sol";
+import {OwnableMaster} from "../diamond/shared/OwnableMaster.sol";
+import {CohortWeeks} from "../diamond/shared/CohortWeeks.sol";
 
 /**
  * @dev Storage, constants, events and errors of the referral hub, shared by

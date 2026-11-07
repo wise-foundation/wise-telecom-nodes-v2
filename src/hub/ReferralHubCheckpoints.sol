@@ -3,7 +3,7 @@
 pragma solidity =0.8.36;
 
 import {ReferralHubDeclarations} from "./ReferralHubDeclarations.sol";
-import {CohortWeeks} from "../../diamond/shared/pending/CohortWeeks.sol";
+import {CohortWeeks} from "../diamond/shared/CohortWeeks.sol";
 
 /**
  * @dev ReferralHubCheckpoints: the week buckets the ladder reads. Week W is

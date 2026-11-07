@@ -4,15 +4,15 @@ pragma solidity =0.8.36;
 
 import {Test} from "forge-std/Test.sol";
 
-import {IReferralHub} from "../../src/hub/pending/IReferralHub.sol";
+import {IReferralHub} from "../../src/hub/IReferralHub.sol";
 import {HubLeverGrants} from "./utils/HubLeverGrants.sol";
 import {HubDiamondHarness} from "../hub/utils/HubDiamondHarness.sol";
-import {ReferralHub} from "../../src/hub/pending/ReferralHub.sol";
-import {ReferralHubIntakeFacet} from "../../src/hub/pending/ReferralHubIntakeFacet.sol";
+import {ReferralHub} from "../../src/hub/ReferralHub.sol";
+import {ReferralHubIntakeFacet} from "../../src/hub/ReferralHubIntakeFacet.sol";
 import {ReferralHubSelectors} from "../../script/hub/ReferralHubSelectors.sol";
-import {ReferralHubDeclarations} from "../../src/hub/pending/ReferralHubDeclarations.sol";
-import {CohortWeeks} from "../../src/diamond/shared/pending/CohortWeeks.sol";
-import {CohortFlushCodec} from "../../src/diamond/shared/pending/CohortFlushCodec.sol";
+import {ReferralHubDeclarations} from "../../src/hub/ReferralHubDeclarations.sol";
+import {CohortWeeks} from "../../src/diamond/shared/CohortWeeks.sol";
+import {CohortFlushCodec} from "../../src/diamond/shared/CohortFlushCodec.sol";
 import {NotMaster} from "../../src/diamond/shared/OwnableMaster.sol";
 import {NotProposed} from "../../src/diamond/shared/OwnableMaster.sol";
 

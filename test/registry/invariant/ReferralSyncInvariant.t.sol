@@ -4,7 +4,7 @@ pragma solidity =0.8.36;
 
 import {Test} from "forge-std/Test.sol";
 
-import {ReferralRegistry} from "../../../src/registry/pending/ReferralRegistry.sol";
+import {ReferralRegistry} from "../../../src/registry/ReferralRegistry.sol";
 
 import {MockFlipVault} from "../ReferralRegistrySync.t.sol";
 

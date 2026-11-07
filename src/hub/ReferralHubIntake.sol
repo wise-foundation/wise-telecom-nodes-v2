@@ -3,8 +3,8 @@
 pragma solidity =0.8.36;
 
 import {ReferralHubRates} from "./ReferralHubRates.sol";
-import {CohortWeeks} from "../../diamond/shared/pending/CohortWeeks.sol";
-import {CohortFlushCodec} from "../../diamond/shared/pending/CohortFlushCodec.sol";
+import {CohortWeeks} from "../diamond/shared/CohortWeeks.sol";
+import {CohortFlushCodec} from "../diamond/shared/CohortFlushCodec.sol";
 
 /**
  * @dev ReferralHubIntake: the only writer of week buckets, paid cursors and

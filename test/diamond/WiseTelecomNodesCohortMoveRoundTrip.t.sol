@@ -3,7 +3,7 @@
 pragma solidity =0.8.36;
 
 import {WiseTelecomNodesDiamond} from "../../src/diamond/vault/WiseTelecomNodesDiamond.sol";
-import {CohortWeeks} from "../../src/diamond/shared/pending/CohortWeeks.sol";
+import {CohortWeeks} from "../../src/diamond/shared/CohortWeeks.sol";
 
 import {TwoVaultCohortHarness} from "./utils/TwoVaultCohortHarness.sol";
 

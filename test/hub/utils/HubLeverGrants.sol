@@ -4,7 +4,7 @@ pragma solidity =0.8.36;
 
 import {Vm} from "forge-std/Vm.sol";
 
-import {IReferralHub} from "../../../src/hub/pending/IReferralHub.sol";
+import {IReferralHub} from "../../../src/hub/IReferralHub.sol";
 
 /**
  * @dev Test helper for the hub lever timelock: a grant (allowing a

@@ -4,7 +4,7 @@ pragma solidity =0.8.36;
 
 import {ReferralHubRates} from "./ReferralHubRates.sol";
 import {ReferralHubFacetBase} from "./ReferralHubFacetBase.sol";
-import {CohortWeeks} from "../../diamond/shared/pending/CohortWeeks.sol";
+import {CohortWeeks} from "../diamond/shared/CohortWeeks.sol";
 
 /**
  * @dev ReferralHubRatesFacet: the rate reads and the master levers

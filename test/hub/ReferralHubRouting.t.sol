@@ -4,14 +4,14 @@ pragma solidity =0.8.36;
 
 import {Test} from "forge-std/Test.sol";
 
-import {IReferralHub} from "../../src/hub/pending/IReferralHub.sol";
+import {IReferralHub} from "../../src/hub/IReferralHub.sol";
 import {HubDiamondHarness} from "./utils/HubDiamondHarness.sol";
 
-import {ReferralHubCheckpointsFacet} from "../../src/hub/pending/ReferralHubCheckpointsFacet.sol";
-import {ReferralHubRatesFacet} from "../../src/hub/pending/ReferralHubRatesFacet.sol";
-import {ReferralHubIntakeFacet} from "../../src/hub/pending/ReferralHubIntakeFacet.sol";
-import {ReferralHubMailboxFacet} from "../../src/hub/pending/ReferralHubMailboxFacet.sol";
-import {ReferralHubPayoutFacet} from "../../src/hub/pending/ReferralHubPayoutFacet.sol";
+import {ReferralHubCheckpointsFacet} from "../../src/hub/ReferralHubCheckpointsFacet.sol";
+import {ReferralHubRatesFacet} from "../../src/hub/ReferralHubRatesFacet.sol";
+import {ReferralHubIntakeFacet} from "../../src/hub/ReferralHubIntakeFacet.sol";
+import {ReferralHubMailboxFacet} from "../../src/hub/ReferralHubMailboxFacet.sol";
+import {ReferralHubPayoutFacet} from "../../src/hub/ReferralHubPayoutFacet.sol";
 
 import {ReferralHubSelectors} from "../../script/hub/ReferralHubSelectors.sol";
 
@@ -22,7 +22,7 @@ import {
     AlreadyInitialized,
     FacetNotFound
 } from "../../src/diamond/shared/DiamondErrors.sol";
-import {ReferralHubDeclarations} from "../../src/hub/pending/ReferralHubDeclarations.sol";
+import {ReferralHubDeclarations} from "../../src/hub/ReferralHubDeclarations.sol";
 
 import {MockUSD} from "./ReferralHubPayout.t.sol";
 

@@ -2,9 +2,9 @@
 
 pragma solidity =0.8.36;
 
-import {FacetBase} from "../FacetBase.sol";
+import {FacetBase} from "./FacetBase.sol";
 import {ReferralFacetBase} from "./ReferralFacetBase.sol";
-import {IReferralRegistry} from "../../interfaces/pending/IReferralRegistry.sol";
+import {IReferralRegistry} from "../interfaces/IReferralRegistry.sol";
 
 /**
  * @dev ReferralFacet: the referral variants of the three plain deposit

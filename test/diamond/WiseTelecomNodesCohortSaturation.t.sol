@@ -4,10 +4,10 @@ pragma solidity =0.8.36;
 
 import {Test} from "forge-std/Test.sol";
 
-import {CohortWeeks} from "../../src/diamond/shared/pending/CohortWeeks.sol";
+import {CohortWeeks} from "../../src/diamond/shared/CohortWeeks.sol";
 
 import {CohortLaneHarness} from "./utils/CohortLaneHarness.sol";
-import {ReferralRegistry} from "../../src/registry/pending/ReferralRegistry.sol";
+import {ReferralRegistry} from "../../src/registry/ReferralRegistry.sol";
 
 /**
  * @dev Saturation-guard suite for the cohort recorder engine

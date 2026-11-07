@@ -10,7 +10,7 @@ import {ICcipBridgeVault} from "./utils/CcipForkInterfaces.sol";
 
 import {WiseTelecomNodesDiamondErrors} from "../../../src/diamond/vault/WiseTelecomNodesDiamondErrors.sol";
 
-import {CohortWeeks} from "../../../src/diamond/shared/pending/CohortWeeks.sol";
+import {CohortWeeks} from "../../../src/diamond/shared/CohortWeeks.sol";
 
 /**
  * @dev Operator-bot ordering rehearsal on the live flush transport.

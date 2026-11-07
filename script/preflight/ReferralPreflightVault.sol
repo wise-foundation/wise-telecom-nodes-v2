@@ -4,9 +4,9 @@ pragma solidity =0.8.36;
 import {ReferralPreflightRecords} from "./ReferralPreflightRecords.sol";
 import {WiseTelecomNodesDiamond} from "../../src/diamond/vault/WiseTelecomNodesDiamond.sol";
 import {AdminFacet} from "../../src/diamond/vault/facets/AdminFacet.sol";
-import {CohortRecorderFacet} from "../../src/diamond/vault/facets/pending/CohortRecorderFacet.sol";
-import {CohortFlushPolicyFacet} from "../../src/diamond/vault/facets/pending/CohortFlushPolicyFacet.sol";
-import {ReferralRegistry} from "../../src/registry/pending/ReferralRegistry.sol";
+import {CohortRecorderFacet} from "../../src/diamond/vault/facets/CohortRecorderFacet.sol";
+import {CohortFlushPolicyFacet} from "../../src/diamond/vault/facets/CohortFlushPolicyFacet.sol";
+import {ReferralRegistry} from "../../src/registry/ReferralRegistry.sol";
 
 import {WiseTelecomNodesDiamondSelectors} from "../diamond/WiseTelecomNodesDiamondSelectors.sol";
 

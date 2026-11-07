@@ -6,7 +6,7 @@ import {Client} from "@chainlink/contracts-ccip/contracts/libraries/Client.sol";
 import {IRouterClient} from "@chainlink/contracts-ccip/contracts/interfaces/IRouterClient.sol";
 
 import {WiseTelecomNodesMoveHelper} from "./WiseTelecomNodesMoveHelper.sol";
-import {CohortWeeks} from "../../shared/pending/CohortWeeks.sol";
+import {CohortWeeks} from "../../shared/CohortWeeks.sol";
 
 /**
  * @dev Cross-chain sibling of {WiseTelecomNodesMoveHelper}. Where
