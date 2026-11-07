@@ -8,8 +8,8 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {WiseTelecomNodesDiamond} from "../../src/diamond/vault/WiseTelecomNodesDiamond.sol";
 import {WiseTelecomNodesInitParams} from "../../src/diamond/vault/WiseTelecomNodesDiamondStructs.sol";
 import {AdminFacet} from "../../src/diamond/vault/facets/AdminFacet.sol";
-import {CohortHookFacet} from "../../src/diamond/vault/facets/pending/CohortHookFacet.sol";
-import {CohortMoveHookFacet} from "../../src/diamond/vault/facets/pending/CohortMoveHookFacet.sol";
+import {CohortHookFacet} from "../../src/diamond/vault/facets/CohortHookFacet.sol";
+import {CohortMoveHookFacet} from "../../src/diamond/vault/facets/CohortMoveHookFacet.sol";
 
 import {WiseTelecomNodesDiamondSelectors} from "../../script/diamond/WiseTelecomNodesDiamondSelectors.sol";
 

@@ -5,8 +5,8 @@ pragma solidity =0.8.36;
 import {Test} from "forge-std/Test.sol";
 
 import {CohortLaneHarness} from "../utils/CohortLaneHarness.sol";
-import {CohortWeeks} from "../../../src/diamond/shared/pending/CohortWeeks.sol";
-import {ReferralRegistry} from "../../../src/registry/pending/ReferralRegistry.sol";
+import {CohortWeeks} from "../../../src/diamond/shared/CohortWeeks.sol";
+import {ReferralRegistry} from "../../../src/registry/ReferralRegistry.sol";
 
 /**
  * @dev REFB property family: clamp-monotonicity properties for

@@ -7,9 +7,9 @@ import {VaultConfig} from "../vault/VaultConfig.sol";
 import {WiseTelecomNodesDiamond} from "../../src/diamond/vault/WiseTelecomNodesDiamond.sol";
 
 import {AdminFacet} from "../../src/diamond/vault/facets/AdminFacet.sol";
-import {CohortFlushFacet} from "../../src/diamond/vault/facets/pending/CohortFlushFacet.sol";
-import {CohortFlushPolicyFacet} from "../../src/diamond/vault/facets/pending/CohortFlushPolicyFacet.sol";
-import {CohortHookFacet} from "../../src/diamond/vault/facets/pending/CohortHookFacet.sol";
+import {CohortFlushFacet} from "../../src/diamond/vault/facets/CohortFlushFacet.sol";
+import {CohortFlushPolicyFacet} from "../../src/diamond/vault/facets/CohortFlushPolicyFacet.sol";
+import {CohortHookFacet} from "../../src/diamond/vault/facets/CohortHookFacet.sol";
 
 import {WiseTelecomNodesDiamondSelectors} from "./WiseTelecomNodesDiamondSelectors.sol";
 
@@ -68,11 +68,9 @@ import {WiseTelecomNodesDiamondSelectors} from "./WiseTelecomNodesDiamondSelecto
 ///   VAULT_PRODUCT=usdc forge script script/diamond/UpgradeCohortFlush.s.sol --sig "executeFlushHub()" --rpc-url base --broadcast
 ///   forge script script/hub/DeployReferralHub.s.sol --sig "wireFlush()" --rpc-url mainnet --broadcast
 ///
-/// Broadcast only after a fork rehearsal on every live chain. After a real broadcast is
-/// executed and verified, `git mv` the graduated files out of every pending/
-/// segment in the same commit: facets/pending/ (CohortFlushFacet, and CohortHookFacet if
-/// this round ships it first), declarations/pending/ (CohortFlushDeclaration) and the
-/// registry/hub pending trees their rounds cover.
+/// Broadcast only after a fork rehearsal on every live chain. The files this round
+/// deploys graduated out of their pending segments into facets/ and declarations/
+/// once the broadcast was executed and verified on every live chain.
 contract UpgradeCohortFlush is VaultConfig {
 
     string internal constant HUB_NETWORK = "mainnet";

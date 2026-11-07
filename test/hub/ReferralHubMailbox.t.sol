@@ -11,13 +11,13 @@ import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 import {Client} from "@chainlink/contracts-ccip/contracts/libraries/Client.sol";
 import {IAny2EVMMessageReceiver} from "@chainlink/contracts-ccip/contracts/interfaces/IAny2EVMMessageReceiver.sol";
 
-import {IReferralHub} from "../../src/hub/pending/IReferralHub.sol";
+import {IReferralHub} from "../../src/hub/IReferralHub.sol";
 import {HubLeverGrants} from "./utils/HubLeverGrants.sol";
 import {HubDiamondHarness} from "../hub/utils/HubDiamondHarness.sol";
-import {ReferralHubReader} from "../../src/hub/pending/ReferralHubReader.sol";
-import {ReferralHubDeclarations} from "../../src/hub/pending/ReferralHubDeclarations.sol";
-import {CohortFlushCodec} from "../../src/diamond/shared/pending/CohortFlushCodec.sol";
-import {CohortWeeks} from "../../src/diamond/shared/pending/CohortWeeks.sol";
+import {ReferralHubReader} from "../../src/hub/ReferralHubReader.sol";
+import {ReferralHubDeclarations} from "../../src/hub/ReferralHubDeclarations.sol";
+import {CohortFlushCodec} from "../../src/diamond/shared/CohortFlushCodec.sol";
+import {CohortWeeks} from "../../src/diamond/shared/CohortWeeks.sol";
 import {NotMaster} from "../../src/diamond/shared/OwnableMaster.sol";
 
 /**

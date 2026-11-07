@@ -3,9 +3,9 @@
 pragma solidity =0.8.36;
 
 import {CohortPinnedBase} from "./CohortPinnedBase.sol";
-import {CohortFlushCodec} from "../../../shared/pending/CohortFlushCodec.sol";
-import {CohortWeeks} from "../../../shared/pending/CohortWeeks.sol";
-import {IReferralRegistry} from "../../interfaces/pending/IReferralRegistry.sol";
+import {CohortFlushCodec} from "../../shared/CohortFlushCodec.sol";
+import {CohortWeeks} from "../../shared/CohortWeeks.sol";
+import {IReferralRegistry} from "../interfaces/IReferralRegistry.sol";
 
 /**
  * @dev CohortFlushPlanner: builds the flush envelope entries from storage.

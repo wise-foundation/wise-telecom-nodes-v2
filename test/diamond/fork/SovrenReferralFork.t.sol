@@ -8,9 +8,9 @@ import {VmSafe} from "forge-std/Vm.sol";
 import {Client} from "@chainlink/contracts-ccip/contracts/libraries/Client.sol";
 
 import {WiseTelecomNodesDiamondErrors} from "../../../src/diamond/vault/WiseTelecomNodesDiamondErrors.sol";
-import {ReferralRegistry} from "../../../src/registry/pending/ReferralRegistry.sol";
-import {ReferralRegistryDeclarations} from "../../../src/registry/pending/ReferralRegistryDeclarations.sol";
-import {IReferralHub} from "../../../src/hub/pending/IReferralHub.sol";
+import {ReferralRegistry} from "../../../src/registry/ReferralRegistry.sol";
+import {ReferralRegistryDeclarations} from "../../../src/registry/ReferralRegistryDeclarations.sol";
+import {IReferralHub} from "../../../src/hub/IReferralHub.sol";
 import {HubLeverGrants} from "../../hub/utils/HubLeverGrants.sol";
 
 /**

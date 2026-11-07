@@ -5,8 +5,8 @@ pragma solidity =0.8.36;
 import {IRouterClient} from "@chainlink/contracts-ccip/contracts/interfaces/IRouterClient.sol";
 
 import {CohortFlushTransport} from "./CohortFlushTransport.sol";
-import {CohortFlushCodec} from "../../../shared/pending/CohortFlushCodec.sol";
-import {CohortWeeks} from "../../../shared/pending/CohortWeeks.sol";
+import {CohortFlushCodec} from "../../shared/CohortFlushCodec.sol";
+import {CohortWeeks} from "../../shared/CohortWeeks.sol";
 
 /**
  * @dev CohortFlushFacet: the referral flush entrypoints of a vault. A batch

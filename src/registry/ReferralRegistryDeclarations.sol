@@ -2,7 +2,7 @@
 
 pragma solidity =0.8.36;
 
-import {OwnableMaster} from "../../diamond/shared/OwnableMaster.sol";
+import {OwnableMaster} from "../diamond/shared/OwnableMaster.sol";
 
 /**
  * @dev Storage, events and errors of the per-chain referral registry, a

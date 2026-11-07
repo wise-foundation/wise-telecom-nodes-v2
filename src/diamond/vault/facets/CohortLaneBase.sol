@@ -3,7 +3,7 @@
 pragma solidity =0.8.36;
 
 import {CohortBookBase} from "./CohortBookBase.sol";
-import {CohortWeeks} from "../../../shared/pending/CohortWeeks.sol";
+import {CohortWeeks} from "../../shared/CohortWeeks.sol";
 
 /**
  * @dev CohortLaneBase: credit, reduction and relocation of book lanes. A

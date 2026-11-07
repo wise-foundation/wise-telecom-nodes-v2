@@ -60,15 +60,10 @@ for e in data["storage"]:
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
-# Facets live in facets/ when routed on the live diamonds and in
-# facets/pending/ until their upgrade has actually been broadcast;
-# resolve whichever exists.
+# Every facet lives in facets/: a facet graduates into it once its
+# upgrade has been broadcast and verified on every live chain.
 facet_path() {
-    if [ -f "src/diamond/vault/facets/$1.sol" ]; then
-        echo "src/diamond/vault/facets/$1.sol:$1"
-    else
-        echo "src/diamond/vault/facets/pending/$1.sol:$1"
-    fi
+    echo "src/diamond/vault/facets/$1.sol:$1"
 }
 
 forge inspect "$DIAMOND" storage-layout --json > "$tmp/diamond.raw.json"
@@ -195,7 +190,7 @@ fi
 # and the slim cohort base must each declare exactly that line.
 transient_line="bool internal transient hookExecuting;"
 chain_transient="$(grep -rh "transient" src/diamond/vault/declarations --include=*.sol | grep -v "^ *\*" | sed "s/^ *//")"
-slim_transient="$(grep -h "transient" src/diamond/vault/facets/pending/CohortPinnedBase.sol | grep -v "^ *\*" | sed "s/^ *//")"
+slim_transient="$(grep -h "transient" src/diamond/vault/facets/CohortPinnedBase.sol | grep -v "^ *\*" | sed "s/^ *//")"
 if [ "$chain_transient" != "$transient_line" ] || [ "$slim_transient" != "$transient_line" ]; then
     echo "TRANSIENT DRIFT: the chain and CohortPinnedBase must each declare only: $transient_line"
     fail=1
@@ -204,7 +199,7 @@ fi
 # Hub diamond: the referral hub is a diamond proxy too (five facets
 # over the shared ReferralHubDeclarations shard); same proof, its own
 # snapshot.
-HUB_DIAMOND="src/hub/pending/ReferralHub.sol:ReferralHub"
+HUB_DIAMOND="src/hub/ReferralHub.sol:ReferralHub"
 HUB_SNAPSHOT="test/hub/storage_snapshot/hub_layout.json"
 HUB_FACETS=(
     ReferralHubCheckpointsFacet
@@ -217,7 +212,7 @@ HUB_FACETS=(
 forge inspect "$HUB_DIAMOND" storage-layout --json | normalize > "$tmp/hub.txt"
 
 for name in "${HUB_FACETS[@]}"; do
-    forge inspect "src/hub/pending/$name.sol:$name" storage-layout --json         | normalize > "$tmp/$name.hub.txt"
+    forge inspect "src/hub/$name.sol:$name" storage-layout --json         | normalize > "$tmp/$name.hub.txt"
     if ! diff -u "$tmp/hub.txt" "$tmp/$name.hub.txt" > "$tmp/$name.hub.diff"; then
         echo "HUB STORAGE LAYOUT DRIFT: $name != ReferralHub"
         cat "$tmp/$name.hub.diff"

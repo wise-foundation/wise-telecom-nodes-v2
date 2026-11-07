@@ -4,11 +4,11 @@ pragma solidity =0.8.36;
 
 import {Test} from "forge-std/Test.sol";
 
-import {IReferralHub} from "../../src/hub/pending/IReferralHub.sol";
+import {IReferralHub} from "../../src/hub/IReferralHub.sol";
 import {HubLeverGrants} from "./utils/HubLeverGrants.sol";
-import {CohortWeeks} from "../../src/diamond/shared/pending/CohortWeeks.sol";
+import {CohortWeeks} from "../../src/diamond/shared/CohortWeeks.sol";
 import {HubDiamondHarness} from "../hub/utils/HubDiamondHarness.sol";
-import {ReferralHubReader} from "../../src/hub/pending/ReferralHubReader.sol";
+import {ReferralHubReader} from "../../src/hub/ReferralHubReader.sol";
 
 /**
  * @dev Pins of the elevation window history. A grant after an end appends

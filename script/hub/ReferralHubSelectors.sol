@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity =0.8.36;
 
-import {ReferralHubCheckpointsFacet} from "../../src/hub/pending/ReferralHubCheckpointsFacet.sol";
-import {ReferralHubCheckpoints} from "../../src/hub/pending/ReferralHubCheckpoints.sol";
-import {ReferralHubRates} from "../../src/hub/pending/ReferralHubRates.sol";
-import {ReferralHubRatesFacet} from "../../src/hub/pending/ReferralHubRatesFacet.sol";
-import {ReferralHubIntakeFacet} from "../../src/hub/pending/ReferralHubIntakeFacet.sol";
-import {ReferralHubMailboxFacet} from "../../src/hub/pending/ReferralHubMailboxFacet.sol";
-import {ReferralHubPayoutFacet} from "../../src/hub/pending/ReferralHubPayoutFacet.sol";
+import {ReferralHubCheckpointsFacet} from "../../src/hub/ReferralHubCheckpointsFacet.sol";
+import {ReferralHubCheckpoints} from "../../src/hub/ReferralHubCheckpoints.sol";
+import {ReferralHubRates} from "../../src/hub/ReferralHubRates.sol";
+import {ReferralHubRatesFacet} from "../../src/hub/ReferralHubRatesFacet.sol";
+import {ReferralHubIntakeFacet} from "../../src/hub/ReferralHubIntakeFacet.sol";
+import {ReferralHubMailboxFacet} from "../../src/hub/ReferralHubMailboxFacet.sol";
+import {ReferralHubPayoutFacet} from "../../src/hub/ReferralHubPayoutFacet.sol";
 
 /// @title ReferralHubSelectors
 /// @notice The facet selector groups of the {ReferralHub} diamond, in the

@@ -3,8 +3,8 @@
 pragma solidity =0.8.36;
 
 import {ReferralRegistryAdmin} from "./ReferralRegistryAdmin.sol";
-import {OwnableMaster} from "../../diamond/shared/OwnableMaster.sol";
-import {CohortWeeks} from "../../diamond/shared/pending/CohortWeeks.sol";
+import {OwnableMaster} from "../diamond/shared/OwnableMaster.sol";
+import {CohortWeeks} from "../diamond/shared/CohortWeeks.sol";
 
 import {Client} from "@chainlink/contracts-ccip/contracts/libraries/Client.sol";
 import {IAny2EVMMessageReceiver} from "@chainlink/contracts-ccip/contracts/interfaces/IAny2EVMMessageReceiver.sol";

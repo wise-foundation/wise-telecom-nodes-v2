@@ -2,8 +2,8 @@
 
 pragma solidity =0.8.36;
 
-import {FacetBase} from "../FacetBase.sol";
-import {CohortWeeks} from "../../../shared/pending/CohortWeeks.sol";
+import {FacetBase} from "./FacetBase.sol";
+import {CohortWeeks} from "../../shared/CohortWeeks.sol";
 
 /**
  * @dev CohortFlushPolicyFacet: the master levers of the flush transport

@@ -2,9 +2,9 @@
 
 pragma solidity =0.8.36;
 
-import {CohortRecorderBase} from "../../../src/diamond/vault/facets/pending/CohortRecorderBase.sol";
-import {CohortWeeks} from "../../../src/diamond/shared/pending/CohortWeeks.sol";
-import {ReferralRegistry} from "../../../src/registry/pending/ReferralRegistry.sol";
+import {CohortRecorderBase} from "../../../src/diamond/vault/facets/CohortRecorderBase.sol";
+import {CohortWeeks} from "../../../src/diamond/shared/CohortWeeks.sol";
+import {ReferralRegistry} from "../../../src/registry/ReferralRegistry.sol";
 
 /**
  * @dev Narrow-writer harness over {CohortRecorderBase}, following the

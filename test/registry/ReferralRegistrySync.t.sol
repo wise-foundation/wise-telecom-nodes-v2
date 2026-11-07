@@ -6,8 +6,8 @@ import {console} from "forge-std/console.sol";
 import {Test} from "forge-std/Test.sol";
 import {Vm} from "forge-std/Vm.sol";
 
-import {ReferralRegistry} from "../../src/registry/pending/ReferralRegistry.sol";
-import {ReferralRegistryDeclarations} from "../../src/registry/pending/ReferralRegistryDeclarations.sol";
+import {ReferralRegistry} from "../../src/registry/ReferralRegistry.sol";
+import {ReferralRegistryDeclarations} from "../../src/registry/ReferralRegistryDeclarations.sol";
 import {NotMaster} from "../../src/diamond/shared/OwnableMaster.sol";
 
 import {Client} from "@chainlink/contracts-ccip/contracts/libraries/Client.sol";

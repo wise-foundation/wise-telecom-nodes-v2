@@ -3,9 +3,9 @@
 pragma solidity =0.8.36;
 
 import {ReferralHubDeclarations} from "./ReferralHubDeclarations.sol";
-import {OwnableMaster} from "../../diamond/shared/OwnableMaster.sol";
+import {OwnableMaster} from "../diamond/shared/OwnableMaster.sol";
 
-import {OnlyDelegateCall} from "../../diamond/shared/DiamondErrors.sol";
+import {OnlyDelegateCall} from "../diamond/shared/DiamondErrors.sol";
 
 /**
  * @dev ReferralHubFacetBase: the delegatecall guard of the routed hub

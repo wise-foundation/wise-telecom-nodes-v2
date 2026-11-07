@@ -2,8 +2,8 @@
 
 pragma solidity =0.8.36;
 
-import {CohortRecorderBase} from "../../../src/diamond/vault/facets/pending/CohortRecorderBase.sol";
-import {CohortWeeks} from "../../../src/diamond/shared/pending/CohortWeeks.sol";
+import {CohortRecorderBase} from "../../../src/diamond/vault/facets/CohortRecorderBase.sol";
+import {CohortWeeks} from "../../../src/diamond/shared/CohortWeeks.sol";
 
 /**
  * @dev Sibling of {CohortLaneHarness}, dedicated to the same-chain

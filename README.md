@@ -25,7 +25,7 @@ table and paid in USDC on Ethereum mainnet. Three parts make it up:
   shared by every vault on the chain; the four registries exchange their records over Chainlink CCIP
   and the earliest assignment wins everywhere. Deployed on Ethereum, Base, Arbitrum and Robinhood
   Chain on 2026-10-22.
-* **Cohort facets on every vault** (`src/diamond/vault/facets/pending/`): record, week by week, the
+* **Cohort facets on every vault** (`src/diamond/vault/facets/`): record, week by week, the
   referred and the own stake each referrer had present, and ship the closed weeks to the hub. They
   reach the live diamonds through the vaults' three day selector timelocks, in two rounds per vault.
 * **A hub on Ethereum mainnet** (`src/hub/`): receives the weekly records of every vault on every
@@ -138,7 +138,7 @@ forge test --no-match-path "test/{MoneyForward.t.sol,MoneyForwardViewParity.t.so
 cp .env.example .env               # set MAINNET_RPC_URL and ARBITRUM_RPC_URL (archive access)
 forge test
 
-# registry rehearsal: replays the full referral-registry rollout (ten selector
+# registry rehearsal: replays the full referral-registry rollout (thirteen selector
 # batches + transfer-hook swap + standalone registry deploy + slot-77 pointer clock +
 # arming + recorder lifecycle) on a fork of every live vault; run per chain as RPCs allow
 forge test --match-path "test/diamond/fork/ReferralRegistryUpgradeFork.t.sol" --match-contract ReferralRegistryUpgradeUsdcBaseFork

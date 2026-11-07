@@ -10,10 +10,10 @@ import {AdminFacet} from "../../../src/diamond/vault/facets/AdminFacet.sol";
 import {UserFacet} from "../../../src/diamond/vault/facets/UserFacet.sol";
 import {MoveFacet} from "../../../src/diamond/vault/facets/MoveFacet.sol";
 import {QueueJoinLeaveFacet} from "../../../src/diamond/vault/facets/QueueJoinLeaveFacet.sol";
-import {ReferralFacet} from "../../../src/diamond/vault/facets/pending/ReferralFacet.sol";
-import {CohortRecorderFacet} from "../../../src/diamond/vault/facets/pending/CohortRecorderFacet.sol";
-import {CohortWeeks} from "../../../src/diamond/shared/pending/CohortWeeks.sol";
-import {ReferralRegistry} from "../../../src/registry/pending/ReferralRegistry.sol";
+import {ReferralFacet} from "../../../src/diamond/vault/facets/ReferralFacet.sol";
+import {CohortRecorderFacet} from "../../../src/diamond/vault/facets/CohortRecorderFacet.sol";
+import {CohortWeeks} from "../../../src/diamond/shared/CohortWeeks.sol";
+import {ReferralRegistry} from "../../../src/registry/ReferralRegistry.sol";
 
 import {TwoVaultCohortHarness, TwoVaultMockUSD} from "../utils/TwoVaultCohortHarness.sol";
 

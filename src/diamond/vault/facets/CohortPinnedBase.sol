@@ -5,25 +5,25 @@ pragma solidity =0.8.36;
 import {Pausable} from "@openzeppelin/contracts/security/Pausable.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 
-import {OwnableMaster} from "../../../shared/OwnableMaster.sol";
-import {OnlyDelegateCall} from "../../../shared/DiamondErrors.sol";
-import {CohortWeeks} from "../../../shared/pending/CohortWeeks.sol";
+import {OwnableMaster} from "../../shared/OwnableMaster.sol";
+import {OnlyDelegateCall} from "../../shared/DiamondErrors.sol";
+import {CohortWeeks} from "../../shared/CohortWeeks.sol";
 
-import {WiseTelecomNodesDiamondErrors} from "../../WiseTelecomNodesDiamondErrors.sol";
-import {WiseTelecomNodesDiamondEvents} from "../../WiseTelecomNodesDiamondEvents.sol";
+import {WiseTelecomNodesDiamondErrors} from "../WiseTelecomNodesDiamondErrors.sol";
+import {WiseTelecomNodesDiamondEvents} from "../WiseTelecomNodesDiamondEvents.sol";
 
-import {ReferralRegistryDeclaration} from "../../declarations/pending/ReferralRegistryDeclaration.sol";
-import {CohortContributionDeclaration} from "../../declarations/pending/CohortContributionDeclaration.sol";
-import {CohortBookDeclaration} from "../../declarations/pending/CohortBookDeclaration.sol";
-import {ReferralPayoutDeclaration} from "../../declarations/pending/ReferralPayoutDeclaration.sol";
-import {ReferralRegistryPointerDeclaration} from "../../declarations/pending/ReferralRegistryPointerDeclaration.sol";
-import {PayoutHubPointerDeclaration} from "../../declarations/pending/PayoutHubPointerDeclaration.sol";
-import {CohortFlushDeclaration} from "../../declarations/pending/CohortFlushDeclaration.sol";
-import {CohortAttributionDeclaration} from "../../declarations/pending/CohortAttributionDeclaration.sol";
-import {CohortDivestDeclaration} from "../../declarations/pending/CohortDivestDeclaration.sol";
-import {CohortSelfDeclaration} from "../../declarations/pending/CohortSelfDeclaration.sol";
-import {CohortDisarmDeclaration} from "../../declarations/pending/CohortDisarmDeclaration.sol";
-import {CohortSelfLogDeclaration} from "../../declarations/pending/CohortSelfLogDeclaration.sol";
+import {ReferralRegistryDeclaration} from "../declarations/ReferralRegistryDeclaration.sol";
+import {CohortContributionDeclaration} from "../declarations/CohortContributionDeclaration.sol";
+import {CohortBookDeclaration} from "../declarations/CohortBookDeclaration.sol";
+import {ReferralPayoutDeclaration} from "../declarations/ReferralPayoutDeclaration.sol";
+import {ReferralRegistryPointerDeclaration} from "../declarations/ReferralRegistryPointerDeclaration.sol";
+import {PayoutHubPointerDeclaration} from "../declarations/PayoutHubPointerDeclaration.sol";
+import {CohortFlushDeclaration} from "../declarations/CohortFlushDeclaration.sol";
+import {CohortAttributionDeclaration} from "../declarations/CohortAttributionDeclaration.sol";
+import {CohortDivestDeclaration} from "../declarations/CohortDivestDeclaration.sol";
+import {CohortSelfDeclaration} from "../declarations/CohortSelfDeclaration.sol";
+import {CohortDisarmDeclaration} from "../declarations/CohortDisarmDeclaration.sol";
+import {CohortSelfLogDeclaration} from "../declarations/CohortSelfLogDeclaration.sol";
 
 /**
  * @dev Genesis slots 0 to 66 of the diamond layout, pinned by label

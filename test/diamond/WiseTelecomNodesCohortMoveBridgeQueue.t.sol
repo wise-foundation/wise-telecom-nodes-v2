@@ -15,11 +15,11 @@ import {MoveFacet} from "../../src/diamond/vault/facets/MoveFacet.sol";
 import {BridgeFacet} from "../../src/diamond/vault/facets/BridgeFacet.sol";
 import {QueueJoinLeaveFacet} from "../../src/diamond/vault/facets/QueueJoinLeaveFacet.sol";
 import {QueueFulfillFacet} from "../../src/diamond/vault/facets/QueueFulfillFacet.sol";
-import {ReferralFacet} from "../../src/diamond/vault/facets/pending/ReferralFacet.sol";
-import {Permit2ReferralFacet} from "../../src/diamond/vault/facets/pending/Permit2ReferralFacet.sol";
-import {CohortHookFacet} from "../../src/diamond/vault/facets/pending/CohortHookFacet.sol";
-import {CohortMoveHookFacet} from "../../src/diamond/vault/facets/pending/CohortMoveHookFacet.sol";
-import {CohortRecorderFacet} from "../../src/diamond/vault/facets/pending/CohortRecorderFacet.sol";
+import {ReferralFacet} from "../../src/diamond/vault/facets/ReferralFacet.sol";
+import {Permit2ReferralFacet} from "../../src/diamond/vault/facets/Permit2ReferralFacet.sol";
+import {CohortHookFacet} from "../../src/diamond/vault/facets/CohortHookFacet.sol";
+import {CohortMoveHookFacet} from "../../src/diamond/vault/facets/CohortMoveHookFacet.sol";
+import {CohortRecorderFacet} from "../../src/diamond/vault/facets/CohortRecorderFacet.sol";
 import {IPermit2} from "../../src/diamond/vault/interfaces/IPermit2.sol";
 
 import {WiseTelecomNodesDiamondSelectors} from "../../script/diamond/WiseTelecomNodesDiamondSelectors.sol";

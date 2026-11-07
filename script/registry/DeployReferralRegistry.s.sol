@@ -5,7 +5,7 @@ import "forge-std/console2.sol";
 import {VmSafe} from "forge-std/Vm.sol";
 
 import {VaultConfig} from "../vault/VaultConfig.sol";
-import {ReferralRegistry} from "../../src/registry/pending/ReferralRegistry.sol";
+import {ReferralRegistry} from "../../src/registry/ReferralRegistry.sol";
 
 /// @notice Deploys the per-chain {ReferralRegistry}: ONE instance per CHAIN, never
 /// per vault (one shared referrer book serving every diamond on the chain).
@@ -70,8 +70,8 @@ import {ReferralRegistry} from "../../src/registry/pending/ReferralRegistry.sol"
 /// Plain CREATE is used; CREATE3 (same registry address on all four chains, matching the
 /// diamonds' own deployment style) remains an option at broadcast time; the config file is
 /// the source of truth either way. Broadcast only after a fork rehearsal on every chain.
-/// After a real broadcast is executed and verified, `git mv` the registry out of
-/// src/registry/pending/ in the same commit.
+/// The registry graduated out of its pending segment into src/registry/ once the
+/// broadcast was executed and verified on every chain.
 contract DeployReferralRegistry is VaultConfig {
 
     uint256 internal constant SYNC_KEY_FLOOR = 1_700_000_000;

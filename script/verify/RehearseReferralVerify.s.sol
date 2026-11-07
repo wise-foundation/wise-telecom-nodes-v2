@@ -13,22 +13,22 @@ import {QueueJoinLeaveFacet} from "../../src/diamond/vault/facets/QueueJoinLeave
 import {QueueFulfillFacet} from "../../src/diamond/vault/facets/QueueFulfillFacet.sol";
 import {AutoCompoundFacet} from "../../src/diamond/vault/facets/AutoCompoundFacet.sol";
 import {SweepFacet} from "../../src/diamond/vault/facets/SweepFacet.sol";
-import {ReferralFacet} from "../../src/diamond/vault/facets/pending/ReferralFacet.sol";
-import {Permit2ReferralFacet} from "../../src/diamond/vault/facets/pending/Permit2ReferralFacet.sol";
-import {CohortRecorderFacet} from "../../src/diamond/vault/facets/pending/CohortRecorderFacet.sol";
-import {CohortHookFacet} from "../../src/diamond/vault/facets/pending/CohortHookFacet.sol";
-import {CohortBridgeHookFacet} from "../../src/diamond/vault/facets/pending/CohortBridgeHookFacet.sol";
-import {CohortMoveHookFacet} from "../../src/diamond/vault/facets/pending/CohortMoveHookFacet.sol";
-import {CohortFlushFacet} from "../../src/diamond/vault/facets/pending/CohortFlushFacet.sol";
-import {CohortFlushPolicyFacet} from "../../src/diamond/vault/facets/pending/CohortFlushPolicyFacet.sol";
-import {ReferralRegistry} from "../../src/registry/pending/ReferralRegistry.sol";
-import {ReferralHub} from "../../src/hub/pending/ReferralHub.sol";
-import {ReferralHubReader} from "../../src/hub/pending/ReferralHubReader.sol";
-import {ReferralHubCheckpointsFacet} from "../../src/hub/pending/ReferralHubCheckpointsFacet.sol";
-import {ReferralHubRatesFacet} from "../../src/hub/pending/ReferralHubRatesFacet.sol";
-import {ReferralHubIntakeFacet} from "../../src/hub/pending/ReferralHubIntakeFacet.sol";
-import {ReferralHubMailboxFacet} from "../../src/hub/pending/ReferralHubMailboxFacet.sol";
-import {ReferralHubPayoutFacet} from "../../src/hub/pending/ReferralHubPayoutFacet.sol";
+import {ReferralFacet} from "../../src/diamond/vault/facets/ReferralFacet.sol";
+import {Permit2ReferralFacet} from "../../src/diamond/vault/facets/Permit2ReferralFacet.sol";
+import {CohortRecorderFacet} from "../../src/diamond/vault/facets/CohortRecorderFacet.sol";
+import {CohortHookFacet} from "../../src/diamond/vault/facets/CohortHookFacet.sol";
+import {CohortBridgeHookFacet} from "../../src/diamond/vault/facets/CohortBridgeHookFacet.sol";
+import {CohortMoveHookFacet} from "../../src/diamond/vault/facets/CohortMoveHookFacet.sol";
+import {CohortFlushFacet} from "../../src/diamond/vault/facets/CohortFlushFacet.sol";
+import {CohortFlushPolicyFacet} from "../../src/diamond/vault/facets/CohortFlushPolicyFacet.sol";
+import {ReferralRegistry} from "../../src/registry/ReferralRegistry.sol";
+import {ReferralHub} from "../../src/hub/ReferralHub.sol";
+import {ReferralHubReader} from "../../src/hub/ReferralHubReader.sol";
+import {ReferralHubCheckpointsFacet} from "../../src/hub/ReferralHubCheckpointsFacet.sol";
+import {ReferralHubRatesFacet} from "../../src/hub/ReferralHubRatesFacet.sol";
+import {ReferralHubIntakeFacet} from "../../src/hub/ReferralHubIntakeFacet.sol";
+import {ReferralHubMailboxFacet} from "../../src/hub/ReferralHubMailboxFacet.sol";
+import {ReferralHubPayoutFacet} from "../../src/hub/ReferralHubPayoutFacet.sol";
 
 /// @notice Explorer verification rehearsal on Sepolia: deploys one copy of every contract the
 /// referral rollout deploys on the live chains (the sixteen vault facets of the registry and

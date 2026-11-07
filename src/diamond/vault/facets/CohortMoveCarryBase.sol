@@ -3,8 +3,8 @@
 pragma solidity =0.8.36;
 
 import {CohortClampBase} from "./CohortClampBase.sol";
-import {CohortWeeks} from "../../../shared/pending/CohortWeeks.sol";
-import {IReferralRegistry} from "../../interfaces/pending/IReferralRegistry.sol";
+import {CohortWeeks} from "../../shared/CohortWeeks.sol";
+import {IReferralRegistry} from "../interfaces/IReferralRegistry.sol";
 
 /**
  * @dev CohortMoveCarryBase: the same-chain move carry. The source clamps

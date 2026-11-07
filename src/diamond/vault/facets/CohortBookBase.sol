@@ -3,7 +3,7 @@
 pragma solidity =0.8.36;
 
 import {CohortPinnedBase} from "./CohortPinnedBase.sol";
-import {CohortWeeks} from "../../../shared/pending/CohortWeeks.sol";
+import {CohortWeeks} from "../../shared/CohortWeeks.sol";
 
 /**
  * @dev CohortBookBase: the referrer book of the cohort recorder. A book is

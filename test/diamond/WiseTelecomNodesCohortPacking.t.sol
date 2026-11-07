@@ -4,7 +4,7 @@ pragma solidity =0.8.36;
 
 import {Test} from "forge-std/Test.sol";
 
-import {CohortWeeks} from "../../src/diamond/shared/pending/CohortWeeks.sol";
+import {CohortWeeks} from "../../src/diamond/shared/CohortWeeks.sol";
 
 /**
  * @dev Pure-function fuzz suite for {CohortWeeks}, the FROZEN lane-packing

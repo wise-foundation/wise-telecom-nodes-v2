@@ -4,8 +4,8 @@ pragma solidity =0.8.36;
 
 import {Test} from "forge-std/Test.sol";
 
-import {ReferralRegistry} from "../../src/registry/pending/ReferralRegistry.sol";
-import {ReferralRegistryDeclarations} from "../../src/registry/pending/ReferralRegistryDeclarations.sol";
+import {ReferralRegistry} from "../../src/registry/ReferralRegistry.sol";
+import {ReferralRegistryDeclarations} from "../../src/registry/ReferralRegistryDeclarations.sol";
 import {NotMaster} from "../../src/diamond/shared/OwnableMaster.sol";
 
 import {Client} from "@chainlink/contracts-ccip/contracts/libraries/Client.sol";

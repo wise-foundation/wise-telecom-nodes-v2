@@ -14,16 +14,16 @@ import {BridgeFacet} from "../../src/diamond/vault/facets/BridgeFacet.sol";
 import {QueueJoinLeaveFacet} from "../../src/diamond/vault/facets/QueueJoinLeaveFacet.sol";
 import {QueueFulfillFacet} from "../../src/diamond/vault/facets/QueueFulfillFacet.sol";
 import {AutoCompoundFacet} from "../../src/diamond/vault/facets/AutoCompoundFacet.sol";
-import {ReferralFacet} from "../../src/diamond/vault/facets/pending/ReferralFacet.sol";
-import {Permit2ReferralFacet} from "../../src/diamond/vault/facets/pending/Permit2ReferralFacet.sol";
-import {CohortRecorderFacet} from "../../src/diamond/vault/facets/pending/CohortRecorderFacet.sol";
-import {CohortHookFacet} from "../../src/diamond/vault/facets/pending/CohortHookFacet.sol";
-import {CohortBridgeHookFacet} from "../../src/diamond/vault/facets/pending/CohortBridgeHookFacet.sol";
-import {CohortMoveHookFacet} from "../../src/diamond/vault/facets/pending/CohortMoveHookFacet.sol";
-import {ReferralRegistry} from "../../src/registry/pending/ReferralRegistry.sol";
-import {IReferralRegistry} from "../../src/diamond/vault/interfaces/pending/IReferralRegistry.sol";
-import {CohortFlushCodec} from "../../src/diamond/shared/pending/CohortFlushCodec.sol";
-import {CohortWeeks} from "../../src/diamond/shared/pending/CohortWeeks.sol";
+import {ReferralFacet} from "../../src/diamond/vault/facets/ReferralFacet.sol";
+import {Permit2ReferralFacet} from "../../src/diamond/vault/facets/Permit2ReferralFacet.sol";
+import {CohortRecorderFacet} from "../../src/diamond/vault/facets/CohortRecorderFacet.sol";
+import {CohortHookFacet} from "../../src/diamond/vault/facets/CohortHookFacet.sol";
+import {CohortBridgeHookFacet} from "../../src/diamond/vault/facets/CohortBridgeHookFacet.sol";
+import {CohortMoveHookFacet} from "../../src/diamond/vault/facets/CohortMoveHookFacet.sol";
+import {ReferralRegistry} from "../../src/registry/ReferralRegistry.sol";
+import {IReferralRegistry} from "../../src/diamond/vault/interfaces/IReferralRegistry.sol";
+import {CohortFlushCodec} from "../../src/diamond/shared/CohortFlushCodec.sol";
+import {CohortWeeks} from "../../src/diamond/shared/CohortWeeks.sol";
 
 import {WiseTelecomNodesDiamondSelectors} from "./WiseTelecomNodesDiamondSelectors.sol";
 
@@ -148,11 +148,10 @@ import {WiseTelecomNodesDiamondSelectors} from "./WiseTelecomNodesDiamondSelecto
 ///   VAULT_PRODUCT=usdc forge script script/diamond/UpgradeReferralRegistry.s.sol --sig "arm()" --rpc-url mainnet --broadcast
 /// repeated for usdc/usdt/usdg on each of their chains (mainnet, base, arbitrum, robinhood).
 ///
-/// Broadcast only after a fork rehearsal on every live chain. After a real broadcast is
-/// executed and verified, `git mv` the graduated
-/// files out of every pending/ segment in the same commit: facets/pending/,
-/// declarations/pending/ (the shards this round's facets were compiled with),
-/// interfaces/pending/ and src/registry/pending/.
+/// Broadcast only after a fork rehearsal on every live chain. The files this round
+/// deploys graduated out of their pending segments into facets/, declarations/,
+/// interfaces/ and src/registry/ once the broadcast was executed and verified on
+/// every live chain.
 contract UpgradeReferralRegistry is VaultConfig {
 
     struct CohortEngineFacets {

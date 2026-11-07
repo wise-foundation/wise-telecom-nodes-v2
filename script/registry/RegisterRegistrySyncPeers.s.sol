@@ -4,7 +4,7 @@ pragma solidity =0.8.36;
 import "forge-std/console2.sol";
 
 import {VaultConfig} from "../vault/VaultConfig.sol";
-import {ReferralRegistry} from "../../src/registry/pending/ReferralRegistry.sol";
+import {ReferralRegistry} from "../../src/registry/ReferralRegistry.sol";
 
 /// @notice Wires the cross-chain referrer-sync mesh of the per-chain
 /// {ReferralRegistry}: sets the chain's CCIP router (one-shot) and registers every

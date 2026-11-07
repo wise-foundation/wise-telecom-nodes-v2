@@ -9,15 +9,15 @@ import {Client} from "@chainlink/contracts-ccip/contracts/libraries/Client.sol";
 import {WiseTelecomNodesDiamond} from "../../src/diamond/vault/WiseTelecomNodesDiamond.sol";
 import {AdminFacet} from "../../src/diamond/vault/facets/AdminFacet.sol";
 import {BridgeFacet} from "../../src/diamond/vault/facets/BridgeFacet.sol";
-import {ReferralFacet} from "../../src/diamond/vault/facets/pending/ReferralFacet.sol";
-import {CohortHookFacet} from "../../src/diamond/vault/facets/pending/CohortHookFacet.sol";
-import {CohortBridgeHookFacet} from "../../src/diamond/vault/facets/pending/CohortBridgeHookFacet.sol";
-import {CohortMoveHookFacet} from "../../src/diamond/vault/facets/pending/CohortMoveHookFacet.sol";
-import {CohortRecorderFacet} from "../../src/diamond/vault/facets/pending/CohortRecorderFacet.sol";
-import {CohortRecorderBase} from "../../src/diamond/vault/facets/pending/CohortRecorderBase.sol";
+import {ReferralFacet} from "../../src/diamond/vault/facets/ReferralFacet.sol";
+import {CohortHookFacet} from "../../src/diamond/vault/facets/CohortHookFacet.sol";
+import {CohortBridgeHookFacet} from "../../src/diamond/vault/facets/CohortBridgeHookFacet.sol";
+import {CohortMoveHookFacet} from "../../src/diamond/vault/facets/CohortMoveHookFacet.sol";
+import {CohortRecorderFacet} from "../../src/diamond/vault/facets/CohortRecorderFacet.sol";
+import {CohortRecorderBase} from "../../src/diamond/vault/facets/CohortRecorderBase.sol";
 import {FacetBase} from "../../src/diamond/vault/facets/FacetBase.sol";
-import {CohortWeeks} from "../../src/diamond/shared/pending/CohortWeeks.sol";
-import {ReferralRegistry} from "../../src/registry/pending/ReferralRegistry.sol";
+import {CohortWeeks} from "../../src/diamond/shared/CohortWeeks.sol";
+import {ReferralRegistry} from "../../src/registry/ReferralRegistry.sol";
 
 import {WiseTelecomNodesDiamondErrors} from "../../src/diamond/vault/WiseTelecomNodesDiamondErrors.sol";
 

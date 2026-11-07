@@ -144,14 +144,14 @@ The former tail shards `VaultBridgeFlowDeclaration` (`bridgedInflow`/`bridgedOut
 
 ### 2026-08-28 pending-shard rebase under the auto-compound shard
 
-The auto-compound shard was deployed to the live world (facet instances on all four chains, selector proposals queued on all nine vaults) while the referral/cohort shards in `declarations/pending/` were still unbroadcast, and both claimed the tail starting at slot 64. The live world wins: every pending shard was rebased to inherit AFTER `AutoCompoundDeclaration`, shifting the never-deployed pending block by exactly three slots: `referrerOf` 64→67, the cohort-contribution pair 65 to 66→68 to 69, the cohort book 67 to 72→70 to 75, `pendingReferralPayout` 73→76 and the registry pointer 74 to 76→77 to 79 (next free tail slot now 80). This is safe for the same reason pending shards are always free to move: their slots are virgin on every live diamond and no deployed bytecode was compiled against the old numbers; every facet in the tree recompiles against the rebased chain, and `check_storage_layout.sh` plus `check_live_layout_prefix.sh` prove the tree layout is internally identical and an exact extension of the deployed prefix.
+The auto-compound shard was deployed to the live world (facet instances on all four chains, selector proposals queued on all nine vaults) while the referral/cohort shards (then unbroadcast, under a pending segment of `declarations/` until they graduated on 2026-11-06) were still unbroadcast, and both claimed the tail starting at slot 64. The live world wins: every pending shard was rebased to inherit AFTER `AutoCompoundDeclaration`, shifting the never-deployed pending block by exactly three slots: `referrerOf` 64→67, the cohort-contribution pair 65 to 66→68 to 69, the cohort book 67 to 72→70 to 75, `pendingReferralPayout` 73→76 and the registry pointer 74 to 76→77 to 79 (next free tail slot now 80). This is safe for the same reason pending shards are always free to move: their slots are virgin on every live diamond and no deployed bytecode was compiled against the old numbers; every facet in the tree recompiles against the rebased chain, and `check_storage_layout.sh` plus `check_live_layout_prefix.sh` prove the tree layout is internally identical and an exact extension of the deployed prefix.
 
 ### 2026-07 referral-registry shard (PERMANENTLY DORMANT since 2026-08-14)
 
 `ReferralRegistryDeclaration` (slot 67, `referrerOf`) was designed as the in-diamond
 write-once referrer book, but it never went live (onchain-verified virgin on all 9 diamonds,
 2026-08-13); referrer truth moved instead to the per-chain standalone
-`ReferralRegistry` (`src/registry/pending/`) reached through the slot-77 pointer below. The
+`ReferralRegistry` (`src/registry/`) reached through the slot-77 pointer below. The
 mapping is now declared but FOREVER VIRGIN: no shipped code path reads or writes it, the
 fork rehearsals assert a raw `vm.load` of zero even after assignments, and the field was
 flipped `public` → `internal` (layout-neutral, since the check script compares label/slot/offset/
@@ -436,7 +436,7 @@ The referral hub is a diamond proxy now too, so `check_storage_layout.sh` grew a
 beside the vault block: the hub chain (`ReferralHubDeclarations` over `OwnableMaster`) is
 inspected for the proxy and each of its five facets and diffed against the committed
 `test/hub/storage_snapshot/hub_layout.json` (31 entries), regenerated with
-`forge inspect src/hub/pending/ReferralHub.sol:ReferralHub storage-layout --json`.
+`forge inspect src/hub/ReferralHub.sol:ReferralHub storage-layout --json`.
 The hub layout: `OwnableMaster` holds slots 0 to 1 (`master`, `proposedMaster`), the
 declarations shard follows, `paidCursor` holds slot 9 and the per-lane remainder park
 `paidRemainder` (three 39-bit lanes keyed by (source, referrer, week), the sub-unit
@@ -628,6 +628,19 @@ zero while open, at most `MAX_ELEVATION_WINDOWS` of them) is appended by `elevat
 closed by `endElevation`, and `_isElevatedAt` answers true when any window holds the week.
 `elevatedFromWeek` and `elevatedUntilWeek` stay the mirror of the latest window, so no hub
 selector changes; the hub snapshot is 40 entries. No vault change.
+
+### 2026-11-06 the referral and cohort shards are live (NO diamond storage added)
+
+Every tail shard from slot 67 to slot 95 is compiled into facets routed on all nine World Mobile
+diamonds: the registry round facets (slots 67 to 82 and 90 to 95 through the full chain and the slim
+base) are routed since 2026-10-25, the flush round facets (the flush transport shard, slots 83 to 89,
+with the rest) since 2026-10-28, and the flush hub pointer pair of slots 83 to 85 is written since
+2026-11-02; the Sovren vault routes the same code since 2026-10-28 and 2026-11-02. The shards therefore
+graduated out of the pending segment of `declarations/` on 2026-11-06, together with the facets, the
+interfaces, the shared libraries, the hub and the registry, after every deployed contract had been read
+verified on its explorer. The frozen entry contracts still end at slot 63 plus the transient guard, so
+`check_live_layout_prefix.sh` keeps anchoring the deployed prefix, and the layout of the tree is unchanged
+by the move (111 entries, hub 40). The retired words of slots 76 and 80 to 82 stay declared and unwritten.
 
 ## Snapshot & layout guard
 

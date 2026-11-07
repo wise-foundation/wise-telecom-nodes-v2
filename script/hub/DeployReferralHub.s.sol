@@ -6,15 +6,15 @@ import {VmSafe} from "forge-std/Vm.sol";
 
 import {VaultConfig} from "../vault/VaultConfig.sol";
 import {WiseTelecomNodesDiamond} from "../../src/diamond/vault/WiseTelecomNodesDiamond.sol";
-import {ReferralHub} from "../../src/hub/pending/ReferralHub.sol";
-import {IReferralHub} from "../../src/hub/pending/IReferralHub.sol";
-import {ReferralHubCheckpointsFacet} from "../../src/hub/pending/ReferralHubCheckpointsFacet.sol";
-import {ReferralHubRatesFacet} from "../../src/hub/pending/ReferralHubRatesFacet.sol";
-import {ReferralHubIntakeFacet} from "../../src/hub/pending/ReferralHubIntakeFacet.sol";
-import {ReferralHubMailboxFacet} from "../../src/hub/pending/ReferralHubMailboxFacet.sol";
-import {ReferralHubPayoutFacet} from "../../src/hub/pending/ReferralHubPayoutFacet.sol";
+import {ReferralHub} from "../../src/hub/ReferralHub.sol";
+import {IReferralHub} from "../../src/hub/IReferralHub.sol";
+import {ReferralHubCheckpointsFacet} from "../../src/hub/ReferralHubCheckpointsFacet.sol";
+import {ReferralHubRatesFacet} from "../../src/hub/ReferralHubRatesFacet.sol";
+import {ReferralHubIntakeFacet} from "../../src/hub/ReferralHubIntakeFacet.sol";
+import {ReferralHubMailboxFacet} from "../../src/hub/ReferralHubMailboxFacet.sol";
+import {ReferralHubPayoutFacet} from "../../src/hub/ReferralHubPayoutFacet.sol";
 import {ReferralHubSelectors} from "./ReferralHubSelectors.sol";
-import {ReferralHubReader} from "../../src/hub/pending/ReferralHubReader.sol";
+import {ReferralHubReader} from "../../src/hub/ReferralHubReader.sol";
 
 
 /// @notice Deploys the mainnet {ReferralHub}: ONE standalone instance on the hub chain,
@@ -62,9 +62,8 @@ import {ReferralHubReader} from "../../src/hub/pending/ReferralHubReader.sol";
 ///   forge script script/hub/DeployReferralHub.s.sol --sig "wireFlush()" --rpc-url mainnet --broadcast
 ///   forge script script/hub/DeployReferralHub.s.sol --sig "status()" --rpc-url mainnet
 ///
-/// Broadcast only after a fork rehearsal on mainnet. After a real broadcast is executed
-/// and verified, `git mv` the hub chain out of src/hub/pending/ in
-/// the same commit.
+/// Broadcast only after a fork rehearsal on mainnet. The hub chain graduated out of its
+/// pending segment into src/hub/ once the broadcast was executed and verified.
 contract DeployReferralHub is VaultConfig {
 
     /// @notice The shared flush work cap both sides bake into their bytecode

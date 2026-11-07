@@ -6,13 +6,13 @@ import {Test} from "forge-std/Test.sol";
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
-import {IReferralHub} from "../../src/hub/pending/IReferralHub.sol";
+import {IReferralHub} from "../../src/hub/IReferralHub.sol";
 import {HubLeverGrants} from "./utils/HubLeverGrants.sol";
-import {ReferralHub} from "../../src/hub/pending/ReferralHub.sol";
+import {ReferralHub} from "../../src/hub/ReferralHub.sol";
 import {HubDiamondHarness} from "../hub/utils/HubDiamondHarness.sol";
-import {ReferralHubReader} from "../../src/hub/pending/ReferralHubReader.sol";
-import {ReferralHubDeclarations} from "../../src/hub/pending/ReferralHubDeclarations.sol";
-import {CohortWeeks} from "../../src/diamond/shared/pending/CohortWeeks.sol";
+import {ReferralHubReader} from "../../src/hub/ReferralHubReader.sol";
+import {ReferralHubDeclarations} from "../../src/hub/ReferralHubDeclarations.sol";
+import {CohortWeeks} from "../../src/diamond/shared/CohortWeeks.sol";
 import {NotMaster} from "../../src/diamond/shared/OwnableMaster.sol";
 
 /**

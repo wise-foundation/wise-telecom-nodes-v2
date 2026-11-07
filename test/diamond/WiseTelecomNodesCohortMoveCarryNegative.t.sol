@@ -7,9 +7,9 @@ import {Vm} from "forge-std/Vm.sol";
 import {WiseTelecomNodesDiamond} from "../../src/diamond/vault/WiseTelecomNodesDiamond.sol";
 import {AdminFacet} from "../../src/diamond/vault/facets/AdminFacet.sol";
 import {MoveFacet} from "../../src/diamond/vault/facets/MoveFacet.sol";
-import {CohortMoveHookFacet} from "../../src/diamond/vault/facets/pending/CohortMoveHookFacet.sol";
+import {CohortMoveHookFacet} from "../../src/diamond/vault/facets/CohortMoveHookFacet.sol";
 import {WiseTelecomNodesDiamondErrors} from "../../src/diamond/vault/WiseTelecomNodesDiamondErrors.sol";
-import {CohortWeeks} from "../../src/diamond/shared/pending/CohortWeeks.sol";
+import {CohortWeeks} from "../../src/diamond/shared/CohortWeeks.sol";
 import {WiseTelecomNodesDiamondSelectors} from "../../script/diamond/WiseTelecomNodesDiamondSelectors.sol";
 
 import {TwoVaultCohortHarness} from "./utils/TwoVaultCohortHarness.sol";

@@ -38,18 +38,18 @@ import {DepositAccumPrevDeclaration} from "./DepositAccumPrevDeclaration.sol";
 import {HookGuardDeclaration} from "./HookGuardDeclaration.sol";
 import {InterestRemainderDeclaration} from "./InterestRemainderDeclaration.sol";
 import {AutoCompoundDeclaration} from "./AutoCompoundDeclaration.sol";
-import {ReferralRegistryDeclaration} from "./pending/ReferralRegistryDeclaration.sol";
-import {CohortContributionDeclaration} from "./pending/CohortContributionDeclaration.sol";
-import {CohortBookDeclaration} from "./pending/CohortBookDeclaration.sol";
-import {ReferralPayoutDeclaration} from "./pending/ReferralPayoutDeclaration.sol";
-import {ReferralRegistryPointerDeclaration} from "./pending/ReferralRegistryPointerDeclaration.sol";
-import {PayoutHubPointerDeclaration} from "./pending/PayoutHubPointerDeclaration.sol";
-import {CohortFlushDeclaration} from "./pending/CohortFlushDeclaration.sol";
-import {CohortAttributionDeclaration} from "./pending/CohortAttributionDeclaration.sol";
-import {CohortDivestDeclaration} from "./pending/CohortDivestDeclaration.sol";
-import {CohortSelfDeclaration} from "./pending/CohortSelfDeclaration.sol";
-import {CohortDisarmDeclaration} from "./pending/CohortDisarmDeclaration.sol";
-import {CohortSelfLogDeclaration} from "./pending/CohortSelfLogDeclaration.sol";
+import {ReferralRegistryDeclaration} from "./ReferralRegistryDeclaration.sol";
+import {CohortContributionDeclaration} from "./CohortContributionDeclaration.sol";
+import {CohortBookDeclaration} from "./CohortBookDeclaration.sol";
+import {ReferralPayoutDeclaration} from "./ReferralPayoutDeclaration.sol";
+import {ReferralRegistryPointerDeclaration} from "./ReferralRegistryPointerDeclaration.sol";
+import {PayoutHubPointerDeclaration} from "./PayoutHubPointerDeclaration.sol";
+import {CohortFlushDeclaration} from "./CohortFlushDeclaration.sol";
+import {CohortAttributionDeclaration} from "./CohortAttributionDeclaration.sol";
+import {CohortDivestDeclaration} from "./CohortDivestDeclaration.sol";
+import {CohortSelfDeclaration} from "./CohortSelfDeclaration.sol";
+import {CohortDisarmDeclaration} from "./CohortDisarmDeclaration.sol";
+import {CohortSelfLogDeclaration} from "./CohortSelfLogDeclaration.sol";
 
 /**
  * @title WiseTelecomNodesDeclarations

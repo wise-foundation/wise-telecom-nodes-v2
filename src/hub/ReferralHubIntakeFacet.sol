@@ -4,7 +4,7 @@ pragma solidity =0.8.36;
 
 import {ReferralHubIntake} from "./ReferralHubIntake.sol";
 import {ReferralHubFacetBase} from "./ReferralHubFacetBase.sol";
-import {CohortWeeks} from "../../diamond/shared/pending/CohortWeeks.sol";
+import {CohortWeeks} from "../diamond/shared/CohortWeeks.sol";
 
 /**
  * @dev ReferralHubIntakeFacet: the reporter surface of the hub

@@ -12,19 +12,19 @@ import {WiseTelecomNodesDiamondErrors} from "../../src/diamond/vault/WiseTelecom
 import {AdminFacet} from "../../src/diamond/vault/facets/AdminFacet.sol";
 import {UserFacet} from "../../src/diamond/vault/facets/UserFacet.sol";
 import {BridgeFacet} from "../../src/diamond/vault/facets/BridgeFacet.sol";
-import {ReferralFacet} from "../../src/diamond/vault/facets/pending/ReferralFacet.sol";
-import {CohortHookFacet} from "../../src/diamond/vault/facets/pending/CohortHookFacet.sol";
-import {CohortRecorderFacet} from "../../src/diamond/vault/facets/pending/CohortRecorderFacet.sol";
-import {CohortFlushFacet} from "../../src/diamond/vault/facets/pending/CohortFlushFacet.sol";
-import {CohortFlushPolicyFacet} from "../../src/diamond/vault/facets/pending/CohortFlushPolicyFacet.sol";
+import {ReferralFacet} from "../../src/diamond/vault/facets/ReferralFacet.sol";
+import {CohortHookFacet} from "../../src/diamond/vault/facets/CohortHookFacet.sol";
+import {CohortRecorderFacet} from "../../src/diamond/vault/facets/CohortRecorderFacet.sol";
+import {CohortFlushFacet} from "../../src/diamond/vault/facets/CohortFlushFacet.sol";
+import {CohortFlushPolicyFacet} from "../../src/diamond/vault/facets/CohortFlushPolicyFacet.sol";
 
-import {ReferralRegistry} from "../../src/registry/pending/ReferralRegistry.sol";
-import {IReferralHub} from "../../src/hub/pending/IReferralHub.sol";
+import {ReferralRegistry} from "../../src/registry/ReferralRegistry.sol";
+import {IReferralHub} from "../../src/hub/IReferralHub.sol";
 import {HubLeverGrants} from "../hub/utils/HubLeverGrants.sol";
 import {HubDiamondHarness} from "../hub/utils/HubDiamondHarness.sol";
-import {ReferralHubReader} from "../../src/hub/pending/ReferralHubReader.sol";
-import {CohortFlushCodec} from "../../src/diamond/shared/pending/CohortFlushCodec.sol";
-import {CohortWeeks} from "../../src/diamond/shared/pending/CohortWeeks.sol";
+import {ReferralHubReader} from "../../src/hub/ReferralHubReader.sol";
+import {CohortFlushCodec} from "../../src/diamond/shared/CohortFlushCodec.sol";
+import {CohortWeeks} from "../../src/diamond/shared/CohortWeeks.sol";
 import {NotMaster} from "../../src/diamond/shared/OwnableMaster.sol";
 import {OnlyDelegateCall, FacetNotFound} from "../../src/diamond/shared/DiamondErrors.sol";
 

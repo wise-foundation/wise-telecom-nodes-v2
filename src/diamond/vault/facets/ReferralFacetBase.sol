@@ -2,8 +2,8 @@
 
 pragma solidity =0.8.36;
 
-import {FacetBase} from "../FacetBase.sol";
-import {IReferralRegistry} from "../../interfaces/pending/IReferralRegistry.sol";
+import {FacetBase} from "./FacetBase.sol";
+import {IReferralRegistry} from "../interfaces/IReferralRegistry.sol";
 
 /**
  * @dev ReferralFacetBase: the shared assignment step of the referral

@@ -21,9 +21,9 @@ import {
     IWtnMatrixVault
 } from "./CohortBridgeAttributionMatrixFork.t.sol";
 
-import {ReferralRegistry} from "../../../src/registry/pending/ReferralRegistry.sol";
+import {ReferralRegistry} from "../../../src/registry/ReferralRegistry.sol";
 
-import {CohortWeeks} from "../../../src/diamond/shared/pending/CohortWeeks.sol";
+import {CohortWeeks} from "../../../src/diamond/shared/CohortWeeks.sol";
 
 /**
  * @dev The one extra entrypoint of the LIVE diamond the state matrix
