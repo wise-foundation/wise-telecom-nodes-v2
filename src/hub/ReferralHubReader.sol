@@ -232,10 +232,10 @@ contract ReferralHubReader {
 
     /**
      * @dev Per source chain id: the claimable amount and the address a
-     * claim would pay, zero while that chain's payout designation has not
-     * reached the hub (such a bucket cannot be claimed yet). `total` sums
-     * every amount, `claimableNow` only the designated ones; both are
-     * before the payout pool's funding.
+     * claim would pay, the owner itself until a designation from that
+     * chain redirected it. `total` sums every amount and `claimableNow`
+     * equals it, kept in the answer from the time an undesignated spoke
+     * bucket could not pay; both are before the payout pool's funding.
      */
     function claimablesOf(
         address _referrer,
@@ -270,11 +270,9 @@ contract ReferralHubReader {
             );
 
             total += amounts[i];
-
-            if (payouts[i] != address(0)) {
-                claimableNow += amounts[i];
-            }
         }
+
+        claimableNow = total;
     }
 
     /**

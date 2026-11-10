@@ -11,10 +11,20 @@ import {ReferralHubFacetBase} from "./ReferralHubFacetBase.sol";
 /**
  * @dev ReferralHubPayoutFacet: the claim rail (`claim`, `claimUpTo`,
  * `claimAll` over several source chains) and the hub chain's own payout
- * designation. The hub is its own pot: a claim pays from the USD the hub
- * holds (funded by plain transfers; `totalPayable - totalClaimed` is the
- * amount owed to buckets that can claim), `PotDry` when it holds less. It
- * never reaches the pricing.
+ * designation. Every bucket pays its owner's own address on the hub chain
+ * until a designation from the bucket's chain redirects it (the registry's
+ * `setPayoutAddress` on a spoke, carried by a flush or pushed, or this
+ * facet's `setPayoutAddress` on the hub chain; the newest stamp wins), so
+ * a referrer has to do nothing to be paid, and `payoutAddressOf` answers
+ * the address a claim would pay. A contract wallet that owns a spoke
+ * bucket (as referrer or as courier) and does not control the same
+ * address on the hub chain has that bucket payable to the address here,
+ * so such an owner designates on that spoke before its first commission
+ * accrues; an externally owned account loses nothing.
+ * The hub is its own pot: a claim pays from the USD the hub holds (funded
+ * by plain transfers; `totalPayable - totalClaimed` is the amount owed,
+ * `totalPayable` being kept equal to `totalAccrued` at every accrual and
+ * every claim), `PotDry` when it holds less. It never reaches the pricing.
  */
 contract ReferralHubPayoutFacet is
     ReferralHubIntake,
@@ -32,10 +42,9 @@ contract ReferralHubPayoutFacet is
     {
         uint256 amount = claimable[_chainId][_referrer];
 
-        _openClaim(
-            _chainId,
-            _referrer,
-            amount
+        require(
+            amount > 0,
+            NothingClaimable()
         );
 
         _payClaim(
@@ -59,15 +68,9 @@ contract ReferralHubPayoutFacet is
             ? _amount
             : entitled;
 
-        _openClaim(
-            _chainId,
-            _referrer,
-            amount
-        );
-
-        _requireDesignated(
-            _chainId,
-            _referrer
+        require(
+            amount > 0,
+            NothingClaimable()
         );
 
         uint256 covered = _coveredAmount();
@@ -89,11 +92,10 @@ contract ReferralHubPayoutFacet is
     }
 
     /**
-     * @dev Claims every listed bucket of `_referrer` that holds an amount,
-     * can pay (the hub chain, or a spoke whose designation landed) and
-     * accepts the caller (the referrer or that bucket's resolved payout);
-     * every other bucket is skipped, a repeated chain id included. Each
-     * bucket pays up to the cover left after the buckets before it, as
+     * @dev Claims every listed bucket of `_referrer` that holds an amount
+     * and accepts the caller (the referrer or that bucket's resolved
+     * payout); every other bucket is skipped, a repeated chain id included.
+     * Each bucket pays up to the cover left after the buckets before it, as
      * `claimUpTo` does, so a short pot pays what it can in list order and
      * leaves the rest claimable. Reverts `NothingClaimable` when it pays
      * nothing.
@@ -121,12 +123,6 @@ contract ReferralHubPayoutFacet is
             ) {
                 continue;
             }
-
-            _openClaim(
-                chainId,
-                _referrer,
-                amount
-            );
 
             uint256 covered = _coveredAmount();
 
@@ -159,11 +155,8 @@ contract ReferralHubPayoutFacet is
         external
         onlyDelegateCall
     {
-        _stampPayout(
-            block.chainid,
-            msg.sender,
-            block.timestamp << PAYOUT_STAMP_SHIFT
-        );
+        payoutStamp[block.chainid][msg.sender] = block.timestamp
+            << PAYOUT_STAMP_SHIFT;
 
         payoutAddress[block.chainid][msg.sender] = _payout;
 
@@ -182,39 +175,10 @@ contract ReferralHubPayoutFacet is
         view
         returns (address)
     {
-        if (_chainId != block.chainid && payoutStamp[_chainId][_owner] == 0) {
-            return ZERO_ADDRESS;
-        }
-
         return _resolvedPayout(
             _chainId,
             _owner
         );
-    }
-
-    /**
-     * @dev The first claim of an undesignated hub chain bucket stamps its
-     * designation and releases its backlog into `totalPayable`.
-     */
-    function _openClaim(
-        uint256 _chainId,
-        address _referrer,
-        uint256 _amount
-    )
-        internal
-    {
-        require(
-            _amount > 0,
-            NothingClaimable()
-        );
-
-        if (_chainId == block.chainid && payoutStamp[_chainId][_referrer] == 0) {
-            _stampPayout(
-                _chainId,
-                _referrer,
-                block.timestamp << PAYOUT_STAMP_SHIFT
-            );
-        }
     }
 
     function _payClaim(
@@ -235,16 +199,13 @@ contract ReferralHubPayoutFacet is
             NotPayoutAuthorized()
         );
 
-        _requireDesignated(
-            _chainId,
-            _referrer
-        );
-
         claimable[_chainId][_referrer] = claimable[_chainId][_referrer]
             - _amount;
 
         totalClaimed = totalClaimed
             + _amount;
+
+        totalPayable = totalAccrued;
 
         require(
             _amount <= USD_TOKEN.balanceOf(
@@ -266,20 +227,6 @@ contract ReferralHubPayoutFacet is
         );
     }
 
-    function _requireDesignated(
-        uint256 _chainId,
-        address _referrer
-    )
-        internal
-        view
-    {
-        require(
-            _chainId == block.chainid
-                || payoutStamp[_chainId][_referrer] != 0,
-            PayoutNotDesignated()
-        );
-    }
-
     function _claimSkipped(
         uint256 _chainId,
         address _referrer
@@ -288,10 +235,6 @@ contract ReferralHubPayoutFacet is
         view
         returns (bool)
     {
-        if (_chainId != block.chainid && payoutStamp[_chainId][_referrer] == 0) {
-            return true;
-        }
-
         return msg.sender != _referrer
             && msg.sender != _resolvedPayout(
                 _chainId,

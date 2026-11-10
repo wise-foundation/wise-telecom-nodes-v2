@@ -215,8 +215,6 @@ abstract contract WiseTelecomNodesDiamondErrors {
 
     error FlushOutageGraceActive();
 
-    error FlushCursorVirgin();
-
     error FlushCadenceActive();
 
     error FlushBookNotAdvanced();

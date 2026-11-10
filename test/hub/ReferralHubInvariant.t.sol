@@ -179,8 +179,6 @@ contract ReferralHubInvariantHandler is Test {
 
     uint256 public inlineSelfTopUps;
 
-    uint256 public ghostUndesignatedClaimViolations;
-
     uint256 public ghostTableGateViolations;
 
     HeldEnvelope[] internal held;
@@ -207,9 +205,9 @@ contract ReferralHubInvariantHandler is Test {
 
     uint256 public shareCapSets;
 
-    uint256 public lateReleaseCount;
+    uint256 public lateDesignations;
 
-    uint256 public undesignatedClaimRefusals;
+    uint256 public undesignatedCourierClaims;
 
     mapping(address => uint256) public ghostElevatedFrom;
 
@@ -759,10 +757,6 @@ contract ReferralHubInvariantHandler is Test {
             ? COURIER
             : referrers[pick];
 
-        if (hub.payoutStamp(REMOTE_CHAIN_ID, target) == 0) {
-            return;
-        }
-
         uint256 entitled = hub.claimable(
             REMOTE_CHAIN_ID,
             target
@@ -815,26 +809,15 @@ contract ReferralHubInvariantHandler is Test {
             COURIER2
         );
 
-        try hub.claimUpTo(
+        hub.claimUpTo(
             REMOTE_CHAIN_ID,
             COURIER2,
             amount
-        ) {
-            ++ghostUndesignatedClaimViolations;
-        } catch (bytes memory reason) {
+        );
 
-            if (
-                keccak256(reason) != keccak256(
-                    abi.encodeWithSelector(
-                        ReferralHubDeclarations.PayoutNotDesignated.selector
-                    )
-                )
-            ) {
-                ++ghostUndesignatedClaimViolations;
-            } else {
-                ++undesignatedClaimRefusals;
-            }
-        }
+        ghostCourierClaimed[REMOTE_CHAIN_ID][COURIER2] += amount;
+
+        ++undesignatedCourierClaims;
     }
 
     function designateLate(
@@ -850,16 +833,7 @@ contract ReferralHubInvariantHandler is Test {
             return;
         }
 
-        uint256 backlog = hub.claimable(
-            REMOTE_CHAIN_ID,
-            LATE_REFERRER
-        );
-
         uint256 payableBefore = hub.totalPayable();
-
-        if (backlog > 0) {
-            lateReleaseCount += 1;
-        }
 
         vm.prank(
             ROUTER
@@ -888,9 +862,11 @@ contract ReferralHubInvariantHandler is Test {
 
         assertEq(
             hub.totalPayable(),
-            payableBefore + backlog,
-            "designateLate: the landing must release exactly the backlog"
+            payableBefore,
+            "designateLate: a landing designation must leave the payable amount unchanged"
         );
+
+        ++lateDesignations;
     }
 
     // ---- master knobs and the clock ----
@@ -1727,8 +1703,8 @@ contract ReferralHubInvariantHandler is Test {
  * pin the claimable buckets, the payable base, the booked liability
  * and the vault's pending payout against real token movements. The
  * handler's own gates (`settleWeek` leaving every listed source at
- * exactly its due, the undesignated courier refusal, the table
- * ordering refusals) must never have tripped.
+ * exactly its due, the table ordering refusals) must never have
+ * tripped; an undesignated spoke bucket pays its owner like any other.
  */
 contract ReferralHubInvariantTest is Test, HubDiamondHarness {
 
@@ -2099,7 +2075,7 @@ contract ReferralHubInvariantTest is Test, HubDiamondHarness {
         invariant_B4_accruedIsPaidHalvesPlusFees();
         invariant_courier_bucketsMatchTheFeeGhost();
         invariant_totalAccrued_equalsClaimedPlusClaimable();
-        invariant_totalPayable_equalsClaimedPlusPayableClaimable();
+        invariant_totalPayable_equalsTotalAccrued();
         invariant_handlerGates_neverTripped();
     }
 
@@ -2537,53 +2513,14 @@ contract ReferralHubInvariantTest is Test, HubDiamondHarness {
     /// forge-config: default.invariant.runs = 64
     /// forge-config: default.invariant.depth = 32
     /// forge-config: default.invariant.fail-on-revert = true
-    function invariant_totalPayable_equalsClaimedPlusPayableClaimable()
+    function invariant_totalPayable_equalsTotalAccrued()
         public
         view
     {
-        address[6] memory owners = [
-            address(0xB1),
-            address(0xB2),
-            address(0xB3),
-            address(0xB4),
-            handler.COURIER(),
-            handler.COURIER2()
-        ];
-
-        uint256[2] memory chains = [
-            block.chainid,
-            handler.REMOTE_CHAIN_ID()
-        ];
-
-        uint256 sumPayable;
-        uint256 sumLocked;
-
-        for (uint256 i; i < owners.length; ++i) {
-            for (uint256 c; c < chains.length; ++c) {
-
-                uint256 amount = hub.claimable(
-                    chains[c],
-                    owners[i]
-                );
-
-                if (hub.payoutStamp(chains[c], owners[i]) != 0) {
-                    sumPayable += amount;
-                } else {
-                    sumLocked += amount;
-                }
-            }
-        }
-
         assertEq(
             hub.totalPayable(),
-            hub.totalClaimed() + sumPayable,
-            "totalPayable != totalClaimed + sum(claimable of buckets that can pay)"
-        );
-
-        assertEq(
-            hub.totalAccrued() - hub.totalPayable(),
-            sumLocked,
-            "accrual outside totalPayable != sum(claimable of undesignated buckets)"
+            hub.totalAccrued(),
+            "totalPayable != totalAccrued"
         );
 
         assertLe(
@@ -2618,12 +2555,6 @@ contract ReferralHubInvariantTest is Test, HubDiamondHarness {
             handler.ghostExactPayViolations(),
             0,
             "a delivery or a raising self run left its own cell away from its due"
-        );
-
-        assertEq(
-            handler.ghostUndesignatedClaimViolations(),
-            0,
-            "an undesignated spoke bucket paid or failed with the wrong error"
         );
 
         assertEq(

@@ -244,12 +244,6 @@ abstract contract ReferralHubDeclarations is OwnableMaster {
         address indexed payout
     );
 
-    event PayoutBacklogReleased(
-        uint256 indexed chainId,
-        address indexed owner,
-        uint256 amount
-    );
-
     event PayoutClaimed(
         uint256 indexed chainId,
         address indexed referrer,
@@ -436,8 +430,6 @@ abstract contract ReferralHubDeclarations is OwnableMaster {
     error FlushPayloadInvalid();
 
     error BotShareTooHigh();
-
-    error PayoutNotDesignated();
 
     error SourceOnHubChain();
 

@@ -52,6 +52,14 @@ The [v2 contracts](https://github.com/vonMangoldt/forward-vault) were migrated l
 was reproduced in v3 at its exact v2 queue position, verified on-chain against the v2 state
 before activation. The v2 vaults are paused and hold no user funds.
 
+The running vaults and the referral hub are never redeployed. Every change since the launch
+reaches them as new facets routed in through the diamond's own three day selector timelock,
+one dedicated upgrade script per round (`script/diamond/Upgrade*.s.sol` for the vaults,
+`script/hub/Upgrade*.s.sol` for the hub), each with `propose()`, `execute()`, `abort()` and
+`status()`. The deploy scripts that created the system stay as they were, so a clone of this
+repository still carries the original deployment path next to every upgrade round that
+followed it.
+
 ## Architecture
 
 Each product is one diamond: a single deployed contract whose external surface is served
@@ -131,7 +139,7 @@ The suite splits into an offline part and a mainnet-fork part:
 
 ```bash
 # offline: no network or configuration needed
-forge test --no-match-path "test/{MoneyForward.t.sol,MoneyForwardViewParity.t.sol,diamond/WiseTelecomNodesBurnWiseFacet.t.sol,diamond/fork/CcipBridgeFork.t.sol,diamond/fork/CcipCarryUpgradeRehearsalFork.t.sol,diamond/fork/CcipLaneDiscoveryFork.t.sol,diamond/fork/CcipRobinhoodBridgeFork.t.sol,diamond/fork/CcipUsdgPeeringRehearsalFork.t.sol,diamond/fork/CohortBridgeAttributionMatrixFork.t.sol,diamond/fork/CohortBridgeAttributionMatrixForkRollout.t.sol,diamond/fork/CohortBridgeAttributionMatrixForkStates.t.sol,diamond/fork/CohortFlushUpgradeFork.t.sol,diamond/fork/DiamondLiveUsageFork.t.sol,diamond/fork/ReferralBotOpsFork.t.sol,diamond/fork/ReferralHubClaimFork.t.sol,diamond/fork/ReferralPreflightFork.t.sol,diamond/fork/ReferralRegistryUpgradeFork.t.sol,diamond/fork/SovrenReferralFork.t.sol,diamond/fork/UniswapV4FlashLoanFork.t.sol,diamond/fork/WiseBurnFork.t.sol,diamond/fork/WiseTelecomNodesPermitFork.t.sol,migration/DiamondMigrationForkE2E.t.sol,migration/PostDeployMigrationFork.t.sol}"
+forge test --no-match-path "test/{MoneyForward.t.sol,MoneyForwardViewParity.t.sol,diamond/WiseTelecomNodesBurnWiseFacet.t.sol,diamond/fork/CcipBridgeFork.t.sol,diamond/fork/CcipCarryUpgradeRehearsalFork.t.sol,diamond/fork/CcipLaneDiscoveryFork.t.sol,diamond/fork/CcipRobinhoodBridgeFork.t.sol,diamond/fork/CcipUsdgPeeringRehearsalFork.t.sol,diamond/fork/CohortBridgeAttributionMatrixFork.t.sol,diamond/fork/CohortBridgeAttributionMatrixForkRollout.t.sol,diamond/fork/CohortBridgeAttributionMatrixForkStates.t.sol,diamond/fork/CohortFlushUpgradeFork.t.sol,diamond/fork/CourierOpenUpgradeFork.t.sol,diamond/fork/DiamondLiveUsageFork.t.sol,diamond/fork/ReferralBotOpsFork.t.sol,diamond/fork/ReferralHubClaimFork.t.sol,diamond/fork/ReferralPreflightFork.t.sol,diamond/fork/ReferralRegistryUpgradeFork.t.sol,diamond/fork/SovrenReferralFork.t.sol,diamond/fork/UniswapV4FlashLoanFork.t.sol,diamond/fork/WiseBurnFork.t.sol,diamond/fork/WiseTelecomNodesPermitFork.t.sol,migration/DiamondMigrationForkE2E.t.sol,migration/PostDeployMigrationFork.t.sol}"
 
 # full: additionally replays the live Ethereum + Arbitrum vaults and re-verifies the
 # v2 to v3 migration against real chain state at a pinned pre-migration block
@@ -174,6 +182,17 @@ WTN_CCIP_ROUTE_ENGINE=router forge test --match-path "test/diamond/fork/CohortFl
 # converge exactly with the in-order run, plus the paid-cursor zeroing of a stale re-sent
 # in-progress week
 forge test --match-path "test/diamond/fork/ReferralBotOpsFork.t.sol"
+
+# courier open rehearsal: drives the courier flush facet upgrade script against every live
+# vault and the hub payout rule round (intake, mailbox and payout facets plus the reader)
+# against the live hub on forks (the master role handed to the test key on the fork only),
+# then proves that an allowed courier's batch opens a never flushed book exactly as the
+# owner's batch would, that its next batch ships only above the stored cursor, that a
+# stranger stays refused, and that an undesignated spoke bucket at the hub pays its owner
+# through claim, claimUpTo and claimAll until a designation redirects it; run per chain as
+# RPCs allow
+forge test --match-path "test/diamond/fork/CourierOpenUpgradeFork.t.sol" --match-contract CourierOpenUsdcBaseFork
+forge test --match-path "test/diamond/fork/CourierOpenUpgradeFork.t.sol" --match-contract CourierOpenHubMainnetFork
 
 # cross-chain attribution rehearsal: forks BOTH ends of a real CCIP lane, installs and arms
 # the cohort round on each under the real master and the real timelocks, then pins the

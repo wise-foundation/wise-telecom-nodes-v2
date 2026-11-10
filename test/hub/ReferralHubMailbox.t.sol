@@ -102,20 +102,20 @@ contract MockUSD is ERC20 {
  * referrer twice pricing each week once, and the courier claimable
  * bucket lifecycle across two source chains (independent buckets,
  * partial claims, courier-own designations, stranger lockout), and
- * the designation rule of spoke buckets: a spoke chain's bucket pays
- * a claim only once a designation from that chain has landed, both
- * claim shapes revert `PayoutNotDesignated` before that, and a zero
- * payout with a stamp pays the owner itself. The reader's
- * `claimablesOf` lists such a bucket in its total with a zero payout
- * and leaves it out of `claimableNow` until the designation lands,
- * then reports the designated payout and counts it; an empty chain
- * list returns empty arrays and zero sums. `claimAll` pays every
- * designated bucket the caller may claim in one call and skips the
- * empty, the undesignated, the repeated and, for a payout address, the
+ * the payout rule of spoke buckets: a spoke chain's bucket pays its
+ * owner's own address while no designation from that chain has landed,
+ * through all three claim shapes, a designation of the hub chain or of
+ * another spoke never redirects it, a landed designation does, and a
+ * zero payout with a stamp pays the owner itself. The reader's
+ * `claimablesOf` lists such a bucket with the owner as its payout and
+ * counts it in `claimableNow`, then reports the designated payout once
+ * the designation lands; an empty chain list returns empty arrays and
+ * zero sums. `claimAll` pays every bucket the caller may claim in one
+ * call and skips the empty, the repeated and, for a payout address, the
  * other chains' buckets (a courier clears two source chains at once);
  * a short pot pays the cover in list order and leaves the remainder
- * claimable; a stranger, an undesignated-only list, an empty list and
- * an empty pot revert `NothingClaimable`.
+ * claimable; a stranger, an empty list and an empty pot revert
+ * `NothingClaimable`.
  * The source-keyed views are pinned as well: `sourceKeyOf` returns
  * the mailbox key for a remote source (matching the source topic of
  * the `FlushApplied` log) and the address-padded key for a local
@@ -135,9 +135,8 @@ contract MockUSD is ERC20 {
  * zero header deliverer paying no courier fee; the re-pointable router; a self run in an
  * envelope recording the week buckets and its reserved bits
  * refused; the
- * payable liability base with its
- * first-designation backlog release by push and by envelope; and
- * `payoutAddressOf` reading zero for an undesignated spoke bucket.
+ * payable liability base following every accrual at once; and
+ * `payoutAddressOf` reading the owner for an undesignated spoke bucket.
  */
 contract ReferralHubMailboxTest is Test, HubDiamondHarness {
 
@@ -187,12 +186,6 @@ contract ReferralHubMailboxTest is Test, HubDiamondHarness {
         uint256 indexed chainId,
         address indexed owner,
         uint256 stamp
-    );
-
-    event PayoutBacklogReleased(
-        uint256 indexed chainId,
-        address indexed owner,
-        uint256 amount
     );
 
     event DelivererSharePaid(
@@ -1093,23 +1086,6 @@ contract ReferralHubMailboxTest is Test, HubDiamondHarness {
         );
 
         expectedShare = TIER6_PAID * GENESIS_BOT_SHARE_BPS / 10_000;
-    }
-
-    function _backlogReleasedCount()
-        internal
-        returns (uint256 count)
-    {
-        Vm.Log[] memory logs = vm.getRecordedLogs();
-
-        bytes32 topic = keccak256(
-            "PayoutBacklogReleased(uint256,address,uint256)"
-        );
-
-        for (uint256 i; i < logs.length; ++i) {
-            if (logs[i].topics[0] == topic) {
-                ++count;
-            }
-        }
     }
 
     // ---- constructor seed ----
@@ -3305,7 +3281,7 @@ contract ReferralHubMailboxTest is Test, HubDiamondHarness {
         );
     }
 
-    function test_localCourierBucket_firstClaimStampsReleasesAndPays()
+    function test_localCourierBucket_firstClaimPaysWithoutStamp()
         public
     {
         uint256 week = _establishTier6OneDayPastClose(
@@ -3329,7 +3305,7 @@ contract ReferralHubMailboxTest is Test, HubDiamondHarness {
 
         assertEq(
             hub.totalPayable(),
-            0
+            TIER6_PAID + share
         );
 
         usd.mint(
@@ -3361,11 +3337,17 @@ contract ReferralHubMailboxTest is Test, HubDiamondHarness {
             0
         );
 
-        assertTrue(hub.payoutStamp(block.chainid, courier) != 0);
+        assertEq(
+            hub.payoutStamp(
+                block.chainid,
+                courier
+            ),
+            0
+        );
 
         assertEq(
             hub.totalPayable(),
-            share
+            TIER6_PAID + share
         );
 
         assertEq(
@@ -4206,7 +4188,7 @@ contract ReferralHubMailboxTest is Test, HubDiamondHarness {
                 CHAIN_BASE,
                 refA
             ),
-            address(0)
+            refA
         );
 
         assertEq(
@@ -4251,7 +4233,7 @@ contract ReferralHubMailboxTest is Test, HubDiamondHarness {
                 CHAIN_BASE,
                 refA
             ),
-            address(0)
+            refA
         );
 
         assertEq(
@@ -4309,7 +4291,7 @@ contract ReferralHubMailboxTest is Test, HubDiamondHarness {
                 CHAIN_BASE,
                 refA
             ),
-            address(0)
+            refA
         );
 
         assertEq(
@@ -4424,7 +4406,7 @@ contract ReferralHubMailboxTest is Test, HubDiamondHarness {
                 CHAIN_BASE,
                 refB
             ),
-            address(0)
+            refB
         );
 
         assertEq(
@@ -4552,9 +4534,9 @@ contract ReferralHubMailboxTest is Test, HubDiamondHarness {
         );
     }
 
-    // ---- spoke buckets pay only after a designation landed ----
+    // ---- spoke buckets pay their owner until a designation lands ----
 
-    function test_RevertWhen_claim_undesignatedRemoteBucket()
+    function test_claim_undesignatedRemoteBucket_paysOwner()
         public
     {
         uint256 week = _establishTier6OneDayPastClose(
@@ -4589,12 +4571,23 @@ contract ReferralHubMailboxTest is Test, HubDiamondHarness {
             0
         );
 
-        vm.prank(
-            refA
+        vm.expectEmit(
+            true,
+            true,
+            true,
+            true,
+            address(hub)
         );
 
-        vm.expectRevert(
-            ReferralHubDeclarations.PayoutNotDesignated.selector
+        emit PayoutClaimed(
+            CHAIN_BASE,
+            refA,
+            refA,
+            TIER6_PAID
+        );
+
+        vm.prank(
+            refA
         );
 
         hub.claim(
@@ -4603,15 +4596,30 @@ contract ReferralHubMailboxTest is Test, HubDiamondHarness {
         );
 
         assertEq(
-            hub.claimable(
-                CHAIN_BASE,
+            usd.balanceOf(
                 refA
             ),
             TIER6_PAID
         );
+
+        assertEq(
+            hub.claimable(
+                CHAIN_BASE,
+                refA
+            ),
+            0
+        );
+
+        assertEq(
+            hub.payoutStamp(
+                CHAIN_BASE,
+                refA
+            ),
+            0
+        );
     }
 
-    function test_RevertWhen_claimUpTo_undesignatedRemoteBucket()
+    function test_claimUpTo_undesignatedRemoteBucket_paysOwner()
         public
     {
         uint256 week = _establishTier6OneDayPastClose(
@@ -4634,13 +4642,16 @@ contract ReferralHubMailboxTest is Test, HubDiamondHarness {
             refA
         );
 
-        vm.expectRevert(
-            ReferralHubDeclarations.PayoutNotDesignated.selector
-        );
-
         hub.claimUpTo(
             CHAIN_BASE,
             refA,
+            1
+        );
+
+        assertEq(
+            usd.balanceOf(
+                refA
+            ),
             1
         );
 
@@ -4649,11 +4660,11 @@ contract ReferralHubMailboxTest is Test, HubDiamondHarness {
                 CHAIN_BASE,
                 refA
             ),
-            TIER6_PAID
+            TIER6_PAID - 1
         );
     }
 
-    function test_claimablesOf_remoteBucketCountsOnlyOnceDesignated()
+    function test_claimablesOf_remoteBucket_paysOwnerUntilDesignated()
         public
     {
         uint256 week = _establishTier6OneDayPastClose(
@@ -4701,7 +4712,7 @@ contract ReferralHubMailboxTest is Test, HubDiamondHarness {
 
         assertEq(
             payouts[1],
-            address(0)
+            refA
         );
 
         assertEq(
@@ -4711,7 +4722,7 @@ contract ReferralHubMailboxTest is Test, HubDiamondHarness {
 
         assertEq(
             claimableNow,
-            amounts[0]
+            total
         );
 
         _pushDesignation(
@@ -4792,7 +4803,7 @@ contract ReferralHubMailboxTest is Test, HubDiamondHarness {
         );
     }
 
-    function test_claimAll_paysDesignatedBucketSkipsTheRest()
+    function test_claimAll_paysDesignatedAndUndesignatedBuckets_skipsEmptyAndRepeated()
         public
     {
         _accrueCourierShareTwoChains();
@@ -4841,12 +4852,19 @@ contract ReferralHubMailboxTest is Test, HubDiamondHarness {
 
         assertEq(
             total,
-            TIER6_PAID
+            2 * TIER6_PAID
         );
 
         assertEq(
             usd.balanceOf(
                 designated
+            ),
+            TIER6_PAID
+        );
+
+        assertEq(
+            usd.balanceOf(
+                refA
             ),
             TIER6_PAID
         );
@@ -4864,7 +4882,7 @@ contract ReferralHubMailboxTest is Test, HubDiamondHarness {
                 CHAIN_ARB,
                 refA
             ),
-            TIER6_PAID
+            0
         );
     }
 
@@ -5098,7 +5116,7 @@ contract ReferralHubMailboxTest is Test, HubDiamondHarness {
         );
     }
 
-    function test_RevertWhen_claimAll_strangerOrNothingPayable()
+    function test_RevertWhen_claimAll_strangerOrEmptyList()
         public
     {
         _accrueCourierShareTwoChains();
@@ -5132,22 +5150,6 @@ contract ReferralHubMailboxTest is Test, HubDiamondHarness {
             chainIds
         );
 
-        uint256[] memory undesignatedOnly = new uint256[](1);
-        undesignatedOnly[0] = CHAIN_ARB;
-
-        vm.expectRevert(
-            ReferralHubDeclarations.NothingClaimable.selector
-        );
-
-        vm.prank(
-            refA
-        );
-
-        hub.claimAll(
-            refA,
-            undesignatedOnly
-        );
-
         uint256[] memory none = new uint256[](0);
 
         vm.expectRevert(
@@ -5169,6 +5171,134 @@ contract ReferralHubMailboxTest is Test, HubDiamondHarness {
                 refA
             ),
             TIER6_PAID
+        );
+    }
+
+    function test_claimAll_undesignatedRemoteBuckets_payOwner()
+        public
+    {
+        _accrueCourierShareTwoChains();
+
+        usd.mint(
+            address(hub),
+            2 * TIER6_PAID
+        );
+
+        uint256[] memory chainIds = new uint256[](2);
+        chainIds[0] = CHAIN_BASE;
+        chainIds[1] = CHAIN_ARB;
+
+        vm.prank(
+            refA
+        );
+
+        uint256 total = hub.claimAll(
+            refA,
+            chainIds
+        );
+
+        assertEq(
+            total,
+            2 * TIER6_PAID
+        );
+
+        assertEq(
+            usd.balanceOf(
+                refA
+            ),
+            2 * TIER6_PAID
+        );
+
+        assertEq(
+            hub.payoutStamp(
+                CHAIN_BASE,
+                refA
+            ),
+            0
+        );
+
+        assertEq(
+            hub.payoutStamp(
+                CHAIN_ARB,
+                refA
+            ),
+            0
+        );
+    }
+
+    function test_claim_laterDesignation_redirectsAnUndesignatedBucket()
+        public
+    {
+        uint256 week = _establishTier6OneDayPastClose(
+            refA
+        );
+
+        _remoteCrumbApply(
+            bytes32(uint256(0x97)),
+            refA,
+            block.timestamp,
+            week
+        );
+
+        usd.mint(
+            address(hub),
+            TIER6_PAID
+        );
+
+        vm.prank(
+            refA
+        );
+
+        hub.claimUpTo(
+            CHAIN_BASE,
+            refA,
+            TIER6_PAID / 2
+        );
+
+        assertEq(
+            hub.payoutAddressOf(
+                CHAIN_BASE,
+                refA
+            ),
+            refA
+        );
+
+        _pushDesignation(
+            refA,
+            designated,
+            block.timestamp - 10,
+            1
+        );
+
+        assertEq(
+            hub.payoutAddressOf(
+                CHAIN_BASE,
+                refA
+            ),
+            designated
+        );
+
+        vm.prank(
+            refA
+        );
+
+        hub.claim(
+            CHAIN_BASE,
+            refA
+        );
+
+        assertEq(
+            usd.balanceOf(
+                refA
+            ),
+            TIER6_PAID / 2
+        );
+
+        assertEq(
+            usd.balanceOf(
+                designated
+            ),
+            TIER6_PAID - TIER6_PAID / 2
         );
     }
 
@@ -5233,7 +5363,7 @@ contract ReferralHubMailboxTest is Test, HubDiamondHarness {
         );
     }
 
-    function test_RevertWhen_claim_hubChainDesignationDoesNotUnlockSpokeBucket()
+    function test_claim_hubChainDesignation_doesNotRedirectSpokeBucket()
         public
     {
         uint256 week = _establishTier6OneDayPastClose(
@@ -5274,17 +5404,27 @@ contract ReferralHubMailboxTest is Test, HubDiamondHarness {
             refA
         );
 
-        vm.expectRevert(
-            ReferralHubDeclarations.PayoutNotDesignated.selector
-        );
-
         hub.claim(
             CHAIN_BASE,
             refA
         );
+
+        assertEq(
+            usd.balanceOf(
+                refA
+            ),
+            TIER6_PAID
+        );
+
+        assertEq(
+            usd.balanceOf(
+                designated
+            ),
+            0
+        );
     }
 
-    function test_RevertWhen_claim_otherSpokeDesignationDoesNotUnlockBucket()
+    function test_claim_otherSpokeDesignation_doesNotRedirectBucket()
         public
     {
         uint256 week = _establishTier6OneDayPastClose(
@@ -5337,13 +5477,23 @@ contract ReferralHubMailboxTest is Test, HubDiamondHarness {
             refA
         );
 
-        vm.expectRevert(
-            ReferralHubDeclarations.PayoutNotDesignated.selector
-        );
-
         hub.claim(
             CHAIN_BASE,
             refA
+        );
+
+        assertEq(
+            usd.balanceOf(
+                refA
+            ),
+            TIER6_PAID
+        );
+
+        assertEq(
+            usd.balanceOf(
+                designated
+            ),
+            0
         );
     }
 
@@ -6821,9 +6971,9 @@ contract ReferralHubMailboxTest is Test, HubDiamondHarness {
         );
     }
 
-    // ---- payable amount: a spoke bucket joins what the pot owes only once its designation has landed ----
+    // ---- payable amount: a spoke bucket joins what the pot owes at its accrual ----
 
-    function test_applyFlush_undesignatedBuckets_joinPayableAtDesignation()
+    function test_applyFlush_undesignatedBuckets_joinPayableAtOnce()
         public
     {
         uint256 week = _establishTier6Cadence(
@@ -6850,59 +7000,21 @@ contract ReferralHubMailboxTest is Test, HubDiamondHarness {
 
         assertEq(
             hub.totalPayable(),
-            0
-        );
-
-        vm.expectEmit(
-            true,
-            true,
-            false,
-            true,
-            address(hub)
-        );
-
-        emit PayoutBacklogReleased(
-            CHAIN_BASE,
-            refA,
-            TIER6_PAID
-        );
-
-        _pushDesignation(
-            refA,
-            address(0),
-            block.timestamp,
-            1
-        );
-
-        assertEq(
-            hub.totalPayable(),
-            TIER6_PAID
-        );
-
-        _pushDesignation(
-            courier,
-            address(0),
-            block.timestamp,
-            1
-        );
-
-        assertEq(
-            hub.totalPayable(),
             TIER6_PAID + share
         );
 
-        vm.recordLogs();
+        _pushDesignation(
+            refA,
+            address(0),
+            block.timestamp,
+            1
+        );
 
         _pushDesignation(
             courier,
             designated,
             block.timestamp + 1,
             1
-        );
-
-        assertEq(
-            _backlogReleasedCount(),
-            0
         );
 
         assertEq(
@@ -6928,21 +7040,14 @@ contract ReferralHubMailboxTest is Test, HubDiamondHarness {
         );
     }
 
-    function test_designationPush_emptyBucket_releasesNothing()
+    function test_designationPush_emptyBucket_stampsOnly()
         public
     {
-        vm.recordLogs();
-
         _pushDesignation(
             refB,
             address(0),
             block.timestamp,
             1
-        );
-
-        assertEq(
-            _backlogReleasedCount(),
-            0
         );
 
         assertEq(
@@ -6953,7 +7058,7 @@ contract ReferralHubMailboxTest is Test, HubDiamondHarness {
         assertTrue(hub.payoutStamp(CHAIN_BASE, refB) != 0);
     }
 
-    function test_payoutAddressOf_undesignatedSpokeBucket_isZero()
+    function test_payoutAddressOf_undesignatedSpokeBucket_isOwner()
         public
     {
         assertEq(
@@ -6961,7 +7066,7 @@ contract ReferralHubMailboxTest is Test, HubDiamondHarness {
                 CHAIN_BASE,
                 refA
             ),
-            address(0)
+            refA
         );
 
         assertEq(
@@ -7005,7 +7110,7 @@ contract ReferralHubMailboxTest is Test, HubDiamondHarness {
 
     // ---- triage pins: the boundary second, the range check, envelope release, reader parity ----
 
-    function test_applyFlush_envelopeDesignation_releasesBacklog()
+    function test_applyFlush_envelopeDesignation_keepsPayableAtAccrual()
         public
     {
         uint256 crumbWeek = _establishAtCapAndWarp(
@@ -7019,19 +7124,19 @@ contract ReferralHubMailboxTest is Test, HubDiamondHarness {
             crumbWeek
         );
 
-        uint256 backlog = hub.claimable(
+        uint256 accrued = hub.claimable(
             CHAIN_BASE,
             refA
         );
 
         assertGt(
-            backlog,
+            accrued,
             0
         );
 
         assertEq(
             hub.totalPayable(),
-            0
+            accrued
         );
 
         bytes memory payload = _richPayload(
@@ -7043,20 +7148,6 @@ contract ReferralHubMailboxTest is Test, HubDiamondHarness {
         _receiveFlushAs(
             bytes32(uint256(0xD8)),
             payload
-        );
-
-        vm.expectEmit(
-            true,
-            true,
-            false,
-            true,
-            address(hub)
-        );
-
-        emit PayoutBacklogReleased(
-            CHAIN_BASE,
-            refA,
-            backlog
         );
 
         hub.applyFlush(

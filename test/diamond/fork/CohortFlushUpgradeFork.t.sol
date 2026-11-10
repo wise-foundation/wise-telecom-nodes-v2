@@ -297,7 +297,10 @@ contract FlushPayloadCapture {
  * standalone registry with the chain's mesh rank, and the registry's
  * payout-hub route. Each timelock warp is rewound right after its
  * execute so the live fee quoters never see an artificially stale
- * clock.
+ * clock. The live recorders are armed and an armed recorder refuses
+ * a registry change, so the ladder disarms the recorder right before
+ * the registry swap and re-arms it after the swap; the short disarm
+ * span the engine zero-weights lies before every rehearsed deposit.
  *
  * Week pricing drives the scenario shape: the hub prices a closed
  * week from that week's own buckets (the crumb's weekly referred
@@ -314,14 +317,15 @@ contract FlushPayloadCapture {
  * would carry.
  *
  * Two hub rules shape the money legs: a spoke chain's claimable
- * bucket pays only once a designation from that chain has landed at
- * the hub, so the referrer designates through the spoke registry
- * before the flush that piggybacks the pair and the courier pushes
- * its own designation over the registry's payout route before it
- * claims; and a courier earns its fee only on weeks that had closed
- * when it built the envelope, so the expected fee applies the same
- * per-week predicate to the header stamp of the envelope actually
- * delivered, one floor per priced week as the hub pays it.
+ * bucket pays its owner's own address on the hub chain until a
+ * designation from that chain lands, so the referrer's designation
+ * through the spoke registry (piggybacked by the next flush) and the
+ * courier's push over the registry's payout route are rehearsed as
+ * redirections of buckets that could already pay; and a courier earns
+ * its fee only on weeks that had closed when it built the envelope,
+ * so the expected fee applies the same per-week predicate to the
+ * header stamp of the envelope actually delivered, one floor per
+ * priced week as the hub pays it.
  */
 abstract contract CohortFlushUpgradeForkBase is CcipForkHarness, HubDiamondHarness {
 
@@ -1654,6 +1658,14 @@ abstract contract CohortFlushUpgradeForkBase is CcipForkHarness, HubDiamondHarne
             m
         );
 
+        v.setCohortSyncEnabled(
+            false
+        );
+
+        vm.prank(
+            m
+        );
+
         v.proposeReferralRegistry(
             address(spokeRegistry)
         );
@@ -2244,7 +2256,7 @@ abstract contract CohortFlushUpgradeForkE2E is CohortFlushUpgradeForkBase {
 
         assertTrue(
             hub.payoutStamp(src.chainId, bot) != 0,
-            "the courier's pushed designation must land before it can claim"
+            "the courier's pushed designation must land"
         );
 
         vm.prank(

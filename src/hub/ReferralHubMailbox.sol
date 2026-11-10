@@ -15,8 +15,9 @@ import {CohortWeeks} from "../diamond/shared/CohortWeeks.sol";
  * deliverer means no courier (a vault packs one for any caller that is not
  * an allowed flush bot), so such an envelope pays no courier fee. A
  * malformed envelope reverts as a whole; a bad designation is skipped with
- * an event. Every path that stamps a designation releases the bucket's
- * backlog into `totalPayable`, the amount the hub's pot owes.
+ * an event. A designation only redirects where a bucket pays; a bucket
+ * with none pays its owner's own address on the hub chain from the first
+ * credit on.
  */
 abstract contract ReferralHubMailbox is ReferralHubIntake {
 
@@ -444,11 +445,7 @@ abstract contract ReferralHubMailbox is ReferralHubIntake {
             return;
         }
 
-        _stampPayout(
-            _chainId,
-            _owner,
-            stamp
-        );
+        payoutStamp[_chainId][_owner] = stamp;
 
         payoutAddress[_chainId][_owner] = _payout;
 

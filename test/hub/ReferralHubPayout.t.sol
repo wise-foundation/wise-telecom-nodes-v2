@@ -52,13 +52,13 @@ contract MockUSD is ERC20 {
  * totalClaimed` is the amount it owes, a claim counts in `totalClaimed`
  * and never books anything anywhere):
  * claim authorization (referrer or resolved payout address, nobody
- * else), full claims, the hub-chain bucket needing no designation
- * (the spoke-bucket designation rule is pinned in the mailbox
- * suite) and joining `totalPayable` at once, `claimUpTo` clamping to
+ * else), full claims, every bucket paying its owner with no
+ * designation (the spoke bucket rule is pinned in the mailbox suite)
+ * and joining `totalPayable` at once, `claimUpTo` clamping to
  * entitlement and to the hub's own balance (a short pot pays the
  * balance and leaves the rest claimable, then a full claim reverts
  * `PotDry`), the dry-pot and nothing-claimable reverts, the
- * designation stamp (an undesignated other chain reads zero from
+ * designation stamp (an undesignated other chain reads the owner from
  * `payoutAddressOf`), and the constructor zero-token guard.
  * Accrual here reuses the intake recipe: absolute score
  * report, two dwell-min boundary crossings, one crumb delivery
@@ -72,8 +72,8 @@ contract MockUSD is ERC20 {
  * over three referrers on one chain id, two with distinct accruals
  * and one with nothing, equals `claimable` element by element. An
  * empty batch yields an empty array without reverting. `claimAll` pays
- * an undesignated hub-chain bucket to its owner, stamps that designation
- * and skips an empty other chain in the same call.
+ * an undesignated hub-chain bucket to its owner, writes no stamp and
+ * skips an empty other chain in the same call.
  */
 contract ReferralHubPayoutTest is Test, HubDiamondHarness {
 
@@ -81,12 +81,6 @@ contract ReferralHubPayoutTest is Test, HubDiamondHarness {
         uint256 indexed chainId,
         address indexed referrer,
         address indexed payout,
-        uint256 amount
-    );
-
-    event PayoutBacklogReleased(
-        uint256 indexed chainId,
-        address indexed owner,
         uint256 amount
     );
 
@@ -240,19 +234,18 @@ contract ReferralHubPayoutTest is Test, HubDiamondHarness {
     }
 
     /**
-     * @dev a hub-chain bucket whose owner never designated and never
-     * claimed stays out of the amount the pot owes
-     * the first claim is its owner liveness probe: it stamps the
-     * designation, releases the backlog and pays in one step
+     * @dev a hub-chain bucket whose owner never designated joins the
+     * amount the pot owes at the accrual, and its first claim pays the
+     * owner without writing a designation
      */
-    function test_deliverCrumbs_hubChainBucket_undesignatedDoesNotBook()
+    function test_deliverCrumbs_hubChainBucket_undesignatedBooksAtOnce()
         public
     {
         uint256 expectedPaid = _accrueOneUsd();
 
         assertEq(
             hub.totalPayable(),
-            0
+            expectedPaid
         );
 
         assertEq(
@@ -262,20 +255,6 @@ contract ReferralHubPayoutTest is Test, HubDiamondHarness {
 
         usd.mint(
             address(hub),
-            expectedPaid
-        );
-
-        vm.expectEmit(
-            false,
-            false,
-            false,
-            true,
-            address(hub)
-        );
-
-        emit PayoutBacklogReleased(
-            block.chainid,
-            refA,
             expectedPaid
         );
 
@@ -294,6 +273,14 @@ contract ReferralHubPayoutTest is Test, HubDiamondHarness {
         );
 
         assertEq(
+            hub.payoutStamp(
+                block.chainid,
+                refA
+            ),
+            0
+        );
+
+        assertEq(
             usd.balanceOf(
                 refA
             ),
@@ -302,17 +289,17 @@ contract ReferralHubPayoutTest is Test, HubDiamondHarness {
     }
 
     /**
-     * @dev a hub-chain designation releases the backlog into the amount
-     * the pot owes in the same call
+     * @dev a hub-chain designation leaves the amount the pot owes
+     * unchanged, the accrual having joined it already
      */
-    function test_setPayoutAddress_hubChainBacklog_joinsPayableOnDesignation()
+    function test_setPayoutAddress_hubChain_leavesPayableUnchanged()
         public
     {
         uint256 expectedPaid = _accrueOneUsd();
 
         assertEq(
             hub.totalPayable(),
-            0
+            expectedPaid
         );
 
         vm.prank(
@@ -336,7 +323,7 @@ contract ReferralHubPayoutTest is Test, HubDiamondHarness {
 
     // ---- claim ----
 
-    function test_claim_partialThenFull_releasesBacklogExactlyOnce()
+    function test_claim_partialThenFull_keepsPayableAtTheAccrual()
         public
     {
         uint256 expectedPaid = _accrueOneUsd();
@@ -362,8 +349,6 @@ contract ReferralHubPayoutTest is Test, HubDiamondHarness {
             ),
             expectedPaid / 2
         );
-
-        vm.recordLogs();
 
         vm.prank(
             refA
@@ -942,7 +927,7 @@ contract ReferralHubPayoutTest is Test, HubDiamondHarness {
                 block.chainid + 1,
                 refA
             ),
-            address(0)
+            refA
         );
 
         assertEq(
@@ -1147,7 +1132,7 @@ contract ReferralHubPayoutTest is Test, HubDiamondHarness {
         );
     }
 
-    function test_claimAll_hubChainBucket_paysOwnerAndStampsDesignation()
+    function test_claimAll_hubChainBucket_paysOwnerWithoutStamp()
         public
     {
         uint256 expectedPaid = _accrueOneUsd();
@@ -1198,11 +1183,12 @@ contract ReferralHubPayoutTest is Test, HubDiamondHarness {
             0
         );
 
-        assertTrue(
+        assertEq(
             hub.payoutStamp(
                 block.chainid,
                 refA
-            ) != 0
+            ),
+            0
         );
     }
 

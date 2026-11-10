@@ -35,9 +35,10 @@ import {CohortFlushCodec} from "../diamond/shared/CohortFlushCodec.sol";
  * average also moves its cursor and settles its own cell; one that raises
  * the average with no lane above the cursor tops its own cell up the same
  * way. A self run's average is at most one 80-bit lane over one week, the
- * bound a crumb lane and a gap record already carry. A bucket joins
- * `totalPayable`, the amount the hub's pot owes, only once its owner has
- * a claim path.
+ * bound a crumb lane and a gap record already carry. Every credited amount
+ * is payable at once, to the owner's own address on the hub chain until a
+ * designation redirects it, so `totalPayable`, the amount the hub's pot
+ * owes, is kept equal to `totalAccrued`.
  */
 abstract contract ReferralHubIntake is ReferralHubRates {
 
@@ -361,8 +362,6 @@ abstract contract ReferralHubIntake is ReferralHubRates {
             _referrer,
             amount
         );
-
-        totalAccrued += amount;
     }
 
     function _dueOf(
@@ -821,8 +820,6 @@ abstract contract ReferralHubIntake is ReferralHubRates {
             fee
         );
 
-        totalAccrued += fee;
-
         emit DelivererSharePaid(
             _origin.chainId,
             _origin.deliverer,
@@ -841,47 +838,9 @@ abstract contract ReferralHubIntake is ReferralHubRates {
     {
         claimable[_chainId][_account] += _amount;
 
-        if (payoutStamp[_chainId][_account] != 0) {
-            totalPayable += _amount;
-        }
-    }
+        totalAccrued += _amount;
 
-    function _releasePayoutBacklog(
-        uint256 _chainId,
-        address _owner
-    )
-        internal
-    {
-        uint256 backlog = claimable[_chainId][_owner];
-
-        if (backlog == 0) {
-            return;
-        }
-
-        totalPayable += backlog;
-
-        emit PayoutBacklogReleased(
-            _chainId,
-            _owner,
-            backlog
-        );
-    }
-
-    function _stampPayout(
-        uint256 _chainId,
-        address _owner,
-        uint256 _stamp
-    )
-        internal
-    {
-        if (payoutStamp[_chainId][_owner] == 0) {
-            _releasePayoutBacklog(
-                _chainId,
-                _owner
-            );
-        }
-
-        payoutStamp[_chainId][_owner] = _stamp;
+        totalPayable = totalAccrued;
     }
 
     function _laneIncrement(
