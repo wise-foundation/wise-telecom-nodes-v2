@@ -10,6 +10,7 @@ import {ICcipBridgeVault} from "./utils/CcipForkInterfaces.sol";
 
 import {WiseTelecomNodesDiamondErrors} from "../../../src/diamond/vault/WiseTelecomNodesDiamondErrors.sol";
 
+import {CohortFlushCodec} from "../../../src/diamond/shared/CohortFlushCodec.sol";
 import {CohortWeeks} from "../../../src/diamond/shared/CohortWeeks.sol";
 
 /**
@@ -28,8 +29,8 @@ import {CohortWeeks} from "../../../src/diamond/shared/CohortWeeks.sol";
  * so the per-source courier buckets stay apart): an own flush that
  * stamps the send cursor, then two courier envelopes two weeks apart
  * with a second deposit landing between the builds. A courier batch
- * never writes the referrer's send cursor, so the later envelope
- * re-carries every week the earlier one did plus the new ones. One
+ * never moves a stored send cursor, so the later envelope re-carries
+ * every week the earlier one did plus the new ones. One
  * referrer's pair is applied in send order, the mirror's in reverse,
  * and every register the bot economy reads (claimable, courier
  * bucket, the week buckets and the paid cursors of every flushed
@@ -49,6 +50,18 @@ import {CohortWeeks} from "../../../src/diamond/shared/CohortWeeks.sol";
  * custom errors in-flow; the fee gate rides the live quote when the
  * quoter answers with a nonzero fee and a pinned nonzero quote
  * otherwise.
+ *
+ * The courier open scenario needs no own flush at all: the first
+ * envelope of a never flushed book is built by an allowed courier,
+ * which opens the book by writing the send cursors exactly as the
+ * referrer's own batch would, so the courier's next envelope two weeks
+ * later carries only the weeks closed since, writes nothing, and the
+ * hub ends with the referrer paid once for every closed week and the
+ * courier paid its fee on each of them. Both courier flushes run for
+ * real on the spoke (a quoter that refuses the warped clock is
+ * replaced by a mocked router fee and send) so the cursor writes are
+ * the live facet's own, while the envelopes are delivered as the
+ * captured payloads.
  *
  * Every reordered envelope is delivered through the pranked router
  * as the captured payload, because a held message's on-ramp log
@@ -158,6 +171,166 @@ abstract contract ReferralBotOpsForkBase is CohortFlushUpgradeForkBase {
             ),
             courierFee,
             "the courier total must equal its fee on every week it carried"
+        );
+
+        assertGt(
+            expected,
+            0,
+            "closed weeks must price real money"
+        );
+
+        assertGt(
+            courierFee,
+            0,
+            "the courier fee must be nonzero for the rehearsed volume"
+        );
+    }
+
+    function test_botOps_courierOpensVirginBook_thenCarriesOnlyNewWeeks()
+        public
+    {
+        if (_laneUsable() == false) {
+
+            vm.skip(
+                true
+            );
+
+            return;
+        }
+
+        address ref = makeAddr(
+            "botOpsOpenedReferrer"
+        );
+
+        address courier = makeAddr(
+            "botOpsOpeningCourier"
+        );
+
+        _allowFlushBot(
+            courier
+        );
+
+        _referredDepositFor(
+            "botOpsOpenDepositor",
+            ref,
+            DEPOSIT_AMOUNT_UNITS
+        );
+
+        _onSrc();
+
+        uint256 depositWeek = block.timestamp / CohortWeeks.WEEK;
+
+        _ageSpokeWeeks(
+            2
+        );
+
+        _ensureSrcPastCourierGrace();
+
+        uint256 openWeek = block.timestamp / CohortWeeks.WEEK
+            - 1;
+
+        assertEq(
+            IWtnFlushVault(src.diamond).getFlushedThroughWeek(
+                ref
+            ),
+            0,
+            "the book must start with no send cursor"
+        );
+
+        FlushWire memory opening = _courierFlushPersisting(
+            ref,
+            courier
+        );
+
+        assertEq(
+            IWtnFlushVault(src.diamond).getFlushedThroughWeek(
+                ref
+            ),
+            openWeek,
+            "the courier's first batch must open the book at the week before the build"
+        );
+
+        _deliverHeldWire(
+            opening
+        );
+
+        _ageSpokeWeeks(
+            2
+        );
+
+        _ensureSrcPastCourierGrace();
+
+        FlushWire memory carry = _courierFlushPersisting(
+            ref,
+            courier
+        );
+
+        assertEq(
+            IWtnFlushVault(src.diamond).getFlushedThroughWeek(
+                ref
+            ),
+            openWeek,
+            "a courier batch over a stored cursor must leave it"
+        );
+
+        uint256 entryWord = _wireWord(
+            carry,
+            1
+        );
+
+        assertEq(
+            CohortFlushCodec._flushEntryCrumbCount(
+                entryWord
+            ),
+            2,
+            "the second courier batch must carry only the two weeks closed since the open"
+        );
+
+        assertEq(
+            _wireWord(
+                carry,
+                2 + CohortFlushCodec._flushEntrySelfRunCount(
+                    entryWord
+                )
+            ),
+            openWeek + 1,
+            "the second courier batch must start right above the stored cursor"
+        );
+
+        _deliverHeldWire(
+            carry
+        );
+
+        uint256 expected = _expectedTotalFor(
+            ref
+        );
+
+        uint256 courierFee = _expectedCourierShareFor(
+            ref,
+            depositWeek,
+            _wireStamp(
+                carry
+            )
+        );
+
+        _onDst();
+
+        assertEq(
+            hub.claimable(
+                src.chainId,
+                ref
+            ),
+            expected,
+            "every closed week must accrue exactly once without any own flush"
+        );
+
+        assertEq(
+            hub.claimable(
+                src.chainId,
+                courier
+            ),
+            courierFee,
+            "the courier must earn its fee on every week it carried"
         );
 
         assertGt(
@@ -598,6 +771,105 @@ abstract contract ReferralBotOpsForkBase is CohortFlushUpgradeForkBase {
         );
 
         vm.clearMockedCalls();
+    }
+
+    function _courierFlushPersisting(
+        address _referrer,
+        address _courier
+    )
+        internal
+        returns (FlushWire memory wire)
+    {
+        _onSrc();
+
+        address[] memory referrers = new address[](1);
+        referrers[0] = _referrer;
+
+        wire.payload = _captureFlushPayload(
+            referrers,
+            _courier
+        );
+
+        uint256 fee;
+
+        if (_spokeQuoteWorks(referrers)) {
+
+            fee = IWtnFlushVault(src.diamond).quoteFlushFee(
+                referrers
+            );
+        } else {
+
+            fee = 1 ether;
+
+            vm.mockCall(
+                src.router,
+                abi.encodeWithSelector(
+                    IRouterClient.getFee.selector
+                ),
+                abi.encode(
+                    fee
+                )
+            );
+
+            vm.mockCall(
+                src.router,
+                abi.encodeWithSelector(
+                    IRouterClient.ccipSend.selector
+                ),
+                abi.encode(
+                    bytes32(
+                        uint256(1)
+                    )
+                )
+            );
+        }
+
+        vm.deal(
+            _courier,
+            _courier.balance + fee
+        );
+
+        vm.prank(
+            _courier
+        );
+
+        IWtnFlushVault(src.diamond).flushReferrals{value: fee}(
+            referrers
+        );
+
+        vm.clearMockedCalls();
+
+        wire.messageId = keccak256(
+            abi.encode(
+                src.diamond,
+                "courier open",
+                syntheticNonce
+            )
+        );
+
+        syntheticNonce += 1;
+
+        wire.synthetic = true;
+    }
+
+    function _wireWord(
+        FlushWire memory _wire,
+        uint256 _index
+    )
+        internal
+        pure
+        returns (uint256)
+    {
+        bytes memory word = new bytes(32);
+
+        for (uint256 i; i < 32; ++i) {
+            word[i] = _wire.payload[_index * 32 + i];
+        }
+
+        return abi.decode(
+            word,
+            (uint256)
+        );
     }
 
     function _deliverHeldWire(
