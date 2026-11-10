@@ -31,10 +31,12 @@ import {CohortWeeks} from "../../src/diamond/shared/CohortWeeks.sol";
  *    sources had already priced: every listed source is re-settled at
  *    the raised rates, the fan-out the lazy top-up moved out of the
  *    apply path, so its cost scales with the referrer's listed
- *    sources and never with an envelope.
+ *    sources and never with an envelope; every top-up also moves the
+ *    accrued and payable totals.
  * 3. `deliverCrumbs` for one closed week with one Y1 word, own book,
  *    first touch: the listing, the referred bucket, the cursor, the
- *    paid half and the claimable bucket all take first writes.
+ *    paid half, the claimable bucket and the accrued and payable
+ *    totals all take first writes.
  * 4. `deliverGap` marginal per-week cost: two instances share a 60-week
  *    self run at 30,000 USD (tier 400) so the gap's 1,000,000 USD
  *    mature average lifts every week to the genesis cap and the mature
@@ -51,9 +53,9 @@ import {CohortWeeks} from "../../src/diamond/shared/CohortWeeks.sol";
  *    this ceiling is semantic. The store never parses, so only the
  *    size is load-bearing.
  * 6. `ccipReceive` of a first designation push for an owner whose
- *    spoke bucket already holds a claimable backlog: the push releases
- *    the backlog into `totalPayable` and takes the first writes of the
- *    payout address and stamp, held under the 300,000 gas floor
+ *    spoke bucket already holds a claimable: the push takes the first
+ *    writes of the payout address and stamp (the claimable joined
+ *    `totalPayable` at its accrual), held under the 300,000 gas floor
  *    `setSyncGasLimit` enforces on every registry.
  * 7. `applyFlush` of a maximum-work envelope, cold: sixteen entries,
  *    each a five-week self run at the 1,000,000 USD self tier plus five
@@ -135,9 +137,9 @@ contract ReferralHubGasTest is Test, HubDiamondHarness {
 
     uint256 internal constant SELF_FIRST_TOUCH_GAS_CEILING = 198_000;
 
-    uint256 internal constant SETTLE_WEEK_GAS_CEILING = 184_000;
+    uint256 internal constant SETTLE_WEEK_GAS_CEILING = 190_000;
 
-    uint256 internal constant CRUMB_GAS_CEILING = 276_000;
+    uint256 internal constant CRUMB_GAS_CEILING = 300_000;
 
     uint256 internal constant GAP_PER_WEEK_GAS_CEILING = 86_000;
 
@@ -1024,7 +1026,7 @@ contract ReferralHubGasTest is Test, HubDiamondHarness {
         );
     }
 
-    // ---- Cell 6: first designation push releasing a claimable backlog ----
+    // ---- Cell 6: first designation push over a bucket that already holds a claimable ----
 
     function test_gas_ccipReceive_designationPushUnderSyncFloor()
         public
